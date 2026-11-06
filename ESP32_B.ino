@@ -48,14 +48,13 @@
 
 #define DEBUG_SERIAL 1                 // 1 = diagnostic serial output, 0 = quiet
 
-// >>> CHANGE: ESP32_A station MAC (printed by ESP32_A at boot).
-// PLACEHOLDER - the link will not work until this is replaced.
-static const uint8_t ESP32_A_MAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01};
+// ESP32_A station MAC address (printed by ESP32_A at boot).
+static const uint8_t ESP32_A_MAC[6] = {0x00, 0x70, 0x07, 0xA1, 0xDC, 0x80};
 
 // Wi-Fi AP + ESP-NOW channel. MUST exactly match ESP32_A.ino. Default 6.
 #define WIFI_CHANNEL 6
 static const char AP_SSID[] = "Smart Water Tank";          // exact SSID required
-static const char AP_WIFI_PASSWORD[] = "WaterTank2026";    // EXAMPLE - change it
+static const char AP_WIFI_PASSWORD[] = "dks12345";
 static const uint8_t AP_MAX_CLIENTS = 4;
 
 // GPIO allocation (ESP32 DevKit V1 style). Verify YOUR board pinout!

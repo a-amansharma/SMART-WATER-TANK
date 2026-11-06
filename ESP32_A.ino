@@ -52,9 +52,8 @@
 
 #define DEBUG_SERIAL 1                 // 1 = diagnostic serial output, 0 = quiet
 
-// >>> CHANGE: AP interface MAC address of ESP32_B (printed by ESP32_B at boot).
-// The example below is a PLACEHOLDER and will not work until you replace it.
-static const uint8_t ESP32_B_MAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+// ESP32_B access-point interface MAC address (use the AP MAC printed at boot).
+static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
 
 // Radio channel. MUST exactly match WIFI_CHANNEL in ESP32_B.ino.
 // 1, 6 or 11 are the usual non-overlapping choices. Default 6.
@@ -66,6 +65,8 @@ static const uint8_t ESP32_B_MAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
 
 // Optional motor push buttons, wired from GPIO to GND (internal pull-up).
 // >>> CHANGE: assign real GPIOs after confirming they are safe on YOUR board.
+// Use output-capable GPIOs with internal pull-ups; avoid GPIO 34-39
+// (input-only, no internal pull-up).
 // -1 = feature disabled; the firmware compiles and the water sensor still works.
 #define PIN_BTN_START -1
 #define PIN_BTN_STOP  -1

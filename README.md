@@ -141,10 +141,11 @@ The button GPIO numbers are **not supplied yet**. The firmware uses:
 
 When the GPIO numbers are confirmed:
 
-1. Replace both `-1` values with safe GPIO numbers.
-2. Wire each button from its GPIO to GND.
-3. Buttons use `INPUT_PULLUP`, so released = HIGH and pressed = LOW.
-4. Recompile and upload ESP32_A.
+1. Replace both `-1` values with safe output-capable GPIOs.
+2. Do not use GPIO 34-39: they are input-only and have no internal pull-up.
+3. Wire each button from its GPIO to GND.
+4. Buttons use `INPUT_PULLUP`, so released = HIGH and pressed = LOW.
+5. Recompile and upload ESP32_A.
 
 A button can connect directly from GPIO to GND. The motor is switched by the existing two transistor/RF circuits on ESP32_B.
 
@@ -228,6 +229,13 @@ The firmware assumes the relay module is **active LOW**:
 If your relay turns ON when its input is HIGH, change it to `true`.
 
 At boot both relays are forced OFF before they become outputs.
+
+GPIO pins can float briefly during reset. Fit external resistors so the relay inputs stay inactive:
+
+- Active-LOW module: 10 kOhm from each IN pin to **3.3 V**.
+- Active-HIGH module: 10 kOhm from each IN pin to **GND**.
+
+Do not rely on the ESP32 alone for safe relay state at power-up.
 
 ### OLED
 
@@ -485,7 +493,7 @@ ESP32_B creates this access point:
 
 ```text
 SSID:     Smart Water Tank
-Password: WaterTank2026
+Password: dks12345
 Address:  http://192.168.4.1/
 Channel:  6
 ```
@@ -493,7 +501,7 @@ Channel:  6
 Change these in `ESP32_B.ino` before deployment:
 
 ```cpp
-static const char AP_WIFI_PASSWORD[] = "WaterTank2026";
+static const char AP_WIFI_PASSWORD[] = "dks12345";
 #define WIFI_CHANNEL 6
 ```
 
@@ -505,20 +513,27 @@ The ESP-NOW channel on both boards must be the same.
 
 ## 9. MAC addresses
 
-ESP-NOW needs the other board's MAC address.
+ESP-NOW needs the other board's MAC address. Only these two values are used:
+
+| Value needed | Comes from | Goes into |
+|---|---|---|
+| ESP32_A **STA MAC** | ESP32_A Serial Monitor | `ESP32_A_MAC` in `ESP32_B.ino` |
+| ESP32_B **AP MAC** | ESP32_B Serial Monitor | `ESP32_B_MAC` in `ESP32_A.ino` |
+
+ESP32_A does not create an access point, so an A AP MAC is not used. ESP32_B uses its AP interface for ESP-NOW, so a B STA MAC is not used.
 
 ### Find ESP32_A station MAC
 
 Upload ESP32_A and open Serial Monitor at 115200 baud. It prints:
 
 ```text
-ESP32_A STA MAC: XX:XX:XX:XX:XX:XX
+ESP32_A STA MAC: 00:70:07:A1:DC:80
 ```
 
 Put that value in `ESP32_B.ino`:
 
 ```cpp
-static const uint8_t ESP32_A_MAC[6] = {0xXX, 0xXX, 0xXX, 0xXX, 0xXX, 0xXX};
+static const uint8_t ESP32_A_MAC[6] = {0x00, 0x70, 0x07, 0xA1, 0xDC, 0x80};
 ```
 
 ### Find ESP32_B access-point MAC
@@ -526,16 +541,16 @@ static const uint8_t ESP32_A_MAC[6] = {0xXX, 0xXX, 0xXX, 0xXX, 0xXX, 0xXX};
 Upload ESP32_B and open Serial Monitor. It prints:
 
 ```text
-ESP32_B AP MAC  (use in ESP32_A): XX:XX:XX:XX:XX:XX
+ESP32_B AP MAC  (use in ESP32_A): 30:76:F5:E4:FD:D5
 ```
 
 Put that value in `ESP32_A.ino`:
 
 ```cpp
-static const uint8_t ESP32_B_MAC[6] = {0xXX, 0xXX, 0xXX, 0xXX, 0xXX, 0xXX};
+static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
 ```
 
-The current `AA:BB:CC:DD:EE:...` values are placeholders and will not work.
+These are the addresses already configured in this project. Verify them against the Serial Monitor after flashing.
 
 ---
 
@@ -647,7 +662,7 @@ The dashboard polls state every 500 ms. Command requests time out after 3 second
 ### ESP32_A
 
 ```cpp
-static const uint8_t ESP32_B_MAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
 #define WIFI_CHANNEL 6
 #define PIN_TRIG 5
 #define PIN_ECHO 18
@@ -660,7 +675,7 @@ static const float EMPTY_DISTANCE_CM = 120.0f;
 ### ESP32_B
 
 ```cpp
-static const uint8_t ESP32_A_MAC[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01};
+static const uint8_t ESP32_A_MAC[6] = {0x00, 0x70, 0x07, 0xA1, 0xDC, 0x80};
 #define WIFI_CHANNEL 6
 #define PIN_I2C_SDA 21
 #define PIN_I2C_SCL 22
@@ -685,7 +700,7 @@ Checked with Arduino-ESP32 core 3.3.11:
 
 | Sketch | Flash | RAM |
 |---|---:|---:|
-| ESP32_A | 892,636 bytes (68 %) | 46,144 bytes (14 %) |
+| ESP32_A | 892,640 bytes (68 %) | 46,144 bytes (14 %) |
 | ESP32_B | 1,006,380 bytes (76 %) | 49,320 bytes (15 %) |
 
 Both sketches compile with `--warnings all` without warnings.
