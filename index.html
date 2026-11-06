@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Smart Water Tank</title>
+<style>
+:root{--ink:#14233b;--muted:#68778d;--line:#e4e9f0;--green:#159b63;--red:#df3c4f;--blue:#168bc9}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;background:#fff;color:var(--ink);touch-action:manipulation}
+button{font:inherit}
+.app{width:min(100%,680px);height:100dvh;margin:auto;padding:clamp(8px,1.8vh,15px) 14px max(20px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:clamp(7px,1.4vh,12px)}
+header{min-height:clamp(48px,8vh,64px);flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.brand{display:flex;align-items:center;gap:11px;min-width:0}
+.logo{width:clamp(40px,6vh,50px);height:clamp(40px,6vh,50px);flex:none;border-radius:14px;background:#f0f7f2;border:1px solid #d7e9dc;display:grid;place-items:center}
+.logo svg{width:75%;height:75%}
+.brand-title{font-size:clamp(19px,3.5vw,26px);font-weight:900;letter-spacing:-.65px;white-space:nowrap}
+.credit{font-size:clamp(9px,1.6vh,11px);color:var(--muted);margin-top:2px;font-weight:650}
+.connection{display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:22px;background:#edfaf3;border:1px solid #bde6cf;color:#087c4a;font-size:11px;font-weight:900;letter-spacing:.6px;flex:none}
+.connection.offline{background:#fff0f1;border-color:#f0c2c8;color:#c52c40}
+.dot{width:8px;height:8px;border-radius:50%;background:#16a66a;box-shadow:0 0 0 3px #16a66a20}
+.offline .dot{background:#df3c4f;box-shadow:0 0 0 3px #df3c4f20}
+.card{background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:0 5px 18px #142b470c}
+.tank{padding:clamp(9px,1.6vh,14px) 16px;flex:none}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.eyebrow{font-size:11px;font-weight:900;letter-spacing:1.1px;color:#748197;text-transform:uppercase}
+.live{font-size:10px;color:var(--green);font-weight:900;letter-spacing:.6px}.tank.stale .live{opacity:.35}
+.water-row{display:flex;align-items:flex-end;justify-content:space-between;gap:8px}
+.percent{font-size:clamp(45px,8vh,68px);font-weight:900;letter-spacing:-3.5px;line-height:.88;color:#102039;font-variant-numeric:tabular-nums}
+.percent small{font-size:.38em;color:#68778d;letter-spacing:0;margin-left:2px}
+.volume{text-align:right;padding-bottom:2px}
+.volume strong{font-size:clamp(32px,5.6vh,48px);font-weight:900;display:block;letter-spacing:-2.5px;line-height:.88;font-variant-numeric:tabular-nums;color:#102039}
+.volume span{font-size:clamp(12px,1.9vh,15px);color:var(--muted);font-weight:900;letter-spacing:.7px}
+.bar-wrap{height:10px;border-radius:12px;background:#edf1f5;border:1px solid #e3e9f0;overflow:hidden;margin:10px 0 5px}
+.bar{height:100%;width:0%;border-radius:12px;background:linear-gradient(90deg,#168bc9,#58c7ed);transition:width .35s}
+.scale{display:flex;justify-content:space-between;color:#8290a2;font-size:9px;font-weight:750}
+.tank-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}
+.water-status{font-size:10px;font-weight:950;letter-spacing:.7px;border-radius:20px;padding:6px 11px;background:#eef2f6;color:#65748a}
+.water-status.filling{background:#e9f8f0;color:#087d4d}
+.water-status.draining{background:#fff0f1;color:#c92e42}
+.water-status.stale{background:#eef2f6;color:#7a8799}
+.distance{font-size:10px;color:#718096;font-weight:700}
+.tank.stale .percent,.tank.stale .volume strong,.tank.stale .bar{opacity:.42}
+.controls{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:10px}
+.motor-card{padding:10px;display:flex;flex-direction:column;align-items:center;min-height:0}
+.motor-title{text-align:center;margin-bottom:4px}
+.motor-title .control-state{margin-top:3px;font-size:clamp(8px,1.3vh,10px);letter-spacing:.4px}
+.motor-buttons{display:flex;flex:1;min-height:0;width:100%;flex-direction:column;align-items:center;justify-content:center;gap:clamp(7px,1.2vh,12px)}
+.motor-unit{display:flex;flex-direction:column;align-items:center;gap:4px;min-height:0}
+.motor-btn{width:clamp(92px,17vh,150px);height:clamp(92px,17vh,150px);max-width:100%;aspect-ratio:1;border:0;border-radius:50%;display:grid;place-items:center;cursor:pointer;touch-action:none;box-shadow:inset 0 3px 3px #ffffffb5,inset 0 -7px 10px #0002,0 7px 0 #0002,0 12px 18px #14233920;transition:transform .09s,box-shadow .09s,filter .09s}
+.motor-btn svg{width:43%;height:43%;filter:drop-shadow(0 1px 1px #0002)}
+.motor-btn.start{background:linear-gradient(145deg,#3cdda0,#07945a);color:white}
+.motor-btn.stop{background:linear-gradient(145deg,#ff7b87,#d92e47);color:white}
+.motor-btn:active,.motor-btn.held{transform:translateY(5px);box-shadow:inset 0 3px 8px #0002,0 1px 0 #0001,0 3px 7px #1423391c;filter:brightness(1.05)}
+.motor-caption{font-size:clamp(13px,2.2vh,17px);font-weight:950;letter-spacing:1.25px;color:#26364d}
+.side-card{padding:9px;display:flex;flex-direction:column;justify-content:center;gap:clamp(6px,1.2vh,11px);min-height:0}
+.control-tile{flex:1;min-height:0;border:1px solid #e7ebf1;background:#fbfcfe;border-radius:14px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(5px,1vh,9px);text-align:center;box-shadow:0 2px 7px #142b4708}
+.control-tile.light-on{background:#fff8df;border-color:#f0d98a;box-shadow:0 0 10px #f4d36a88,0 0 22px #f4d36a55,inset 0 0 12px #fff0b8}.control-tile.bulb-on{background:#eaf6ff;border-color:#9ed4f4;box-shadow:0 0 10px #75c6f588,0 0 22px #75c6f555,inset 0 0 12px #d7efff}
+.control-name{font-size:clamp(12px,2vh,16px);font-weight:900;line-height:1.1}
+.control-state{font-size:clamp(9px,1.4vh,11px);color:#8491a2;font-weight:800;line-height:1.1}
+.timer{font-size:clamp(8px,1.25vh,10px);color:#60748b;font-weight:800;min-height:10px}
+.toggle{width:clamp(68px,11vh,88px);height:clamp(39px,6.3vh,49px);flex:none;border:1px solid #cbd4df;background:#e9edf2;border-radius:30px;padding:4px;cursor:pointer;transition:.18s;box-shadow:inset 0 2px 4px #0000000b}
+.toggle:after{content:"";display:block;width:clamp(29px,4.8vh,39px);height:clamp(29px,4.8vh,39px);border-radius:50%;background:#fff;box-shadow:0 2px 5px #0003;transition:.18s}
+.toggle.on{background:#159b63;border-color:#159b63}
+.toggle.on:after{transform:translateX(clamp(26px,4.2vh,37px))}
+.buzzer-btn{width:min(100%,190px);border:1px solid #c9233c;background:linear-gradient(145deg,#ff6878,#d91f3d);color:#fff;border-radius:13px;padding:clamp(12px,2vh,17px) 10px;font-size:clamp(11px,1.9vh,14px);font-weight:950;letter-spacing:.35px;white-space:nowrap;box-shadow:0 5px 0 #a91c32,0 8px 13px #d91f3d25;cursor:pointer}
+.buzzer-btn:active{transform:translateY(4px);box-shadow:0 1px 0 #a91c32}
+footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:1.2;color:#53647b;font-weight:900;letter-spacing:.45px;white-space:nowrap;padding-bottom:2px;margin-bottom:clamp(8px,2vh,20px)}
+@media(max-height:620px){.app{gap:5px;padding-top:5px}.tank{padding:7px 12px}.bar-wrap{margin:6px 0 4px}.tank-bottom{margin-top:5px}.motor-btn{width:clamp(70px,15vh,100px);height:clamp(70px,15vh,100px)}.motor-buttons{gap:4px}.motor-caption{font-size:11px}.side-card{gap:5px;padding:6px}.control-tile{padding:5px}.toggle{width:58px;height:34px}.toggle:after{width:26px;height:26px}.toggle.on:after{transform:translateX(22px)}.buzzer-btn{padding:8px 6px}}
+@media(orientation:landscape) and (max-height:520px){.app{width:min(100%,960px);padding:4px 12px 5px;gap:4px}header{min-height:34px}.logo{width:32px;height:32px}.brand-title{font-size:17px}.credit{font-size:8px}.tank{padding:5px 12px}.percent{font-size:40px}.volume strong{font-size:40px;letter-spacing:-2px}.volume span{font-size:10px}.controls{grid-template-columns:.95fr 1.05fr}.motor-card{padding:4px}.motor-buttons{flex-direction:row;justify-content:space-evenly;gap:5px}.motor-btn{width:min(21vh,105px);height:min(21vh,105px)}.motor-caption{font-size:10px}.side-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:5px}.control-tile{padding:4px;gap:4px}.control-name{font-size:11px}.toggle{width:48px;height:28px}.toggle:after{width:20px;height:20px}.toggle.on:after{transform:translateX(18px)}.buzzer-btn{font-size:8px;padding:7px 3px}footer{margin-bottom:5px}}
+@media(max-width:430px){.app{padding-left:8px;padding-right:8px;gap:7px}.brand{gap:7px}.brand-title{font-size:clamp(16px,5vw,21px)}.connection{padding:6px 8px;font-size:10px}.tank{padding:9px 11px}.percent{font-size:clamp(39px,10vw,55px)}.volume strong{font-size:clamp(30px,7.2vw,40px);letter-spacing:-1.5px}.volume span{font-size:clamp(10px,2.8vw,12px)}.controls{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:7px}.motor-card{padding:7px 5px}.side-card{padding:6px;gap:6px}.control-tile{padding:6px 3px;gap:5px}.control-name{font-size:clamp(10px,3vw,13px)}.control-state{font-size:9px}.timer{font-size:8px}.motor-btn{width:clamp(72px,20vw,112px);height:clamp(72px,20vw,112px)}.motor-caption{font-size:clamp(11px,3vw,14px)}.toggle{width:clamp(52px,15vw,68px);height:34px}.toggle:after{width:26px;height:26px}.toggle.on:after{transform:translateX(clamp(17px,6vw,29px))}.buzzer-btn{font-size:clamp(9px,2.6vw,11px);padding:10px 3px}footer{font-size:clamp(7px,2vw,9px);letter-spacing:.2px;margin-bottom:8px}}
+</style>
+</head>
+<body>
+<main class="app">
+<header>
+ <div class="brand">
+  <div class="logo" aria-hidden="true">
+   <svg viewBox="0 0 40 40" fill="none" stroke="#16804f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 18 20 5l16 13M8 16v18h24V16M16 34V23h8v11"/>
+    <path d="M12 21h3M25 21h3"/>
+   </svg>
+  </div>
+  <div><div class="brand-title">Smart Water Tank</div><div class="credit">Designed by Aman Sharma</div></div>
+ </div>
+ <div class="connection offline" id="connection"><i class="dot"></i><span id="connectionText">OFFLINE</span></div>
+</header>
+<section class="card tank" id="tankCard">
+ <div class="card-head"><span class="eyebrow">Tank overview</span><span class="live">● LIVE DATA</span></div>
+ <div class="water-row"><div class="percent" id="percent">--<small>%</small></div><div class="volume"><strong id="litres">-- L</strong><span>OF 750.0 L</span></div></div>
+ <div class="bar-wrap"><div class="bar" id="bar"></div></div>
+ <div class="scale"><span>0 L · EMPTY</span><span>750 L · FULL</span></div>
+ <div class="tank-bottom"><span class="water-status" id="waterStatus">WAITING</span><span class="distance" id="distance">Sensor distance: —</span></div>
+</section>
+<section class="controls">
+ <section class="card motor-card">
+  <div class="motor-title"><span class="eyebrow">Motor control · RF remote</span><div class="control-state" id="motorStatus">REMOTE STATE UNKNOWN</div></div>
+  <div class="motor-buttons">
+   <div class="motor-unit">
+    <button class="motor-btn start" id="motorStart" aria-label="Start motor — press and hold" aria-pressed="false"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><path d="M24 5v20"/><path d="M12.5 12.5a18 18 0 1 0 23 0"/></svg></button>
+    <div class="motor-caption">START</div>
+   </div>
+   <div class="motor-unit">
+    <button class="motor-btn stop" id="motorStop" aria-label="Stop motor — press and hold" aria-pressed="false"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><path d="M24 5v20"/><path d="M12.5 12.5a18 18 0 1 0 23 0"/></svg></button>
+    <div class="motor-caption">STOP</div>
+   </div>
+  </div>
+ </section>
+ <section class="card side-card">
+  <div class="control-tile" id="mirrorTile">
+   <div class="control-name">Mirror Light</div>
+   <button class="toggle" id="relay1" aria-label="Toggle Mirror Light" aria-pressed="false"></button>
+   <div class="control-state" id="r1state">STATE UNKNOWN</div>
+   <div class="timer" id="mirrorInfo">No connection</div>
+  </div>
+  <div class="control-tile" id="bulbTile">
+   <div class="control-name">Bulb</div>
+   <button class="toggle" id="relay2" aria-label="Toggle bulb" aria-pressed="false"></button>
+   <div class="control-state" id="r2state">STATE UNKNOWN</div>
+  </div>
+  <div class="control-tile">
+   <div class="control-name">Buzzer</div>
+   <button class="buzzer-btn" id="buzzerStop">STOP BUZZER</button>
+   <div class="control-state" id="buzzerState">STATE UNKNOWN</div>
+  </div>
+ </section>
+</section>
+<footer>SMART WATER TANK · LOCAL ESP32 DASHBOARD · DESIGNED BY AMAN SHARMA</footer>
+</main>
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const tankCard=$('tankCard'), connection=$('connection'), connectionText=$('connectionText');
+const percentEl=$('percent'), litresEl=$('litres'), barEl=$('bar'), distanceEl=$('distance');
+const waterStatusEl=$('waterStatus'), motorStatusEl=$('motorStatus');
+const relay1Btn=$('relay1'), relay2Btn=$('relay2'), mirrorTile=$('mirrorTile'), bulbTile=$('bulbTile');
+const r1state=$('r1state'), r2state=$('r2state'), mirrorInfo=$('mirrorInfo'), buzzerStateEl=$('buzzerState');
+const startBtn=$('motorStart'), stopBtn=$('motorStop');
+
+const POLL_MS=500, POLL_TIMEOUT_MS=2500;
+let current=null, reachable=false, failures=0, inFlight=false, pollTimer=null;
+let mirrorBusy=false, bulbBusy=false, buzzerBusy=false;
+
+const motor={
+ start:{btn:startBtn, held:false, pointerId:null},
+ stop:{btn:stopBtn, held:false, pointerId:null}
+};
+
+function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
+function num(v){return (typeof v==='number'&&isFinite(v))?v:null;}
+function setOnline(online){
+ connection.classList.toggle('offline',!online);
+ connectionText.textContent=online?'ONLINE':'OFFLINE';
+}
+function setWaterStatus(status){
+ waterStatusEl.textContent=status;
+ waterStatusEl.className='water-status '+status.toLowerCase().replace(/[^a-z]/g,'');
+}
+function flashError(el,msg){
+ if(!el) return;
+ el.textContent=msg||'COMMAND FAILED';
+ clearTimeout(el._errTimer);
+ el._errTimer=setTimeout(()=>{ if(reachable&&current) render(current); },1400);
+}
+function renderUnreachable(){
+ if(current) render(current);
+ else {
+  tankCard.classList.remove('stale');
+  percentEl.innerHTML='--<small>%</small>';
+  litresEl.textContent='-- L';
+  barEl.style.width='0%';
+  distanceEl.textContent='Device unreachable · reconnecting…';
+  setWaterStatus('NO DATA');
+  r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='No connection';
+  r2state.textContent='STATE UNKNOWN';
+  buzzerStateEl.textContent='STATE UNKNOWN';
+  motorStatusEl.textContent='REMOTE STATE UNKNOWN';
+ }
+}
+function render(s){
+ if(!s||typeof s!=='object') return;
+ current=s;
+ const online=(reachable&&s.online===true);
+ setOnline(online);
+ const pct=num(s.percent);
+ const hasPct=(pct!==null);
+ const shownPct=hasPct?clamp(pct,0,100):null;
+ const stale=!online;
+
+ tankCard.classList.toggle('stale',stale);
+ if(hasPct){
+  percentEl.innerHTML=Math.round(shownPct)+'<small>%</small>';
+  const litres=num(s.litres);
+  litresEl.textContent=(litres!==null?litres:shownPct*7.5).toFixed(1)+' L';
+  barEl.style.width=shownPct.toFixed(1)+'%';
+ }else{
+  percentEl.innerHTML='--<small>%</small>';
+  litresEl.textContent='-- L';
+  barEl.style.width='0%';
+ }
+ const dist=num(s.distance);
+ if(!reachable){
+  distanceEl.textContent='Device unreachable · reconnecting…';
+ }else if(dist!==null){
+  distanceEl.textContent=(stale?'Last distance: ':'Sensor distance: ')+dist.toFixed(1)+' cm'+(stale?' · STALE':'');
+ }else{
+  distanceEl.textContent='Sensor distance: —';
+ }
+ if(!reachable||!online){
+  setWaterStatus(hasPct?'STALE':'NO DATA');
+ }else{
+  const trend=String(s.trend||'STABLE').toUpperCase();
+  setWaterStatus(trend==='FILLING'?'FILLING':trend==='DRAINING'?'DRAINING':'STABLE');
+ }
+
+ const mirrorOn=(reachable&&s.relay1===true);
+ relay1Btn.classList.toggle('on',mirrorOn);
+ relay1Btn.setAttribute('aria-pressed',mirrorOn?'true':'false');
+ mirrorTile.classList.toggle('light-on',mirrorOn);
+ if(!reachable){
+  r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='No connection';
+ }else{
+  const person=(s.personDetected===true);
+  const manual=(s.mirrorManual===true);
+  const hc=num(s.hcsr04Distance);
+  r1state.textContent=mirrorOn?'ON':'OFF';
+  let info=manual?'MANUAL':(person?'AUTO · PERSON':'AUTO · CLEAR');
+  if(hc!==null) info=(manual?'MANUAL · ':person?'PERSON · ':'CLEAR · ')+(hc/100).toFixed(1)+' m';
+  mirrorInfo.textContent=info;
+ }
+
+ const bulbOn=(reachable&&s.relay2===true);
+ relay2Btn.classList.toggle('on',bulbOn);
+ relay2Btn.setAttribute('aria-pressed',bulbOn?'true':'false');
+ bulbTile.classList.toggle('bulb-on',bulbOn);
+ r2state.textContent=reachable?(bulbOn?'ON':'OFF'):'STATE UNKNOWN';
+
+ if(!reachable){
+  buzzerStateEl.textContent='STATE UNKNOWN';
+ }else{
+  const b=String(s.buzzerState||'READY').toUpperCase();
+  buzzerStateEl.textContent=(s.buzzerActive===true)?'ALERTING':b;
+ }
+
+ const startPressed=(reachable&&s.motorStart===true), stopPressed=(reachable&&s.motorStop===true);
+ startBtn.setAttribute('aria-pressed',startPressed?'true':'false');
+ stopBtn.setAttribute('aria-pressed',stopPressed?'true':'false');
+ if(!reachable){
+  motorStatusEl.textContent='REMOTE STATE UNKNOWN';
+ }else if(startPressed){
+  const rs=Math.ceil((num(s.motorStartRemainingMs)||0)/1000);
+  motorStatusEl.textContent='REMOTE START PRESSED'+(rs>0?' · '+rs+'s':'');
+ }else if(stopPressed){
+  const rs=Math.ceil((num(s.motorStopRemainingMs)||0)/1000);
+  motorStatusEl.textContent='REMOTE STOP PRESSED'+(rs>0?' · '+rs+'s':'');
+ }else{
+  motorStatusEl.textContent='REMOTE IDLE';
+ }
+}
+
+async function sendCommand(path,body,errorEl){
+ const ctrl=new AbortController();
+ const to=setTimeout(()=>ctrl.abort(),3000);
+ try{
+  const r=await fetch(path,{
+   method:'POST',cache:'no-store',
+   headers:{'Content-Type':'application/json'},
+   body:JSON.stringify(body||{}),
+   signal:ctrl.signal
+  });
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const s=await r.json();
+  if(s&&s.error) throw new Error(s.error);
+  reachable=true; failures=0;
+  render(s);
+  return true;
+ }catch(e){
+  flashError(errorEl);
+  return false;
+ }finally{
+  clearTimeout(to);
+ }
+}
+
+function schedulePoll(){
+ clearTimeout(pollTimer);
+ if(document.hidden) return;
+ const delay=reachable?POLL_MS:Math.min(1000+failures*500,5000);
+ pollTimer=setTimeout(pollState,delay);
+}
+async function pollState(){
+ if(inFlight) return;
+ inFlight=true;
+ const ctrl=new AbortController();
+ const to=setTimeout(()=>ctrl.abort(),POLL_TIMEOUT_MS);
+ try{
+  const r=await fetch('/api/state',{cache:'no-store',signal:ctrl.signal});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const s=await r.json();
+  reachable=true; failures=0;
+  render(s);
+ }catch(e){
+  failures++;
+  reachable=false;
+  setOnline(false);
+  renderUnreachable();
+ }finally{
+  clearTimeout(to);
+  inFlight=false;
+  schedulePoll();
+ }
+}
+
+function pressMotor(name){
+ const m=motor[name];
+ if(!m||m.held) return;
+ m.held=true;
+ m.btn.classList.add('held');
+ sendCommand('/api/motor',{button:name,pressed:true},motorStatusEl);
+}
+function releaseMotor(name){
+ const m=motor[name];
+ if(!m||!m.held) return;
+ m.held=false;
+ m.pointerId=null;
+ m.btn.classList.remove('held');
+ sendCommand('/api/motor',{button:name,pressed:false},motorStatusEl);
+}
+function beaconRelease(name){
+ const m=motor[name];
+ if(!m||!m.held) return;
+ m.held=false;
+ m.pointerId=null;
+ m.btn.classList.remove('held');
+ const body=JSON.stringify({button:name,pressed:false});
+ try{
+  if(navigator.sendBeacon&&typeof Blob!=='undefined'){
+   navigator.sendBeacon('/api/motor',new Blob([body],{type:'application/json'}));
+  }else{
+   fetch('/api/motor',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});
+  }
+ }catch(e){}
+}
+function releaseAllMotors(beacon){
+ if(beacon){beaconRelease('start');beaconRelease('stop');}
+ else{releaseMotor('start');releaseMotor('stop');}
+}
+function bindMomentary(name){
+ const m=motor[name];
+ m.btn.addEventListener('pointerdown',e=>{
+  if(e.pointerType==='mouse'&&e.button!==0) return;
+  e.preventDefault();
+  if(m.held) return;
+  m.pointerId=e.pointerId;
+  try{ if(m.btn.setPointerCapture) m.btn.setPointerCapture(e.pointerId); }catch(err){}
+  pressMotor(name);
+ });
+ const end=e=>{
+  if(e&&m.pointerId!==null&&e.pointerId!==m.pointerId) return;
+  try{
+   if(e&&m.btn.hasPointerCapture&&m.btn.hasPointerCapture(e.pointerId)){
+    m.btn.releasePointerCapture(e.pointerId);
+   }
+  }catch(err){}
+  releaseMotor(name);
+ };
+ ['pointerup','pointercancel','lostpointercapture','pointerleave'].forEach(ev=>m.btn.addEventListener(ev,end));
+ m.btn.addEventListener('keydown',e=>{
+  if((e.key===' '||e.key==='Enter')&&!e.repeat){e.preventDefault();pressMotor(name);}
+ });
+ m.btn.addEventListener('keyup',e=>{
+  if(e.key===' '||e.key==='Enter'){e.preventDefault();releaseMotor(name);}
+ });
+ m.btn.addEventListener('blur',()=>releaseMotor(name));
+ m.btn.addEventListener('contextmenu',e=>e.preventDefault());
+}
+bindMomentary('start');
+bindMomentary('stop');
+
+window.addEventListener('blur',()=>releaseAllMotors(true));
+document.addEventListener('visibilitychange',()=>{
+ if(document.hidden){
+  releaseAllMotors(true);
+  clearTimeout(pollTimer);
+ }else{
+  clearTimeout(pollTimer);
+  if(!inFlight) pollState(); else schedulePoll();
+ }
+});
+window.addEventListener('pagehide',()=>releaseAllMotors(true));
+
+relay1Btn.addEventListener('click',async()=>{
+ if(mirrorBusy) return;
+ mirrorBusy=true;
+ try{
+  const on=!(current&&current.relay1===true);
+  await sendCommand('/api/mirror-light',{on:on},mirrorInfo);
+ }finally{mirrorBusy=false;}
+});
+relay2Btn.addEventListener('click',async()=>{
+ if(bulbBusy) return;
+ bulbBusy=true;
+ try{
+  const on=!(current&&current.relay2===true);
+  await sendCommand('/api/bulb',{on:on},r2state);
+ }finally{bulbBusy=false;}
+});
+$('buzzerStop').addEventListener('click',async()=>{
+ if(buzzerBusy) return;
+ buzzerBusy=true;
+ try{ await sendCommand('/api/buzzer/stop',{},buzzerStateEl); }
+ finally{buzzerBusy=false;}
+});
+
+setOnline(false);
+pollState();
+})();
+</script>
+</body>
+</html>
