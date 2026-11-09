@@ -181,6 +181,8 @@ README and your board pinout:
 
 - Both Echo inputs are 5 V signals and must use the existing resistor dividers.
 - Relay 1 and Relay 2 use the existing active-LOW assumption.
+- The ESP32_A calibration is full **10 cm**, empty **76 cm**, with a **2 cm empty
+  deadband**; an empty tank should read 0 %. Re-measure both points if the sensor moves.
 - The ESP32_B Wi-Fi AP and ESP-NOW channel remain channel **6**.
 - Do not assign ESP32_A's optional START/STOP buttons to GPIO 4 or 15.
 - Keep the two boards' grounds separate except where the existing power arrangement

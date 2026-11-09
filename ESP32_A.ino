@@ -83,7 +83,8 @@ static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
 
 // Calibration: sensor-to-water distance in centimetres.
 static const float FULL_DISTANCE_CM  = 10.0f;   // 10 cm or less = 100 %
-static const float EMPTY_DISTANCE_CM = 120.0f;  // 0 %
+static const float EMPTY_DISTANCE_CM = 76.0f;   // calibrated empty tank = 0 %
+static const float EMPTY_DEADBAND_CM = 2.0f;    // keep a true empty tank at 0 %
 static const float SENSOR_MIN_CM     = 2.0f;    // allow full/overflow readings
 static const float SENSOR_MAX_CM     = 150.0f;
 static const float TANK_CAPACITY_L   = 750.0f;
@@ -330,6 +331,8 @@ float medianOf(float *values, uint8_t count) {
 }
 
 float percentFromDistance(float distanceCm) {
+  if (distanceCm >= EMPTY_DISTANCE_CM - EMPTY_DEADBAND_CM) return 0.0f;
+
   float p = (EMPTY_DISTANCE_CM - distanceCm) /
             (EMPTY_DISTANCE_CM - FULL_DISTANCE_CM) * 100.0f;
   if (p < 0.0f)   p = 0.0f;
@@ -815,8 +818,9 @@ void setup() {
                 PIN_BTN_START, PIN_BTN_STOP);
   Serial.printf("Touch probes: FILLING GPIO %d, DRAINING GPIO %d (active LOW)\n",
                 PIN_TOUCH_FILLING, PIN_TOUCH_DRAINING);
-  Serial.printf("Calibration: full %.1f cm, empty %.1f cm, capacity %.0f L\n",
-                FULL_DISTANCE_CM, EMPTY_DISTANCE_CM, TANK_CAPACITY_L);
+  Serial.printf("Calibration: full %.1f cm, empty %.1f cm, deadband %.1f cm, capacity %.0f L\n",
+                FULL_DISTANCE_CM, EMPTY_DISTANCE_CM, EMPTY_DEADBAND_CM,
+                TANK_CAPACITY_L);
 #if DEBUG_SERIAL
   Serial.println("Diagnostics: ENABLED");
 #else

@@ -58,16 +58,17 @@ Smart Water Tank/
 - Tank capacity: **750 litres**.
 - Water volume is reported as integer litres (`percentage x 7.5`, clamped to 750 L).
 - Full distance: **10 cm or less** from the sensor face to the water = **100 %**.
-- Empty distance: **120 cm** = **0 %**.
+- Empty distance: **76 cm** = **0 %**, calibrated to the installed sensor and empty tank.
+- A **2 cm empty deadband** keeps a true empty tank at 0 % despite small echo jitter.
 - **94 %** is the requested maximum usable filling/overflow point; the 0-100 scale is not
   remapped to make 94 % equal 100 %.
 - Percentage formula:
 
 ```text
-percent = (120 - distanceCm) / (120 - 10) x 100
+percent = (76 - distanceCm) / (76 - 10) x 100
 ```
 
-- Examples: 10 cm or less = 100 %, 65 cm = 50 %, 120 cm = 0 %.
+- Examples: 10 cm or less = 100 %, 43 cm = 50 %, 76 cm or more = 0 %.
 
 ---
 
@@ -183,12 +184,14 @@ In `ESP32_A.ino`:
 
 ```cpp
 static const float FULL_DISTANCE_CM  = 10.0f;
-static const float EMPTY_DISTANCE_CM = 120.0f;
+static const float EMPTY_DISTANCE_CM = 76.0f;
+static const float EMPTY_DEADBAND_CM = 2.0f;
 static const float SENSOR_MIN_CM     = 2.0f;
 ```
 
 Measure from the sensor face to the water surface. Distances of 10 cm or less are clamped
-to 100 %. Change these values if your tank is different.
+to 100 %; distances within 2 cm of the 76 cm empty calibration are clamped to 0 %. If the
+sensor is moved or the tank changes, remeasure both the full and empty distances.
 
 ---
 
@@ -340,7 +343,7 @@ Remote button pad B ---- PC817 pin 3, emitter
 1. ESP32_A triggers the sensor 5 times.
 2. Invalid echoes are discarded.
 3. The median of the valid echoes is used.
-4. Readings outside 2 to 150 cm are rejected; 10 cm or less reports 100 %.
+4. Readings outside 2 to 150 cm are rejected; 10 cm or less reports 100 %, and 74 cm or more reports 0 %.
 5. A sudden jump over 30 cm must repeat 3 times before it is accepted.
 6. A bit-identical reading for 10 minutes is treated as a stuck sensor.
 7. The accepted distance is converted to percentage and sent to ESP32_B.
@@ -413,7 +416,7 @@ ESP32_A prints the received B status to the serial monitor.
 | `crc16()` | Calculates CRC16-CCITT for packet checking. |
 | `echoISR()` | Records the Echo pulse rise and fall times. |
 | `medianOf()` | Sorts samples and returns the median. |
-| `percentFromDistance()` | Converts centimetres to percentage with the 15/120 cm calibration. |
+| `percentFromDistance()` | Converts centimetres to percentage with the 10/76 cm calibration and 2 cm empty deadband. |
 | `startSample()` | Sends one 10 microsecond trigger pulse. |
 | `finalizeBurst()` | Validates samples, filters jumps/stuck readings, builds a WaterPacket, and sends it. |
 | `serviceMeasurement()` | Runs the non-blocking sample state machine every second. |
@@ -686,7 +689,8 @@ static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
 #define PIN_BTN_START -1
 #define PIN_BTN_STOP  -1
 static const float FULL_DISTANCE_CM  = 10.0f;
-static const float EMPTY_DISTANCE_CM = 120.0f;
+static const float EMPTY_DISTANCE_CM = 76.0f;
+static const float EMPTY_DEADBAND_CM = 2.0f;
 static const float SENSOR_MIN_CM     = 2.0f;
 ```
 
@@ -718,8 +722,8 @@ Checked with Arduino-ESP32 core 3.3.11:
 
 | Sketch | Flash | RAM |
 |---|---:|---:|
-| ESP32_A | 894,224 bytes (68 %) | 46,216 bytes (14 %) |
-| ESP32_B | 1,012,340 bytes (77 %) | 49,320 bytes (15 %) |
+| ESP32_A | 894,252 bytes (68 %) | 46,216 bytes (14 %) |
+| ESP32_B | 1,013,076 bytes (77 %) | 49,320 bytes (15 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
