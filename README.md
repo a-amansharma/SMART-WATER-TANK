@@ -7,7 +7,7 @@ A two-board ESP32 water-tank monitor and controller.
 - The two boards talk wirelessly with **ESP-NOW**. No router or internet is needed.
 - The phone dashboard is served by ESP32_B at **http://192.168.4.1/**.
 
-This folder must contain exactly these four files:
+This folder contains these files:
 
 ```text
 Smart Water Tank/
@@ -15,7 +15,13 @@ Smart Water Tank/
   ESP32_B.ino
   index.html
   README.md
+  ADDITIONAL_FEATURES_AND_WIRING.md
 ```
+
+> The probe, long-press button, buzzer-threshold, and OLED additions are documented in
+> [`ADDITIONAL_FEATURES_AND_WIRING.md`](ADDITIONAL_FEATURES_AND_WIRING.md). Where this
+> file and that document differ, the additional document and the current firmware are
+> authoritative.
 
 ---
 
@@ -27,36 +33,41 @@ Smart Water Tank/
 - Takes 5 samples and uses the median to reject bad echoes.
 - Rejects timeouts, impossible distances, sudden jumps, and a stuck sensor.
 - Converts distance to water percentage and litres.
-- Sends water data to ESP32_B once per second.
+- Sends water data to ESP32_B once per second and immediately on touch-state change.
+- Reads FILLING and DRAINING probes on GPIO 4 and GPIO 15.
 - Receives status back from ESP32_B.
 - Supports two optional START/STOP push buttons for the motor.
 - Has no relay, OLED, buzzer, or web server.
 
 ### ESP32_B - indoor controller
 
-- Receives water data and motor commands from ESP32_A.
+- Receives water data, touch states, and motor commands from ESP32_A.
 - Sends sensor and status information back to ESP32_A.
-- Shows water percentage, litres, trend, and connection status on the OLED.
+- Shows water percentage, litres, and connection status on the OLED.
+- Drives the blue/red indicators from the received touch states.
 - Sounds the full-tank buzzer.
 - Switches the Mirror Light from a person sensor and from the phone.
+- Supports a 3-second button manual override for the Mirror Light.
 - Switches the Bulb from the phone.
 - Presses and releases the RF remote START/STOP buttons.
 - Hosts the Wi-Fi access point and dashboard.
-- Has one physical buzzer-stop button.
+- Has one physical buzzer-stop / mirror-override button.
 
 ### Tank model
 
 - Tank capacity: **750 litres**.
-- Water volume = `percentage x 7.5`.
-- Full distance: **15 cm** from the sensor face to the water = **100 %**.
+- Water volume is reported as integer litres (`percentage x 7.5`, clamped to 750 L).
+- Full distance: **10 cm or less** from the sensor face to the water = **100 %**.
 - Empty distance: **120 cm** = **0 %**.
+- **94 %** is the requested maximum usable filling/overflow point; the 0-100 scale is not
+  remapped to make 94 % equal 100 %.
 - Percentage formula:
 
 ```text
-percent = (120 - distanceCm) / (120 - 15) x 100
+percent = (120 - distanceCm) / (120 - 10) x 100
 ```
 
-- Examples: 15 cm = 100 %, 67.5 cm = 50 %, 120 cm = 0 %.
+- Examples: 10 cm or less = 100 %, 65 cm = 50 %, 120 cm = 0 %.
 
 ---
 
@@ -171,11 +182,13 @@ GPIO (INPUT_PULLUP) ---- collector        | emitter ---- GND
 In `ESP32_A.ino`:
 
 ```cpp
-static const float FULL_DISTANCE_CM  = 15.0f;
+static const float FULL_DISTANCE_CM  = 10.0f;
 static const float EMPTY_DISTANCE_CM = 120.0f;
+static const float SENSOR_MIN_CM     = 2.0f;
 ```
 
-Measure from the sensor face to the water surface. Change these two values if your tank is different.
+Measure from the sensor face to the water surface. Distances of 10 cm or less are clamped
+to 100 %. Change these values if your tank is different.
 
 ---
 
@@ -243,13 +256,13 @@ The firmware tries address `0x3C` first and then `0x3D`.
 
 The OLED shows:
 
-- Water trend: FILLING, DRAINING, or STABLE.
-- Water volume in litres.
-- Large water percentage.
-- Bottom status: Connecting, Connected, or Not Connected.
-- Buzzer state when the water link is connected.
+- A very large water percentage.
+- Water volume in integer litres below the percentage.
+- Bottom-left link status: `CONNECTED` or `NOT CONNECTED`.
+- Bottom-right integer litres.
 
-OLED brightness is set to the maximum value, `0xFF`.
+The previous trend/status bar and buzzer text were removed. OLED brightness is set to the
+maximum value, `0xFF`.
 
 ---
 
@@ -327,27 +340,30 @@ Remote button pad B ---- PC817 pin 3, emitter
 1. ESP32_A triggers the sensor 5 times.
 2. Invalid echoes are discarded.
 3. The median of the valid echoes is used.
-4. Readings outside 10 to 150 cm are rejected.
+4. Readings outside 2 to 150 cm are rejected; 10 cm or less reports 100 %.
 5. A sudden jump over 30 cm must repeat 3 times before it is accepted.
 6. A bit-identical reading for 10 minutes is treated as a stuck sensor.
 7. The accepted distance is converted to percentage and sent to ESP32_B.
 
 ### Link status
 
-- ESP32_B considers the water link online if it has a valid packet newer than 5 seconds.
-- If the link is lost, the buzzer is stopped and both trend indicators turn off.
-- The OLED shows Connecting before the first packet, Connected while online, and Not Connected after the link is lost.
+- ESP32_B has a 5-second ESP-NOW link timeout and a separate valid-water timeout.
+- Touch states remain usable while the ESP-NOW link is online even if the water reading is invalid.
+- If the link is lost, the buzzer is stopped and both touch indicators turn off.
+- The OLED shows `CONNECTED` while ESP-NOW packets are arriving and `NOT CONNECTED` after the link is lost.
 
 ### Mirror Light
 
 - The HC-SR04 on ESP32_B looks for a person.
-- Person closer than 100 cm: Mirror Light ON.
-- Person farther than 105 cm: Mirror Light OFF.
-- The gap between 100 and 105 cm prevents flickering.
+- Person closer than 100 cm for about 0.4 seconds: Mirror Light ON.
+- Person farther than 105 cm for about 0.8 seconds: Mirror Light OFF.
+- The gap between 100 and 105 cm and the confirmation times reject brief false triggers.
 - If the person sensor reading is invalid, the light holds briefly and then turns OFF after 2 seconds.
 - The phone can switch the Mirror Light ON or OFF at any time.
+- Holding the GPIO 4 button for 3 seconds toggles manual override ON/OFF.
+- Phone **OFF** immediately exits manual override and keeps the relay off until the
+  detection area is clear.
 - There is **no 30-second timer**.
-- The newest event wins. A phone command stays until the next person/no-person change; then automatic control takes over again.
 
 ### Bulb
 
@@ -356,11 +372,12 @@ Remote button pad B ---- PC817 pin 3, emitter
 
 ### Full-tank buzzer
 
-- At 99.5 % or higher for 2 readings, the buzzer starts.
-- It beeps 3 times per second for up to 30 seconds.
-- The physical button on GPIO 4 stops it.
+- At 97 % or higher for 2 readings, the buzzer starts.
+- It beeps 3 times per second for up to 40 seconds.
+- A short GPIO 4 button press stops it.
+- A 3-second GPIO 4 long press also acknowledges an active buzzer while toggling mirror override.
 - The phone STOP BUZZER button also stops it.
-- It re-arms only after the water level falls below 90 %.
+- It re-arms only after the water level falls below 93 %.
 - The buzzer also stops if the water link is lost.
 
 ### Motor control
@@ -422,33 +439,33 @@ ESP32_A prints the received B status to the serial monitor.
 | `writeIndicatorPin()` | Applies the indicator output polarity. |
 | `setBuzzerOutput()` | Turns the active buzzer on/off, or generates a tone for a passive buzzer. |
 | `initSafeOutputs()` | Forces relays, RF outputs, indicators, and buzzer OFF at boot. |
-| `trendName()` | Returns FILLING, DRAINING, or STABLE. |
+| `computeLinkOnline()` | Checks for any valid ESP-NOW packet newer than 5 seconds. |
 | `computeOnline()` | Checks for a valid water packet newer than 5 seconds. |
-| `updateTrend()` | Smooths the percentage and runs the trend state machine. |
 | `buzzerStateName()` | Returns ALERTING, SILENCED, or READY. |
 | `stopBuzzerForLinkLoss()` | Stops the buzzer if the water link is lost. |
 | `manualStopBuzzer()` | Stops the buzzer from a button or the dashboard. |
-| `startBuzzerAlert()` | Starts a 30-second full-tank alert. |
-| `updateBuzzerFromWater()` | Starts and re-arms the full-tank buzzer. |
+| `startBuzzerAlert()` | Starts a 40-second full-tank alert. |
+| `updateBuzzerFromWater()` | Starts and re-arms the full-tank buzzer at 97 % / 93 %. |
 | `serviceBuzzer()` | Produces the 3-beeps-per-second pattern without blocking. |
-| `applyRelay1()` | Chooses manual or automatic Mirror Light state and writes Relay 1. |
+| `applyRelay1()` | Chooses manual override or automatic Mirror Light state and writes Relay 1. |
 | `applyRelay2()` | Writes Relay 2. |
-| `setMirrorManual()` | Applies a phone ON/OFF command to the Mirror Light. |
+| `toggleMirrorOverride()` | Toggles the 3-second button Mirror Light override. |
+| `setMirrorRequest()` | Applies a phone ON/OFF request and exits override on OFF. |
 | `hcEchoISR()` | Records the HC-SR04 Echo pulse. |
 | `medianOfValidHc()` | Returns the median of valid HC-SR04 samples. |
 | `pushHcSample()` | Adds an HC-SR04 sample to the filter ring. |
 | `startHcSample()` | Sends one HC-SR04 trigger pulse. |
 | `serviceHcSensor()` | Runs the non-blocking person-sensor sampling. |
-| `updateAutoRelay1()` | Turns the Mirror Light ON below 100 cm and OFF above 105 cm; person changes override the phone setting. |
+| `updateAutoRelay1()` | Confirms person ON/OFF, respects manual override, and blocks auto until clear after phone OFF. |
 | `releaseMotorOutput()` | Releases one RF output. |
 | `pressMotor()` | Presses one RF output and releases the other. |
 | `serviceMotorSafety()` | Releases a press after 4 seconds and prevents both outputs being held. |
 | `motorRemainingMs()` | Returns the remaining auto-release time for the dashboard. |
-| `updateIndicators()` | Turns the blue/red trend indicators on or off. |
-| `serviceLink()` | Detects online/offline changes and updates indicators. |
-| `serviceBuzzerButton()` | Debounces the physical buzzer-stop button. |
+| `updateIndicators()` | Drives the blue/red indicators from the received touch states. |
+| `serviceLink()` | Detects link/water online changes and updates indicators. |
+| `serviceBuzzerButton()` | Debounces short press and detects the 3-second long press. |
 | `initOled()` | Starts I2C, finds the OLED, sets maximum brightness, and clears it. |
-| `drawOled()` | Draws trend, litres, percentage, link status, and buzzer state. |
+| `drawOled()` | Draws large percentage, litres, link status, and bottom litres. |
 | `buildStateJson()` | Builds the `/api/state` JSON response. |
 | `sendJsonState()` | Sends the current state to the dashboard. |
 | `sendApiError()` | Sends a JSON error response. |
@@ -477,7 +494,7 @@ ESP32_A prints the received B status to the serial monitor.
 |---|---|
 | Polling | Reads `/api/state` every 500 ms. |
 | Timeout | Gives up after 2.5 seconds and backs off to 5 seconds. |
-| Water display | Shows percentage, litres, bar, distance, and trend. |
+| Water display | Shows percentage, integer litres, bar, distance, and FILLING/OVERFLOWING/STABLE touch capsules. |
 | Stale data | Keeps the last values but marks them stale. |
 | Mirror Light | Toggle follows the actual Relay 1 state and shows person/manual mode. |
 | Bulb | Toggle follows Relay 2. |
@@ -627,10 +644,10 @@ The dashboard polls state every 500 ms. Command requests time out after 3 second
 
 1. Power ESP32_B with no mains load connected. Confirm relays are OFF at boot.
 2. Connect to the `Smart Water Tank` Wi-Fi and open `http://192.168.4.1/`.
-3. Confirm the OLED shows Connecting before ESP32_A starts.
-4. Power ESP32_A and confirm the OLED changes to Connected.
+3. Confirm the OLED shows `NOT CONNECTED` before ESP32_A starts.
+4. Power ESP32_A and confirm the OLED changes to `CONNECTED`.
 5. Move the water sensor and watch the percentage change.
-6. Confirm the trend changes to FILLING or DRAINING when the level changes.
+6. Short ESP32_A GPIO 4 / GPIO 15 to GND in turn and confirm the blue/red LEDs and dashboard capsules change immediately.
 7. Hold a hand within 100 cm of the HC-SR04. Mirror Light should turn ON.
 8. Remove your hand beyond 105 cm. Mirror Light should turn OFF.
 9. Use the phone Mirror Light toggle while no person is detected. It should stay ON or OFF with no timer.
@@ -668,8 +685,9 @@ static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
 #define PIN_ECHO 18
 #define PIN_BTN_START -1
 #define PIN_BTN_STOP  -1
-static const float FULL_DISTANCE_CM  = 15.0f;
+static const float FULL_DISTANCE_CM  = 10.0f;
 static const float EMPTY_DISTANCE_CM = 120.0f;
+static const float SENSOR_MIN_CM     = 2.0f;
 ```
 
 ### ESP32_B
@@ -700,8 +718,8 @@ Checked with Arduino-ESP32 core 3.3.11:
 
 | Sketch | Flash | RAM |
 |---|---:|---:|
-| ESP32_A | 892,640 bytes (68 %) | 46,144 bytes (14 %) |
-| ESP32_B | 1,006,380 bytes (76 %) | 49,320 bytes (15 %) |
+| ESP32_A | 894,224 bytes (68 %) | 46,216 bytes (14 %) |
+| ESP32_B | 1,012,340 bytes (77 %) | 49,320 bytes (15 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 

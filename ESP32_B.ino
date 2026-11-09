@@ -8,13 +8,14 @@
   Web server   : built-in WebServer (HTTP polling, JSON; no CDN/cloud)
 
   Responsibilities:
-    * receive water level and START/STOP commands over ESP-NOW from ESP32_A
+    * receive water level, touch states and START/STOP commands from ESP32_A
     * send sensor/status information back to ESP32_A
-    * 750 L tank percentage/volume model, trend state, full-tank buzzer
+    * 750 L tank percentage/volume model, full-tank buzzer
+    * FILLING/DRAINING touch inputs -> indicator LEDs and dashboard capsules
     * HC-SR04 person detection -> Relay 1 automatic mirror light
-    * phone manual Mirror Light control, Relay 2 bulb, RF START/STOP
+    * phone Mirror Light control, 3 s button manual override, Relay 2, RF
     * 0.96" I2C OLED, Wi-Fi AP "Smart Water Tank", local dashboard
-    * four physical buttons: one buzzer-stop, three RESERVED/unassigned
+    * four physical buttons: one buzzer-stop/manual-override, three RESERVED
 
   The dashboard HTML is embedded below as DASHBOARD_HTML and is identical to
   index.html.  If you edit index.html, re-embed it (see README.md, section
@@ -98,6 +99,8 @@ static const uint32_t HC_MIN_ECHO_US         = 100;
 static const uint32_t HC_MAX_ECHO_US         = 25000;
 static const float    HC_DETECT_ON_CM        = 100.0f;
 static const float    HC_DETECT_OFF_CM       = 105.0f;  // hysteresis
+static const uint32_t HC_ON_CONFIRM_MS        = 400;
+static const uint32_t HC_OFF_CONFIRM_MS       = 800;
 static const uint32_t HC_INVALID_HOLDOFF_MS  = 2000;
 static const uint8_t  HC_FILTER_SAMPLES      = 5;
 static const float    SOUND_CM_PER_US        = 0.0343f;
@@ -105,19 +108,14 @@ static const float    SOUND_CM_PER_US        = 0.0343f;
 static const uint32_t STATUS_TX_PERIOD_MS    = 1000;
 static const uint32_t MOTOR_MAX_PRESS_MS     = 4000;
 static const uint32_t BUTTON_DEBOUNCE_MS     = 50;
+static const uint32_t BUTTON_LONG_PRESS_MS   = 3000;
 
-static const float    FULL_LEVEL_PERCENT     = 99.5f; // practical "full" trigger
+static const float    FULL_LEVEL_PERCENT     = 97.0f; // buzzer alert threshold
 static const uint8_t  FULL_CONFIRM_READINGS  = 2;
-static const float    REARM_PERCENT          = 90.0f;
-static const uint32_t BUZZER_ALERT_MAX_MS    = 30000;
+static const float    REARM_PERCENT          = 93.0f;
+static const uint32_t BUZZER_ALERT_MAX_MS    = 40000;
 static const uint32_t BUZZER_BEEP_PERIOD_MS  = 333;  // 3 beeps per second
 static const uint32_t BUZZER_BEEP_ON_MS      = 120;
-
-static const float    TREND_RISE_PCT         = 3.0f;
-static const float    TREND_DROP_PCT         = 3.0f;
-static const float    TREND_STABLE_BAND_PCT  = 1.0f;
-static const uint32_t TREND_STABLE_MS        = 4000;
-static const float    TREND_SMOOTH_ALPHA     = 0.35f;
 
 // Protocol constants (must match ESP32_A.ino).
 #define PROTOCOL_VERSION 1u
@@ -155,8 +153,11 @@ struct __attribute__((packed)) WaterPacket {
   uint32_t uptimeMs;
   float    distanceCm;
   float    percent;
+  uint16_t litres;
   uint8_t  valid;
-  uint8_t  reserved[3];
+  uint8_t  filling;
+  uint8_t  draining;
+  uint8_t  reserved[1];
   uint16_t crc;
 };
 
@@ -209,74 +210,81 @@ static const char DASHBOARD_HTML[] PROGMEM = R"WTDASH(<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#eef8f2">
 <title>Smart Water Tank</title>
 <style>
-:root{--ink:#14233b;--muted:#68778d;--line:#e4e9f0;--green:#159b63;--red:#df3c4f;--blue:#168bc9}
+:root{--ink:#10243d;--muted:#66778e;--line:#dce6ef;--green:#0e9a63;--red:#df3c4f;--blue:#128fd1}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
-body{font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;background:#fff;color:var(--ink);touch-action:manipulation}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:var(--ink);touch-action:manipulation;background:radial-gradient(circle at 12% -8%,#d9f8e8 0,transparent 34%),radial-gradient(circle at 92% 4%,#dff1ff 0,transparent 30%),linear-gradient(155deg,#fbfefd 0%,#f0f7fb 55%,#e9f1f8 100%)}
 button{font:inherit}
-.app{width:min(100%,680px);height:100dvh;margin:auto;padding:clamp(8px,1.8vh,15px) 14px max(20px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:clamp(7px,1.4vh,12px)}
-header{min-height:clamp(48px,8vh,64px);flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px}
-.brand{display:flex;align-items:center;gap:11px;min-width:0}
-.logo{width:clamp(40px,6vh,50px);height:clamp(40px,6vh,50px);flex:none;border-radius:14px;background:#f0f7f2;border:1px solid #d7e9dc;display:grid;place-items:center}
-.logo svg{width:75%;height:75%}
-.brand-title{font-size:clamp(19px,3.5vw,26px);font-weight:900;letter-spacing:-.65px;white-space:nowrap}
-.credit{font-size:clamp(9px,1.6vh,11px);color:var(--muted);margin-top:2px;font-weight:650}
-.connection{display:flex;align-items:center;gap:7px;padding:8px 11px;border-radius:22px;background:#edfaf3;border:1px solid #bde6cf;color:#087c4a;font-size:11px;font-weight:900;letter-spacing:.6px;flex:none}
-.connection.offline{background:#fff0f1;border-color:#f0c2c8;color:#c52c40}
-.dot{width:8px;height:8px;border-radius:50%;background:#16a66a;box-shadow:0 0 0 3px #16a66a20}
-.offline .dot{background:#df3c4f;box-shadow:0 0 0 3px #df3c4f20}
-.card{background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:0 5px 18px #142b470c}
-.tank{padding:clamp(9px,1.6vh,14px) 16px;flex:none}
+.app{width:min(100%,700px);height:100dvh;margin:auto;padding:clamp(8px,1.8vh,15px) 14px max(20px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:clamp(7px,1.4vh,12px)}
+header{min-height:clamp(54px,8.6vh,70px);flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}
+.logo{width:clamp(48px,7.2vh,60px);height:clamp(48px,7.2vh,60px);flex:none;border-radius:17px;background:linear-gradient(145deg,#ffffff,#d8f4e3);border:1px solid #c2e7d1;display:grid;place-items:center;box-shadow:inset 0 2px 3px #fff,inset 0 -7px 12px #0b855218,0 10px 22px #0d7c4b22,0 2px 0 #fff}
+.logo svg{width:88%;height:88%;filter:drop-shadow(0 3px 3px #0a5d3b22)}
+.brand-title{font-size:clamp(23px,4vw,33px);font-weight:950;letter-spacing:-.95px;white-space:nowrap;text-shadow:0 2px 0 #fff,0 8px 18px #102b451f}
+.credit{font-size:clamp(9px,1.55vh,11px);color:var(--muted);margin-top:2px;font-weight:750;letter-spacing:.15px}
+.connection{display:flex;align-items:center;gap:7px;padding:9px 12px;border-radius:24px;background:linear-gradient(145deg,#f4fff9,#ddf8e9);border:1px solid #aee3c4;color:#087c4a;font-size:11px;font-weight:950;letter-spacing:.7px;flex:none;box-shadow:inset 0 1px 0 #fff,0 5px 12px #0d9b5e1f}
+.connection.offline{background:linear-gradient(145deg,#fff7f8,#ffe4e7);border-color:#f0b9c1;color:#c52c40;box-shadow:inset 0 1px 0 #fff,0 5px 12px #df3c4f1f}
+.dot{width:9px;height:9px;border-radius:50%;background:#16a66a;box-shadow:0 0 0 3px #16a66a20,0 0 12px #16a66a88}
+.offline .dot{background:#df3c4f;box-shadow:0 0 0 3px #df3c4f20,0 0 12px #df3c4f88}
+.card{background:linear-gradient(160deg,#ffffff 0%,#f9fcff 100%);border:1px solid var(--line);border-radius:22px;box-shadow:0 18px 36px #142b4712,0 3px 0 #fff inset,0 -5px 14px #102b4510 inset}
+.tank{padding:clamp(10px,1.8vh,16px) 17px;flex:none;background:linear-gradient(150deg,#ffffff 0%,#f4fbf8 52%,#edf6fc 100%)}
 .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.eyebrow{font-size:11px;font-weight:900;letter-spacing:1.1px;color:#748197;text-transform:uppercase}
-.live{font-size:10px;color:var(--green);font-weight:900;letter-spacing:.6px}.tank.stale .live{opacity:.35}
+.eyebrow{font-size:11px;font-weight:950;letter-spacing:1.25px;color:#687b91;text-transform:uppercase}
+.live{font-size:10px;color:var(--green);font-weight:950;letter-spacing:.75px;text-shadow:0 1px 0 #fff}
+.tank.stale .live{opacity:.35}
 .water-row{display:flex;align-items:flex-end;justify-content:space-between;gap:8px}
-.percent{font-size:clamp(45px,8vh,68px);font-weight:900;letter-spacing:-3.5px;line-height:.88;color:#102039;font-variant-numeric:tabular-nums}
-.percent small{font-size:.38em;color:#68778d;letter-spacing:0;margin-left:2px}
-.volume{text-align:right;padding-bottom:2px}
-.volume strong{font-size:clamp(32px,5.6vh,48px);font-weight:900;display:block;letter-spacing:-2.5px;line-height:.88;font-variant-numeric:tabular-nums;color:#102039}
-.volume span{font-size:clamp(12px,1.9vh,15px);color:var(--muted);font-weight:900;letter-spacing:.7px}
-.bar-wrap{height:10px;border-radius:12px;background:#edf1f5;border:1px solid #e3e9f0;overflow:hidden;margin:10px 0 5px}
-.bar{height:100%;width:0%;border-radius:12px;background:linear-gradient(90deg,#168bc9,#58c7ed);transition:width .35s}
-.scale{display:flex;justify-content:space-between;color:#8290a2;font-size:9px;font-weight:750}
-.tank-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}
-.water-status{font-size:10px;font-weight:950;letter-spacing:.7px;border-radius:20px;padding:6px 11px;background:#eef2f6;color:#65748a}
-.water-status.filling{background:#e9f8f0;color:#087d4d}
-.water-status.draining{background:#fff0f1;color:#c92e42}
-.water-status.stale{background:#eef2f6;color:#7a8799}
-.distance{font-size:10px;color:#718096;font-weight:700}
-.tank.stale .percent,.tank.stale .volume strong,.tank.stale .bar{opacity:.42}
-.controls{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:10px}
-.motor-card{padding:10px;display:flex;flex-direction:column;align-items:center;min-height:0}
-.motor-title{text-align:center;margin-bottom:4px}
-.motor-title .control-state{margin-top:3px;font-size:clamp(8px,1.3vh,10px);letter-spacing:.4px}
-.motor-buttons{display:flex;flex:1;min-height:0;width:100%;flex-direction:column;align-items:center;justify-content:center;gap:clamp(7px,1.2vh,12px)}
-.motor-unit{display:flex;flex-direction:column;align-items:center;gap:4px;min-height:0}
-.motor-btn{width:clamp(92px,17vh,150px);height:clamp(92px,17vh,150px);max-width:100%;aspect-ratio:1;border:0;border-radius:50%;display:grid;place-items:center;cursor:pointer;touch-action:none;box-shadow:inset 0 3px 3px #ffffffb5,inset 0 -7px 10px #0002,0 7px 0 #0002,0 12px 18px #14233920;transition:transform .09s,box-shadow .09s,filter .09s}
-.motor-btn svg{width:43%;height:43%;filter:drop-shadow(0 1px 1px #0002)}
-.motor-btn.start{background:linear-gradient(145deg,#3cdda0,#07945a);color:white}
-.motor-btn.stop{background:linear-gradient(145deg,#ff7b87,#d92e47);color:white}
-.motor-btn:active,.motor-btn.held{transform:translateY(5px);box-shadow:inset 0 3px 8px #0002,0 1px 0 #0001,0 3px 7px #1423391c;filter:brightness(1.05)}
-.motor-caption{font-size:clamp(13px,2.2vh,17px);font-weight:950;letter-spacing:1.25px;color:#26364d}
-.side-card{padding:9px;display:flex;flex-direction:column;justify-content:center;gap:clamp(6px,1.2vh,11px);min-height:0}
-.control-tile{flex:1;min-height:0;border:1px solid #e7ebf1;background:#fbfcfe;border-radius:14px;padding:8px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(5px,1vh,9px);text-align:center;box-shadow:0 2px 7px #142b4708}
-.control-tile.light-on{background:#fff8df;border-color:#f0d98a;box-shadow:0 0 10px #f4d36a88,0 0 22px #f4d36a55,inset 0 0 12px #fff0b8}.control-tile.bulb-on{background:#eaf6ff;border-color:#9ed4f4;box-shadow:0 0 10px #75c6f588,0 0 22px #75c6f555,inset 0 0 12px #d7efff}
-.control-name{font-size:clamp(12px,2vh,16px);font-weight:900;line-height:1.1}
-.control-state{font-size:clamp(9px,1.4vh,11px);color:#8491a2;font-weight:800;line-height:1.1}
-.timer{font-size:clamp(8px,1.25vh,10px);color:#60748b;font-weight:800;min-height:10px}
-.toggle{width:clamp(68px,11vh,88px);height:clamp(39px,6.3vh,49px);flex:none;border:1px solid #cbd4df;background:#e9edf2;border-radius:30px;padding:4px;cursor:pointer;transition:.18s;box-shadow:inset 0 2px 4px #0000000b}
-.toggle:after{content:"";display:block;width:clamp(29px,4.8vh,39px);height:clamp(29px,4.8vh,39px);border-radius:50%;background:#fff;box-shadow:0 2px 5px #0003;transition:.18s}
-.toggle.on{background:#159b63;border-color:#159b63}
-.toggle.on:after{transform:translateX(clamp(26px,4.2vh,37px))}
-.buzzer-btn{width:min(100%,190px);border:1px solid #c9233c;background:linear-gradient(145deg,#ff6878,#d91f3d);color:#fff;border-radius:13px;padding:clamp(12px,2vh,17px) 10px;font-size:clamp(11px,1.9vh,14px);font-weight:950;letter-spacing:.35px;white-space:nowrap;box-shadow:0 5px 0 #a91c32,0 8px 13px #d91f3d25;cursor:pointer}
-.buzzer-btn:active{transform:translateY(4px);box-shadow:0 1px 0 #a91c32}
-footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:1.2;color:#53647b;font-weight:900;letter-spacing:.45px;white-space:nowrap;padding-bottom:2px;margin-bottom:clamp(8px,2vh,20px)}
-@media(max-height:620px){.app{gap:5px;padding-top:5px}.tank{padding:7px 12px}.bar-wrap{margin:6px 0 4px}.tank-bottom{margin-top:5px}.motor-btn{width:clamp(70px,15vh,100px);height:clamp(70px,15vh,100px)}.motor-buttons{gap:4px}.motor-caption{font-size:11px}.side-card{gap:5px;padding:6px}.control-tile{padding:5px}.toggle{width:58px;height:34px}.toggle:after{width:26px;height:26px}.toggle.on:after{transform:translateX(22px)}.buzzer-btn{padding:8px 6px}}
-@media(orientation:landscape) and (max-height:520px){.app{width:min(100%,960px);padding:4px 12px 5px;gap:4px}header{min-height:34px}.logo{width:32px;height:32px}.brand-title{font-size:17px}.credit{font-size:8px}.tank{padding:5px 12px}.percent{font-size:40px}.volume strong{font-size:40px;letter-spacing:-2px}.volume span{font-size:10px}.controls{grid-template-columns:.95fr 1.05fr}.motor-card{padding:4px}.motor-buttons{flex-direction:row;justify-content:space-evenly;gap:5px}.motor-btn{width:min(21vh,105px);height:min(21vh,105px)}.motor-caption{font-size:10px}.side-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:5px}.control-tile{padding:4px;gap:4px}.control-name{font-size:11px}.toggle{width:48px;height:28px}.toggle:after{width:20px;height:20px}.toggle.on:after{transform:translateX(18px)}.buzzer-btn{font-size:8px;padding:7px 3px}footer{margin-bottom:5px}}
-@media(max-width:430px){.app{padding-left:8px;padding-right:8px;gap:7px}.brand{gap:7px}.brand-title{font-size:clamp(16px,5vw,21px)}.connection{padding:6px 8px;font-size:10px}.tank{padding:9px 11px}.percent{font-size:clamp(39px,10vw,55px)}.volume strong{font-size:clamp(30px,7.2vw,40px);letter-spacing:-1.5px}.volume span{font-size:clamp(10px,2.8vw,12px)}.controls{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:7px}.motor-card{padding:7px 5px}.side-card{padding:6px;gap:6px}.control-tile{padding:6px 3px;gap:5px}.control-name{font-size:clamp(10px,3vw,13px)}.control-state{font-size:9px}.timer{font-size:8px}.motor-btn{width:clamp(72px,20vw,112px);height:clamp(72px,20vw,112px)}.motor-caption{font-size:clamp(11px,3vw,14px)}.toggle{width:clamp(52px,15vw,68px);height:34px}.toggle:after{width:26px;height:26px}.toggle.on:after{transform:translateX(clamp(17px,6vw,29px))}.buzzer-btn{font-size:clamp(9px,2.6vw,11px);padding:10px 3px}footer{font-size:clamp(7px,2vw,9px);letter-spacing:.2px;margin-bottom:8px}}
+.percent{font-size:clamp(58px,10.5vh,92px);font-weight:950;letter-spacing:-4.5px;line-height:.82;color:#0d2440;font-variant-numeric:tabular-nums;text-shadow:0 2px 0 #fff,0 9px 18px #102b4522}
+.percent small{font-size:.36em;color:#65778c;letter-spacing:-.5px;margin-left:3px}
+.volume{text-align:right;padding-bottom:4px}
+.volume strong{font-size:clamp(38px,6.6vh,58px);font-weight:950;display:block;letter-spacing:-3px;line-height:.84;font-variant-numeric:tabular-nums;color:#0d2440;text-shadow:0 2px 0 #fff,0 7px 15px #102b451c}
+.volume span{font-size:clamp(12px,1.9vh,15px);color:var(--muted);font-weight:900;letter-spacing:.8px}
+.bar-wrap{height:13px;border-radius:14px;background:linear-gradient(180deg,#dfe8f0,#eef4f8);border:1px solid #d5e0ea;overflow:hidden;margin:12px 0 6px;box-shadow:inset 0 3px 6px #102b451c,0 1px 0 #fff}
+.bar{height:100%;width:0%;border-radius:14px;background:linear-gradient(90deg,#0c86c9,#22b8b0 55%,#53d68f);box-shadow:0 0 14px #18a9a8aa,inset 0 2px 0 #ffffff66,inset 0 -3px 5px #075b6d38;transition:width .4s}
+.scale{display:flex;justify-content:space-between;color:#788a9d;font-size:9px;font-weight:850;letter-spacing:.2px}
+.tank-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;min-height:30px}
+.touch-capsules{display:flex;align-items:center;gap:6px;min-width:0}
+.capsule{font-size:clamp(9px,1.55vh,12px);font-weight:950;letter-spacing:.75px;border-radius:999px;padding:7px 12px;border:1px solid #dbe3eb;background:linear-gradient(180deg,#f8fafc,#e9eef3);color:#65768a;box-shadow:inset 0 1px 0 #fff,0 3px 0 #b9c5d0,0 6px 10px #102b4518;white-space:nowrap;transition:.18s}
+.capsule.hidden{display:none}
+.capsule.filling.active{color:#fff;border-color:#2eb7f0;background:linear-gradient(145deg,#59d4ff,#087fce);box-shadow:inset 0 2px 0 #ffffff70,0 4px 0 #075f9e,0 0 15px #1ba8ffcc,0 0 32px #1ba8ff66;animation:bluePulse 1.7s ease-in-out infinite}
+.capsule.overflowing.active{color:#fff;border-color:#f27182;background:linear-gradient(145deg,#ff8794,#d9243d);box-shadow:inset 0 2px 0 #ffffff70,0 4px 0 #a81329,0 0 15px #ff405fcc,0 0 32px #ff405f66;animation:redPulse 1.35s ease-in-out infinite}
+.capsule.stable{color:#087c4a;border-color:#b9e6cd;background:linear-gradient(180deg,#f4fff9,#dff7e9);box-shadow:inset 0 1px 0 #fff,0 3px 0 #9fd4b7,0 0 12px #20aa6b33}
+.capsule.stable.offline{color:#bd2d40;border-color:#efbdc4;background:linear-gradient(180deg,#fff8f9,#ffe5e8);box-shadow:inset 0 1px 0 #fff,0 3px 0 #dda7af}
+@keyframes bluePulse{50%{filter:brightness(1.14);box-shadow:inset 0 2px 0 #ffffff80,0 4px 0 #075f9e,0 0 23px #36c2ff,0 0 48px #1ba8ff88}}
+@keyframes redPulse{50%{filter:brightness(1.12);box-shadow:inset 0 2px 0 #ffffff80,0 4px 0 #a81329,0 0 23px #ff5772,0 0 48px #ff405f88}}
+.distance{font-size:9px;color:#6f8195;font-weight:750;text-align:right;line-height:1.2}
+.tank.stale .percent,.tank.stale .volume strong,.tank.stale .bar{opacity:.45}
+.controls{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:11px}
+.motor-card{padding:11px;display:flex;flex-direction:column;align-items:center;min-height:0}
+.motor-title{text-align:center;margin-bottom:3px}
+.motor-title .control-state{margin-top:4px;font-size:clamp(8px,1.3vh,10px);letter-spacing:.45px}
+.motor-buttons{display:flex;flex:1;min-height:0;width:100%;flex-direction:column;align-items:center;justify-content:center;gap:clamp(8px,1.4vh,14px)}
+.motor-unit{display:flex;flex-direction:column;align-items:center;gap:5px;min-height:0}
+.motor-btn{width:clamp(98px,18.5vh,162px);height:clamp(98px,18.5vh,162px);max-width:100%;aspect-ratio:1;border:1px solid #0d8f5b2e;border-radius:50%;display:grid;place-items:center;cursor:pointer;touch-action:none;box-shadow:inset 0 4px 4px #ffffffb8,inset 0 -10px 15px #00000020,0 9px 0 #0003,0 16px 23px #14233926,0 0 22px #15a96c20;transition:transform .09s,box-shadow .09s,filter .09s}
+.motor-btn svg{width:43%;height:43%;filter:drop-shadow(0 2px 2px #0003)}
+.motor-btn.start{background:linear-gradient(145deg,#60edb3,#07945a 55%,#057546);color:white}
+.motor-btn.stop{background:linear-gradient(145deg,#ff8a95,#dc2c46 55%,#b11f34);color:white;border-color:#c0233a44;box-shadow:inset 0 4px 4px #ffffffb8,inset 0 -10px 15px #00000020,0 9px 0 #8c1c2e,0 16px 23px #14233926,0 0 22px #df3c4f33}
+.motor-btn:active,.motor-btn.held{transform:translateY(6px);box-shadow:inset 0 4px 9px #0003,0 2px 0 #0002,0 5px 9px #14233922;filter:brightness(1.06)}
+.motor-caption{font-size:clamp(14px,2.35vh,19px);font-weight:950;letter-spacing:1.45px;color:#1e314a;text-shadow:0 1px 0 #fff}
+.side-card{padding:9px;display:flex;flex-direction:column;justify-content:center;gap:clamp(7px,1.3vh,12px);min-height:0}
+.control-tile{flex:1;min-height:0;border:1px solid #e0e8f0;background:linear-gradient(160deg,#ffffff,#f4f8fc);border-radius:17px;padding:9px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(5px,1vh,9px);text-align:center;box-shadow:inset 0 1px 0 #fff,0 5px 12px #142b470d,0 2px 0 #d8e2eb}
+.control-tile.light-on{background:linear-gradient(160deg,#fffdf1,#fff2c5);border-color:#efd16f;box-shadow:inset 0 1px 0 #fff,0 0 13px #f4d36a99,0 0 29px #f4d36a55,0 5px 12px #142b4712}
+.control-tile.bulb-on{background:linear-gradient(160deg,#f4fcff,#dff4ff);border-color:#9ed4f4;box-shadow:inset 0 1px 0 #fff,0 0 13px #75c6f599,0 0 29px #75c6f555,0 5px 12px #142b4712}
+.control-name{font-size:clamp(13px,2.1vh,17px);font-weight:950;line-height:1.08;letter-spacing:-.2px}
+.control-state{font-size:clamp(9px,1.4vh,11px);color:#78889b;font-weight:850;line-height:1.1}
+.timer{font-size:clamp(8px,1.25vh,10px);color:#5d7088;font-weight:850;min-height:10px}
+.toggle{width:clamp(72px,11.5vh,92px);height:clamp(41px,6.5vh,52px);flex:none;border:1px solid #b9c7d5;background:linear-gradient(180deg,#dfe6ed,#ccd6e0);border-radius:32px;padding:4px;cursor:pointer;transition:.18s;box-shadow:inset 0 3px 6px #102b4526,0 3px 0 #aab7c4,0 6px 10px #102b4518}
+.toggle:after{content:"";display:block;width:clamp(31px,4.9vh,41px);height:clamp(31px,4.9vh,41px);border-radius:50%;background:linear-gradient(145deg,#fff,#e9eef3);box-shadow:0 3px 6px #0003,inset 0 1px 1px #fff;transition:.18s}
+.toggle.on{background:linear-gradient(145deg,#33d493,#0b8a59);border-color:#0b8a59;box-shadow:inset 0 2px 4px #064d3226,0 3px 0 #07633f,0 0 14px #12a96b88}
+.toggle.on:after{transform:translateX(clamp(28px,4.4vh,39px))}
+.buzzer-btn{width:min(100%,198px);border:1px solid #bd1b32;background:linear-gradient(145deg,#ff7584,#db2340 58%,#b51631);color:#fff;border-radius:15px;padding:clamp(13px,2.1vh,18px) 10px;font-size:clamp(12px,2vh,15px);font-weight:950;letter-spacing:.45px;white-space:nowrap;box-shadow:inset 0 2px 0 #ffffff66,0 6px 0 #901127,0 10px 15px #d91f3d33;cursor:pointer;text-shadow:0 1px 1px #780d1f88}
+.buzzer-btn:active{transform:translateY(5px);box-shadow:inset 0 2px 3px #0004,0 1px 0 #901127}
+footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:1.2;color:#4e6178;font-weight:950;letter-spacing:.5px;white-space:nowrap;padding-bottom:2px;margin-bottom:clamp(8px,2vh,20px);text-shadow:0 1px 0 #fff}
+@media(max-height:620px){.app{gap:5px;padding-top:5px}.logo{width:40px;height:40px}.brand-title{font-size:20px}.tank{padding:7px 12px}.bar-wrap{margin:6px 0 4px}.tank-bottom{margin-top:5px}.percent{font-size:clamp(48px,10vh,72px)}.volume strong{font-size:clamp(34px,6.2vh,46px)}.motor-btn{width:clamp(76px,16vh,112px);height:clamp(76px,16vh,112px)}.motor-buttons{gap:5px}.motor-caption{font-size:12px}.side-card{gap:5px;padding:6px}.control-tile{padding:5px}.toggle{width:60px;height:35px}.toggle:after{width:27px;height:27px}.toggle.on:after{transform:translateX(23px)}.buzzer-btn{padding:9px 6px}}
+@media(orientation:landscape) and (max-height:520px){.app{width:min(100%,980px);padding:4px 12px 5px;gap:4px}header{min-height:36px}.logo{width:34px;height:34px}.brand-title{font-size:18px}.credit{font-size:8px}.tank{padding:5px 12px}.percent{font-size:42px}.volume strong{font-size:42px;letter-spacing:-2px}.volume span{font-size:10px}.controls{grid-template-columns:.95fr 1.05fr}.motor-card{padding:4px}.motor-buttons{flex-direction:row;justify-content:space-evenly;gap:5px}.motor-btn{width:min(22vh,112px);height:min(22vh,112px)}.motor-caption{font-size:10px}.side-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:5px}.control-tile{padding:4px;gap:4px}.control-name{font-size:11px}.toggle{width:50px;height:29px}.toggle:after{width:21px;height:21px}.toggle.on:after{transform:translateX(19px)}.buzzer-btn{font-size:8px;padding:7px 3px}footer{margin-bottom:5px}}
+@media(max-width:430px){.app{padding-left:8px;padding-right:8px;gap:7px}.brand{gap:8px}.brand-title{font-size:clamp(18px,5.4vw,23px)}.connection{padding:7px 9px;font-size:10px}.tank{padding:9px 11px}.percent{font-size:clamp(50px,12vw,72px)}.volume strong{font-size:clamp(34px,8vw,48px);letter-spacing:-2px}.volume span{font-size:clamp(10px,2.8vw,12px)}.controls{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:7px}.motor-card{padding:7px 5px}.side-card{padding:6px;gap:6px}.control-tile{padding:6px 3px;gap:5px}.control-name{font-size:clamp(11px,3.1vw,14px)}.control-state{font-size:9px}.timer{font-size:8px}.motor-btn{width:clamp(80px,21vw,118px);height:clamp(80px,21vw,118px)}.motor-caption{font-size:clamp(11px,3vw,14px)}.toggle{width:clamp(54px,15vw,70px);height:35px}.toggle:after{width:27px;height:27px}.toggle.on:after{transform:translateX(clamp(18px,6vw,30px))}.buzzer-btn{font-size:clamp(9px,2.6vw,11px);padding:10px 3px}.capsule{padding:6px 9px;font-size:9px}.distance{font-size:8px}footer{font-size:clamp(7px,2vw,9px);letter-spacing:.2px;margin-bottom:8px}}
 </style>
 </head>
 <body>
@@ -284,9 +292,27 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 <header>
  <div class="brand">
   <div class="logo" aria-hidden="true">
-   <svg viewBox="0 0 40 40" fill="none" stroke="#16804f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M4 18 20 5l16 13M8 16v18h24V16M16 34V23h8v11"/>
-    <path d="M12 21h3M25 21h3"/>
+   <svg viewBox="0 0 64 64" fill="none">
+    <defs>
+     <linearGradient id="tankBody" x1="14" y1="12" x2="52" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a8ffd3"/><stop offset=".3" stop-color="#45df9d"/><stop offset=".7" stop-color="#0eaa68"/><stop offset="1" stop-color="#04704a"/>
+     </linearGradient>
+     <linearGradient id="tankWater" x1="18" y1="30" x2="48" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#65ddff"/><stop offset=".55" stop-color="#1497d4"/><stop offset="1" stop-color="#066fa8"/>
+     </linearGradient>
+     <linearGradient id="tankShine" x1="20" y1="15" x2="31" y2="51" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity=".85"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+     </linearGradient>
+    </defs>
+    <ellipse cx="32" cy="57.5" rx="19" ry="4" fill="#075f3d" opacity=".18"/>
+    <path d="M14.5 17c0-3.2 7.8-5.5 17.5-5.5S49.5 13.8 49.5 17v29c0 4-7.8 6.3-17.5 6.3S14.5 50 14.5 46V17z" fill="url(#tankBody)" stroke="#056c46" stroke-width="1.4"/>
+    <ellipse cx="32" cy="17" rx="17.5" ry="5.3" fill="#c8ffe3"/>
+    <ellipse cx="32" cy="17" rx="13.2" ry="3.5" fill="#087e52"/>
+    <path d="M16.5 28.5c4.5 2 9.8 3 15.5 3s11-1 15.5-3v18.2c0 3.2-6.9 5.3-15.5 5.3s-15.5-2.1-15.5-5.3V28.5z" fill="url(#tankWater)" opacity=".94"/>
+    <path d="M17.2 28.8c4.7 2 9.6 3 14.8 3 5.2 0 10.1-1 14.8-3" stroke="#b9f4ff" stroke-width="1.3" stroke-linecap="round" opacity=".95"/>
+    <path d="M20 20c1.6 1.4 2.4 4.6 2.2 8.2-.2 3.7-1.2 6.5-2.7 7.5" stroke="url(#tankShine)" stroke-width="3.2" stroke-linecap="round" opacity=".9"/>
+    <path d="M23.5 45.4c5.2 1.3 11.4 1.4 17.2.2" stroke="#c1f9ff" stroke-width="1.5" stroke-linecap="round" opacity=".75"/>
+    <circle cx="44" cy="36" r="2.1" fill="#d2fbff" opacity=".65"/>
    </svg>
   </div>
   <div><div class="brand-title">Smart Water Tank</div><div class="credit">Designed by Aman Sharma</div></div>
@@ -295,10 +321,17 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 </header>
 <section class="card tank" id="tankCard">
  <div class="card-head"><span class="eyebrow">Tank overview</span><span class="live">● LIVE DATA</span></div>
- <div class="water-row"><div class="percent" id="percent">--<small>%</small></div><div class="volume"><strong id="litres">-- L</strong><span>OF 750.0 L</span></div></div>
+ <div class="water-row"><div class="percent" id="percent">--<small>%</small></div><div class="volume"><strong id="litres">-- L</strong><span>OF 750 L</span></div></div>
  <div class="bar-wrap"><div class="bar" id="bar"></div></div>
  <div class="scale"><span>0 L · EMPTY</span><span>750 L · FULL</span></div>
- <div class="tank-bottom"><span class="water-status" id="waterStatus">WAITING</span><span class="distance" id="distance">Sensor distance: —</span></div>
+ <div class="tank-bottom">
+  <div class="touch-capsules" id="touchCapsules">
+   <span class="capsule filling hidden" id="fillCapsule">FILLING</span>
+   <span class="capsule overflowing hidden" id="overflowCapsule">OVERFLOWING</span>
+   <span class="capsule stable" id="stableCapsule">STABLE</span>
+  </div>
+  <span class="distance" id="distance">Sensor distance: —</span>
+ </div>
 </section>
 <section class="controls">
  <section class="card motor-card">
@@ -341,7 +374,8 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 const $=id=>document.getElementById(id);
 const tankCard=$('tankCard'), connection=$('connection'), connectionText=$('connectionText');
 const percentEl=$('percent'), litresEl=$('litres'), barEl=$('bar'), distanceEl=$('distance');
-const waterStatusEl=$('waterStatus'), motorStatusEl=$('motorStatus');
+const fillCapsule=$('fillCapsule'), overflowCapsule=$('overflowCapsule'), stableCapsule=$('stableCapsule');
+const motorStatusEl=$('motorStatus');
 const relay1Btn=$('relay1'), relay2Btn=$('relay2'), mirrorTile=$('mirrorTile'), bulbTile=$('bulbTile');
 const r1state=$('r1state'), r2state=$('r2state'), mirrorInfo=$('mirrorInfo'), buzzerStateEl=$('buzzerState');
 const startBtn=$('motorStart'), stopBtn=$('motorStop');
@@ -361,9 +395,16 @@ function setOnline(online){
  connection.classList.toggle('offline',!online);
  connectionText.textContent=online?'ONLINE':'OFFLINE';
 }
-function setWaterStatus(status){
- waterStatusEl.textContent=status;
- waterStatusEl.className='water-status '+status.toLowerCase().replace(/[^a-z]/g,'');
+function renderCapsules(filling,overflowing,linkOk){
+ filling=linkOk&&filling===true;
+ overflowing=linkOk&&overflowing===true;
+ fillCapsule.classList.toggle('hidden',!filling);
+ fillCapsule.classList.toggle('active',filling);
+ overflowCapsule.classList.toggle('hidden',!overflowing);
+ overflowCapsule.classList.toggle('active',overflowing);
+ stableCapsule.classList.toggle('hidden',filling||overflowing);
+ stableCapsule.classList.toggle('offline',!linkOk);
+ stableCapsule.textContent=linkOk?'STABLE':'NO SIGNAL';
 }
 function flashError(el,msg){
  if(!el) return;
@@ -379,7 +420,7 @@ function renderUnreachable(){
   litresEl.textContent='-- L';
   barEl.style.width='0%';
   distanceEl.textContent='Device unreachable · reconnecting…';
-  setWaterStatus('NO DATA');
+  renderCapsules(false,false,false);
   r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='No connection';
   r2state.textContent='STATE UNKNOWN';
   buzzerStateEl.textContent='STATE UNKNOWN';
@@ -389,8 +430,9 @@ function renderUnreachable(){
 function render(s){
  if(!s||typeof s!=='object') return;
  current=s;
+ const linkOk=(reachable&&s.linkOnline===true);
  const online=(reachable&&s.online===true);
- setOnline(online);
+ setOnline(linkOk);
  const pct=num(s.percent);
  const hasPct=(pct!==null);
  const shownPct=hasPct?clamp(pct,0,100):null;
@@ -400,7 +442,7 @@ function render(s){
  if(hasPct){
   percentEl.innerHTML=Math.round(shownPct)+'<small>%</small>';
   const litres=num(s.litres);
-  litresEl.textContent=(litres!==null?litres:shownPct*7.5).toFixed(1)+' L';
+  litresEl.textContent=Math.round(litres!==null?litres:shownPct*7.5)+' L';
   barEl.style.width=shownPct.toFixed(1)+'%';
  }else{
   percentEl.innerHTML='--<small>%</small>';
@@ -415,12 +457,7 @@ function render(s){
  }else{
   distanceEl.textContent='Sensor distance: —';
  }
- if(!reachable||!online){
-  setWaterStatus(hasPct?'STALE':'NO DATA');
- }else{
-  const trend=String(s.trend||'STABLE').toUpperCase();
-  setWaterStatus(trend==='FILLING'?'FILLING':trend==='DRAINING'?'DRAINING':'STABLE');
- }
+ renderCapsules(s.filling,s.draining,linkOk);
 
  const mirrorOn=(reachable&&s.relay1===true);
  relay1Btn.classList.toggle('on',mirrorOn);
@@ -430,11 +467,12 @@ function render(s){
   r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='No connection';
  }else{
   const person=(s.personDetected===true);
-  const manual=(s.mirrorManual===true);
+  const override=(s.mirrorOverride===true);
+  const blocked=(s.autoBlocked===true);
   const hc=num(s.hcsr04Distance);
   r1state.textContent=mirrorOn?'ON':'OFF';
-  let info=manual?'MANUAL':(person?'AUTO · PERSON':'AUTO · CLEAR');
-  if(hc!==null) info=(manual?'MANUAL · ':person?'PERSON · ':'CLEAR · ')+(hc/100).toFixed(1)+' m';
+  let info=override?'MANUAL OVERRIDE · ':blocked?'AUTO BLOCKED · ':(person?'AUTO · PERSON · ':'AUTO · CLEAR · ');
+  info+=hc!==null?(hc/100).toFixed(1)+' m':'—';
   mirrorInfo.textContent=info;
  }
 
@@ -642,21 +680,15 @@ bool     haveValidWater = false;
 bool     lastPacketValid = false;
 float    lastValidPercent = 0.0f;
 float    lastValidDistanceCm = 0.0f;
+uint16_t lastValidLitres = 0;
+bool     fillingActive = false;
+bool     drainingActive = false;
 uint32_t lastValidRxMs = 0;
 uint32_t lastAnyRxMs = 0;
 uint32_t lastSeq = 0;
 uint32_t lastAUptimeMs = 0;
 bool     haveSeq = false;
 uint16_t lastFlags = 0;
-
-// --- Trend state machine ---
-enum TrendState { TREND_STABLE = 0, TREND_FILLING = 1, TREND_DRAINING = 2 };
-TrendState trendState = TREND_STABLE;
-float    trendSmoothed = 0.0f;
-float    trendRef = 0.0f;
-bool     haveTrend = false;
-bool     stableTimerActive = false;
-uint32_t stableSinceMs = 0;
 
 // --- Buzzer ---
 bool     buzzerAlerting = false;
@@ -680,11 +712,13 @@ float    hcDistanceCm = 0.0f;
 bool     hcValid = false;
 bool     haveHcReading = false;
 uint32_t lastValidHcMs = 0;
+uint32_t hcNearSinceMs = 0;
+uint32_t hcFarSinceMs = 0;
 bool     autoRelay1On = false;
 bool     personDetected = false;
+bool     autoBlocked = false;
 
-bool     mirrorManual = false;
-bool     mirrorManualOn = false;
+bool     mirrorOverride = false;
 bool     relay1On = false;
 bool     relay2On = false;
 
@@ -711,10 +745,14 @@ QueueHandle_t rxQueue = nullptr;
 int      buttonLastReading = HIGH;
 bool     buttonStableState = HIGH;
 uint32_t buttonLastChangeMs = 0;
+bool     buttonPressActive = false;
+bool     buttonLongHandled = false;
+uint32_t buttonPressStartMs = 0;
 
 // --- OLED/status ---
 uint32_t lastOledMs = 0;
 bool     prevOnline = false;
+bool     prevLinkOnline = false;
 bool     prevBlue = false;
 bool     prevRed = false;
 
@@ -806,91 +844,17 @@ void initSafeOutputs() {
 }
 
 /* ==========================================================================
-   WATER MODEL / TREND
+   WATER MODEL / LINK STATE
    ========================================================================== */
 
-const char *trendName(TrendState t) {
-  switch (t) {
-    case TREND_FILLING:  return "FILLING";
-    case TREND_DRAINING: return "DRAINING";
-    default:             return "STABLE";
-  }
+bool computeLinkOnline() {
+  if (lastAnyRxMs == 0) return false;
+  return (uint32_t)(millis() - lastAnyRxMs) <= LINK_TIMEOUT_MS;
 }
 
 bool computeOnline() {
   if (!haveValidWater || !lastPacketValid) return false;
   return (uint32_t)(millis() - lastValidRxMs) <= LINK_TIMEOUT_MS;
-}
-
-void updateTrend(float p, uint32_t now) {
-  if (!haveTrend) {
-    trendSmoothed = p;
-    trendRef = p;
-    trendState = TREND_STABLE;
-    haveTrend = true;
-    stableTimerActive = true;
-    stableSinceMs = now;
-    return;
-  }
-
-  trendSmoothed = trendSmoothed * (1.0f - TREND_SMOOTH_ALPHA) +
-                  p * TREND_SMOOTH_ALPHA;
-
-  float diff = trendSmoothed - trendRef;
-
-  switch (trendState) {
-    case TREND_STABLE:
-      if (diff >= TREND_RISE_PCT) {
-        trendState = TREND_FILLING;
-        trendRef = trendSmoothed;
-        stableTimerActive = false;
-      } else if (diff <= -TREND_DROP_PCT) {
-        trendState = TREND_DRAINING;
-        trendRef = trendSmoothed;
-        stableTimerActive = false;
-      }
-      break;
-
-    case TREND_FILLING:
-      if (trendSmoothed > trendRef) trendRef = trendSmoothed;
-      if (trendRef - trendSmoothed >= TREND_DROP_PCT) {
-        trendState = TREND_DRAINING;
-        trendRef = trendSmoothed;
-        stableTimerActive = false;
-      } else if (fabsf(trendSmoothed - trendRef) <= TREND_STABLE_BAND_PCT) {
-        if (!stableTimerActive) {
-          stableTimerActive = true;
-          stableSinceMs = now;
-        } else if ((uint32_t)(now - stableSinceMs) >= TREND_STABLE_MS) {
-          trendState = TREND_STABLE;
-          trendRef = trendSmoothed;
-          stableTimerActive = false;
-        }
-      } else {
-        stableTimerActive = false;
-      }
-      break;
-
-    case TREND_DRAINING:
-      if (trendSmoothed < trendRef) trendRef = trendSmoothed;
-      if (trendSmoothed - trendRef >= TREND_RISE_PCT) {
-        trendState = TREND_FILLING;
-        trendRef = trendSmoothed;
-        stableTimerActive = false;
-      } else if (fabsf(trendSmoothed - trendRef) <= TREND_STABLE_BAND_PCT) {
-        if (!stableTimerActive) {
-          stableTimerActive = true;
-          stableSinceMs = now;
-        } else if ((uint32_t)(now - stableSinceMs) >= TREND_STABLE_MS) {
-          trendState = TREND_STABLE;
-          trendRef = trendSmoothed;
-          stableTimerActive = false;
-        }
-      } else {
-        stableTimerActive = false;
-      }
-      break;
-  }
 }
 
 /* ==========================================================================
@@ -906,7 +870,7 @@ const char *buzzerStateName() {
 void stopBuzzerForLinkLoss() {
   if (buzzerAlerting) {
     buzzerAlerting = false;
-    buzzerArmed = false;      // re-arm only after valid level < 90 %
+    buzzerArmed = false;      // re-arm only after valid level < 93 %
     setBuzzerOutput(false);
   }
 }
@@ -914,7 +878,7 @@ void stopBuzzerForLinkLoss() {
 void manualStopBuzzer() {
   if (buzzerAlerting) {
     buzzerAlerting = false;
-    buzzerArmed = false;      // remains disarmed until level < 90 %
+    buzzerArmed = false;      // remains disarmed until level < 93 %
     setBuzzerOutput(false);
     DBGLN("[B] Buzzer stopped by user");
   }
@@ -931,13 +895,13 @@ void startBuzzerAlert() {
 void updateBuzzerFromWater(float p, bool onlineNow) {
   if (!onlineNow) return;
 
-  // Re-arm only after a valid reading falls below 90 %.
+  // Re-arm only after a valid reading falls below 93 %.
   if (p < REARM_PERCENT) {
     if (buzzerAlerting) {
       buzzerAlerting = false;
       setBuzzerOutput(false);
     }
-    if (!buzzerArmed) DBGLN("[B] Buzzer re-armed (level < 90 %)");
+    if (!buzzerArmed) DBGLN("[B] Buzzer re-armed (level < 93 %)");
     buzzerArmed = true;
     fullConfirmCount = 0;
     return;
@@ -962,9 +926,9 @@ void serviceBuzzer() {
   uint32_t elapsed = millis() - buzzerStartMs;
   if (elapsed >= BUZZER_ALERT_MAX_MS) {
     buzzerAlerting = false;
-    buzzerArmed = false;       // max-time stop also needs < 90 % to re-arm
+    buzzerArmed = false;       // max-time stop also needs < 93 % to re-arm
     setBuzzerOutput(false);
-    DBGLN("[B] Buzzer alert timed out after 30 s");
+    DBGLN("[B] Buzzer alert timed out after 40 s");
     return;
   }
 
@@ -977,7 +941,7 @@ void serviceBuzzer() {
    ========================================================================== */
 
 void applyRelay1() {
-  bool desired = mirrorManual ? mirrorManualOn : autoRelay1On;
+  bool desired = mirrorOverride ? true : autoRelay1On;
   writeRelayPin(PIN_RELAY1, desired);
   relay1On = desired;
 }
@@ -986,11 +950,26 @@ void applyRelay2() {
   writeRelayPin(PIN_RELAY2, relay2On);
 }
 
-void setMirrorManual(bool on) {
-  mirrorManual = true;
-  mirrorManualOn = on;
+void toggleMirrorOverride() {
+  mirrorOverride = !mirrorOverride;
+  autoBlocked = false;
+  if (!mirrorOverride) autoRelay1On = personDetected;
   applyRelay1();
-  DBG("[B] Mirror Light manual %s\n", on ? "ON" : "OFF");
+  DBG("[B] Mirror manual override %s\n", mirrorOverride ? "ON" : "OFF (auto)");
+}
+
+void setMirrorRequest(bool on) {
+  if (on) {
+    mirrorOverride = true;
+    autoBlocked = false;
+  } else {
+    mirrorOverride = false;
+    autoBlocked = true;
+    autoRelay1On = false;
+  }
+  applyRelay1();
+  DBG("[B] Mirror request %s (override=%s)\n",
+      on ? "ON" : "OFF", mirrorOverride ? "ON" : "OFF");
 }
 
 /* ==========================================================================
@@ -1102,33 +1081,46 @@ void serviceHcSensor() {
 }
 
 void updateAutoRelay1() {
-  bool newPerson = personDetected;
+  uint32_t now = millis();
 
   if (hcValid) {
-    if (!personDetected && hcDistanceCm < HC_DETECT_ON_CM) {
-      newPerson = true;
-    } else if (personDetected && hcDistanceCm > HC_DETECT_OFF_CM) {
-      newPerson = false;
+    if (hcDistanceCm < HC_DETECT_ON_CM) {
+      hcFarSinceMs = 0;
+      if (hcNearSinceMs == 0) hcNearSinceMs = now;
+      if (!personDetected &&
+          (uint32_t)(now - hcNearSinceMs) >= HC_ON_CONFIRM_MS) {
+        personDetected = true;
+        DBG("[B] Person confirmed present (%.1f cm)\n", hcDistanceCm);
+      }
+    } else if (hcDistanceCm > HC_DETECT_OFF_CM) {
+      hcNearSinceMs = 0;
+      if (hcFarSinceMs == 0) hcFarSinceMs = now;
+      if (personDetected &&
+          (uint32_t)(now - hcFarSinceMs) >= HC_OFF_CONFIRM_MS) {
+        personDetected = false;
+        DBG("[B] Person confirmed clear (%.1f cm)\n", hcDistanceCm);
+      }
     }
   } else {
-    // Invalid reading: hold briefly, then fail safe to "no person".
+    hcNearSinceMs = 0;
+    hcFarSinceMs = 0;
     if (personDetected &&
-        (uint32_t)(millis() - lastValidHcMs) > HC_INVALID_HOLDOFF_MS) {
-      newPerson = false;
+        (uint32_t)(now - lastValidHcMs) > HC_INVALID_HOLDOFF_MS) {
+      personDetected = false;
+      DBG("[B] Person cleared after sensor dropout\n");
     }
   }
 
-  // A real person/no-person transition is the newest event, so it replaces
-  // any earlier phone setting.  Phone setting otherwise persists indefinitely.
-  if (newPerson != personDetected) {
-    personDetected = newPerson;
-    mirrorManual = false;
+  if (mirrorOverride) {
     autoRelay1On = personDetected;
-    DBG("[B] Person %s - mirror auto %s\n",
-        personDetected ? "detected" : "left",
-        autoRelay1On ? "ON" : "OFF");
-  } else if (!personDetected) {
+  } else if (autoBlocked) {
     autoRelay1On = false;
+    if (!personDetected) {
+      autoBlocked = false;
+      DBG("[B] Auto mirror re-enabled after clear\n");
+    }
+  } else {
+    autoRelay1On = personDetected;
   }
 
   applyRelay1();
@@ -1202,9 +1194,9 @@ uint32_t motorRemainingMs(bool startChannel) {
    INDICATORS / LINK SERVICE
    ========================================================================== */
 
-void updateIndicators(bool onlineNow) {
-  bool blue = onlineNow && (trendState == TREND_FILLING);
-  bool red  = onlineNow && (trendState == TREND_DRAINING);
+void updateIndicators(bool linkOnlineNow) {
+  bool blue = linkOnlineNow && fillingActive;
+  bool red  = linkOnlineNow && drainingActive;
   if (blue != prevBlue) {
     writeIndicatorPin(PIN_IND_BLUE, blue);
     prevBlue = blue;
@@ -1216,20 +1208,32 @@ void updateIndicators(bool onlineNow) {
 }
 
 void serviceLink() {
-  bool onlineNow = computeOnline();
-  if (prevOnline && !onlineNow) {
+  bool waterNow = computeOnline();
+  bool linkNow = computeLinkOnline();
+
+  if (prevOnline && !waterNow) {
     fullConfirmCount = 0;
     stopBuzzerForLinkLoss();
+    DBGLN("[B] Sensor water data OFFLINE / invalid");
+  } else if (!prevOnline && waterNow) {
+    DBGLN("[B] Sensor water data ONLINE");
+  }
+
+  if (prevLinkOnline && !linkNow) {
+    fillingActive = false;
+    drainingActive = false;
     prevBlue = false;
     prevRed = false;
     writeIndicatorPin(PIN_IND_BLUE, false);
     writeIndicatorPin(PIN_IND_RED, false);
-    DBGLN("[B] Sensor link OFFLINE / invalid");
-  } else if (!prevOnline && onlineNow) {
-    DBGLN("[B] Sensor link ONLINE");
+    DBGLN("[B] ESP-NOW link OFFLINE");
+  } else if (!prevLinkOnline && linkNow) {
+    DBGLN("[B] ESP-NOW link ONLINE");
   }
-  prevOnline = onlineNow;
-  updateIndicators(onlineNow);
+
+  prevOnline = waterNow;
+  prevLinkOnline = linkNow;
+  updateIndicators(linkNow);
 }
 
 /* ==========================================================================
@@ -1242,11 +1246,27 @@ void serviceBuzzerButton() {
     buttonLastReading = reading;
     buttonLastChangeMs = millis();
   }
+
   if ((uint32_t)(millis() - buttonLastChangeMs) >= BUTTON_DEBOUNCE_MS &&
       reading != buttonStableState) {
     buttonStableState = reading;
     bool pressed = BUTTON_ACTIVE_LOW ? (reading == LOW) : (reading == HIGH);
-    if (pressed) manualStopBuzzer();
+
+    if (pressed) {
+      buttonPressActive = true;
+      buttonLongHandled = false;
+      buttonPressStartMs = millis();
+    } else if (buttonPressActive) {
+      buttonPressActive = false;
+      if (!buttonLongHandled) manualStopBuzzer();
+    }
+  }
+
+  if (buttonPressActive && !buttonLongHandled &&
+      (uint32_t)(millis() - buttonPressStartMs) >= BUTTON_LONG_PRESS_MS) {
+    buttonLongHandled = true;
+    toggleMirrorOverride();
+    if (buzzerAlerting) manualStopBuzzer();
   }
 }
 
@@ -1284,51 +1304,40 @@ void drawOled() {
   if ((uint32_t)(millis() - lastOledMs) < OLED_REFRESH_MS) return;
   lastOledMs = millis();
 
-  bool onlineNow = computeOnline();
+  bool linkNow = computeLinkOnline();
 
   display.clearDisplay();
   display.setTextColor(SSD1306_WHITE);
-  display.setTextSize(1);
+  display.setTextWrap(false);
 
-  const char *tr = trendName(trendState);
-  display.setCursor(0, 0);
-  display.print(tr);
+  char pct[8];
+  if (haveValidWater) snprintf(pct, sizeof(pct), "%d%%", (int)lroundf(lastValidPercent));
+  else                snprintf(pct, sizeof(pct), "--%%");
 
-  char vol[12];
-  if (haveValidWater) snprintf(vol, sizeof(vol), "%.1fL", lastValidPercent * 7.5f);
-  else                snprintf(vol, sizeof(vol), "--.-L");
-  int16_t x = OLED_WIDTH - (int16_t)strlen(vol) * 6;
+  display.setTextSize(5);
+  int16_t x = (OLED_WIDTH - (int16_t)strlen(pct) * 30) / 2;
   if (x < 0) x = 0;
   display.setCursor(x, 0);
-  display.print(vol);
-
-  char pct[10];
-  if (haveValidWater) {
-    snprintf(pct, sizeof(pct), "%d%%%s",
-             (int)lroundf(lastValidPercent), onlineNow ? "" : "*");
-  } else {
-    snprintf(pct, sizeof(pct), "--%%%s", onlineNow ? "" : "*");
-  }
-  display.setTextSize(4);
-  x = (OLED_WIDTH - (int16_t)strlen(pct) * 24) / 2;
-  if (x < 0) x = 0;
-  display.setCursor(x, 18);
   display.print(pct);
+
+  char litres[10];
+  if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
+  else                snprintf(litres, sizeof(litres), "--L");
+
+  display.setTextSize(2);
+  x = (OLED_WIDTH - (int16_t)strlen(litres) * 12) / 2;
+  if (x < 0) x = 0;
+  display.setCursor(x, 38);
+  display.print(litres);
 
   display.setTextSize(1);
   display.setCursor(0, 56);
-  const char *linkText = onlineNow ? "Connected"
-                        : ((lastAnyRxMs == 0) ? "Connecting" : "Not Connected");
-  display.print(linkText);
+  display.print(linkNow ? "CONNECTED" : "NOT CONNECTED");
 
-  if (onlineNow) {
-    const char *bz = buzzerAlerting ? "BUZ:ALERT"
-                     : (buzzerArmed ? "BUZ:READY" : "BUZ:SILENT");
-    x = OLED_WIDTH - (int16_t)strlen(bz) * 6;
-    if (x < 0) x = 0;
-    display.setCursor(x, 56);
-    display.print(bz);
-  }
+  x = OLED_WIDTH - (int16_t)strlen(litres) * 6;
+  if (x < 0) x = 0;
+  display.setCursor(x, 56);
+  display.print(litres);
 
   display.display();
 }
@@ -1345,28 +1354,33 @@ String jsonFloatOrNull(bool present, float value, uint8_t decimals) {
 
 String buildStateJson() {
   bool onlineNow = computeOnline();
+  bool linkNow = computeLinkOnline();
   String j;
-  j.reserve(1100);
+  j.reserve(1200);
 
   j += "{";
   j += "\"online\":";        j += onlineNow ? "true" : "false";
+  j += ",\"linkOnline\":";   j += linkNow ? "true" : "false";
   j += ",\"stale\":";        j += onlineNow ? "false" : "true";
   j += ",\"sensorValid\":";  j += lastPacketValid ? "true" : "false";
   j += ",\"haveData\":";     j += haveValidWater ? "true" : "false";
   j += ",\"percent\":";      j += jsonFloatOrNull(haveValidWater, lastValidPercent, 2);
-  j += ",\"litres\":";       j += jsonFloatOrNull(haveValidWater, lastValidPercent * 7.5f, 1);
+  j += ",\"litres\":";
+  if (haveValidWater) j += String((unsigned)lastValidLitres);
+  else                j += "null";
   j += ",\"distance\":";     j += jsonFloatOrNull(haveValidWater, lastValidDistanceCm, 1);
-  j += ",\"trend\":\"";      j += trendName(trendState); j += "\"";
+  j += ",\"filling\":";      j += (linkNow && fillingActive) ? "true" : "false";
+  j += ",\"draining\":";     j += (linkNow && drainingActive) ? "true" : "false";
   j += ",\"linkAgeMs\":";
-  if (haveValidWater) j += String((uint32_t)(millis() - lastValidRxMs));
-  else                j += "-1";
+  if (lastAnyRxMs != 0) j += String((uint32_t)(millis() - lastAnyRxMs));
+  else                  j += "-1";
 
   j += ",\"hcsr04Valid\":";  j += hcValid ? "true" : "false";
   j += ",\"hcsr04Distance\":"; j += jsonFloatOrNull(haveHcReading, hcDistanceCm, 1);
   j += ",\"personDetected\":"; j += personDetected ? "true" : "false";
   j += ",\"relay1\":";       j += relay1On ? "true" : "false";
-  j += ",\"mirrorManual\":"; j += mirrorManual ? "true" : "false";
-  j += ",\"mirrorManualOn\":"; j += mirrorManualOn ? "true" : "false";
+  j += ",\"mirrorOverride\":"; j += mirrorOverride ? "true" : "false";
+  j += ",\"autoBlocked\":";  j += autoBlocked ? "true" : "false";
   j += ",\"relay2\":";       j += relay2On ? "true" : "false";
 
   j += ",\"buzzerActive\":"; j += buzzerAlerting ? "true" : "false";
@@ -1500,7 +1514,7 @@ void handleMirrorLight() {
     sendApiError(400, "invalid body; expected {\"on\":true|false}");
     return;
   }
-  setMirrorManual(on);
+  setMirrorRequest(on);
   sendJsonState();
 }
 
@@ -1663,6 +1677,8 @@ void handleWaterPacket(const RxItem &item) {
   haveSeq = true;
   lastAnyRxMs = now;
   lastFlags = pkt.flags;
+  fillingActive = (pkt.filling != 0);
+  drainingActive = (pkt.draining != 0);
 
   float p = pkt.percent;
   float d = pkt.distanceCm;
@@ -1676,19 +1692,21 @@ void handleWaterPacket(const RxItem &item) {
 
     lastValidPercent = p;
     lastValidDistanceCm = d;
+    lastValidLitres = pkt.litres;
+    if (lastValidLitres > 750) lastValidLitres = 750;
     lastValidRxMs = now;
     haveValidWater = true;
 
-    updateTrend(p, now);
     updateBuzzerFromWater(p, true);
   }
 
   lastAckSeq = pkt.seq;
   sendStatus();
 
-  DBG("[B] RX seq=%lu valid=%u d=%.1fcm p=%.1f%% flags=0x%04X\n",
+  DBG("[B] RX seq=%lu valid=%u d=%.1fcm p=%.1f%% L=%u fill=%u drain=%u flags=0x%04X\n",
       (unsigned long)pkt.seq, (unsigned)pkt.valid,
-      pkt.distanceCm, pkt.percent, (unsigned)pkt.flags);
+      pkt.distanceCm, pkt.percent, (unsigned)pkt.litres,
+      (unsigned)pkt.filling, (unsigned)pkt.draining, (unsigned)pkt.flags);
 }
 
 void serviceEspNowQueue() {
@@ -1804,6 +1822,13 @@ void setup() {
                 ESP32_A_MAC[3], ESP32_A_MAC[4], ESP32_A_MAC[5]);
   Serial.printf("Relay active level: %s\n", RELAY_ACTIVE_HIGH ? "HIGH" : "LOW");
   Serial.printf("Motor max press: %lu ms\n", (unsigned long)MOTOR_MAX_PRESS_MS);
+  Serial.printf("Buzzer: alert %.1f%%, max %lu s, re-arm below %.1f%%\n",
+                FULL_LEVEL_PERCENT,
+                (unsigned long)(BUZZER_ALERT_MAX_MS / 1000),
+                REARM_PERCENT);
+  Serial.printf("Button GPIO %d: short=stop buzzer, hold %lu ms=mirror override\n",
+                PIN_BTN_BUZZER_STOP,
+                (unsigned long)(BUTTON_LONG_PRESS_MS / 1000));
   Serial.println("Reserved buttons: GPIO 2, 14, 23 (intentionally unassigned)");
   Serial.println("Safe state at boot: relays OFF, RF released, indicators/buzzer OFF");
 #if DEBUG_SERIAL

@@ -6,8 +6,8 @@
   Arduino core : esp32:esp32 3.3.11 (tested build target; 3.x ESP-NOW API)
   Sensor       : JSN-SR04T / AJ-SR04M waterproof ultrasonic distance sensor
   Job          : measure distance -> validate/filter -> send water data over
-                 ESP-NOW to ESP32_B; read two optional motor push buttons and
-                 send START/STOP commands; receive B status for diagnostics.
+                 ESP-NOW to ESP32_B; read FILLING/DRAINING touch probes and
+                 two optional motor push buttons; receive B status.
 
   IMPORTANT HARDWARE NOTES (read README.md before wiring):
   * GPIO logic is 3.3 V.  The JSN-SR04T/AJ-SR04M Echo output is commonly 5 V.
@@ -28,7 +28,8 @@
 
   Protocol (must match ESP32_B.ino):
     WaterPacket   : magic, version, type=1, flags, seq, uptimeMs,
-                    distanceCm, percent, valid, reserved[3], crc16
+                    distanceCm, percent, litres, valid, filling, draining,
+                    reserved[1], crc16
     StatusPacket  : magic, version, type=2, flags, seq, uptimeMs, ackSeq,
                     hcDistanceCm, waterPercent, waterDistanceCm, hcValid,
                     reserved[3], crc16
@@ -73,11 +74,19 @@ static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
 #define BUTTON_ACTIVE_LOW   true
 #define BUTTON_DEBOUNCE_MS  40
 
+// FILLING / DRAINING touch or contact probes, wired GPIO -> probe -> GND.
+// Internal pull-ups are enabled; a probe closure reads LOW.
+#define PIN_TOUCH_FILLING   4
+#define PIN_TOUCH_DRAINING  15
+#define TOUCH_ACTIVE_LOW    true
+#define TOUCH_DEBOUNCE_MS   50
+
 // Calibration: sensor-to-water distance in centimetres.
-static const float FULL_DISTANCE_CM  = 15.0f;   // 100 % (water near sensor)
+static const float FULL_DISTANCE_CM  = 10.0f;   // 10 cm or less = 100 %
 static const float EMPTY_DISTANCE_CM = 120.0f;  // 0 %
-static const float SENSOR_MIN_CM     = 10.0f;   // allow the 15 cm full point
+static const float SENSOR_MIN_CM     = 2.0f;    // allow full/overflow readings
 static const float SENSOR_MAX_CM     = 150.0f;
+static const float TANK_CAPACITY_L   = 750.0f;
 
 // Measurement / filtering.
 static const uint32_t MEASURE_PERIOD_MS  = 1000; // one burst per second
@@ -89,14 +98,16 @@ static const uint32_t MAX_ECHO_US        = 40000;// ~686 cm
 static const float    SOUND_CM_PER_US    = 0.0343f; // ~343 m/s at 20 C
 
 // Sanity / stuck-sensor handling.
+static const float    LEVEL_SMOOTH_ALPHA = 0.35f;  // EMA; reduces display jitter
 static const float    JUMP_LIMIT_CM      = 30.0f;   // sudden impossible jump
 static const uint8_t  JUMP_CONFIRM       = 3;       // accept only if repeated
 static const float    STUCK_EPS_CM       = 0.15f;   // "same value" tolerance
 static const uint32_t STUCK_TIMEOUT_MS   = 600000;  // 10 min bit-identical
 
-// Retry.
+// Retry / periodic internal refresh.
 static const uint8_t  SEND_RETRIES       = 2;
 static const uint32_t SEND_RETRY_MS      = 250;
+static const uint32_t HOURLY_REFRESH_MS  = 3600000;
 
 // Protocol constants (must match ESP32_B).
 #define PROTOCOL_VERSION 1u
@@ -135,8 +146,11 @@ struct __attribute__((packed)) WaterPacket {
   uint32_t uptimeMs;
   float    distanceCm;
   float    percent;
+  uint16_t litres;
   uint8_t  valid;
-  uint8_t  reserved[3];
+  uint8_t  filling;
+  uint8_t  draining;
+  uint8_t  reserved[1];
   uint16_t crc;
 };
 
@@ -217,6 +231,20 @@ LocalButton buttons[2] = {
   {PIN_BTN_STOP,  CMD_MOTOR_STOP,  true, HIGH, 0}
 };
 
+struct TouchInput {
+  int      pin;
+  const char *name;
+  bool     stable;
+  bool     lastReading;
+  uint32_t changedMs;
+};
+TouchInput touchInputs[2] = {
+  {PIN_TOUCH_FILLING,  "FILLING",  true, HIGH, 0},
+  {PIN_TOUCH_DRAINING, "DRAINING", true, HIGH, 0}
+};
+bool     fillingActive  = false;
+bool     drainingActive = false;
+
 CommandPacket commandBurstPacket;
 bool     commandBurstActive = false;
 uint8_t  commandBurstRemaining = 0;
@@ -234,11 +262,24 @@ float    sampleBuf[SAMPLES_PER_CYCLE];
 // Filtering state.
 bool     haveAccepted = false;
 float    lastAcceptedCm = 0.0f;
+float    filteredCm = 0.0f;
+float    lastRawCm = 0.0f;
+bool     haveRaw = false;
 float    lastPercent = 0.0f;
 uint32_t lastValidMs = 0;
 uint8_t  jumpCount = 0;
 uint32_t stuckSinceMs = 0;
 uint32_t packetSeq = 0;
+
+// Last report values, also used for immediate touch-state transmissions.
+bool     lastReportValid = false;
+float    lastReportCm = 0.0f;
+float    lastReportPercent = 0.0f;
+uint16_t lastReportFlags = 0;
+
+// ESP-NOW / hourly refresh.
+bool     espNowReady = false;
+uint32_t lastHourlyRefreshMs = 0;
 
 /* ==========================================================================
    CRC16-CCITT
@@ -296,6 +337,58 @@ float percentFromDistance(float distanceCm) {
   return p;
 }
 
+uint16_t litresFromPercent(float percent) {
+  long litres = lroundf(percent * TANK_CAPACITY_L / 100.0f);
+  if (litres < 0)   litres = 0;
+  if (litres > 750) litres = 750;
+  return (uint16_t)litres;
+}
+
+void queueWaterPacket(bool valid, float distanceCm, float percent,
+                      uint16_t flags) {
+  if (percent < 0.0f)   percent = 0.0f;
+  if (percent > 100.0f) percent = 100.0f;
+
+  memset(&pendingPacket, 0, sizeof(pendingPacket));
+  pendingPacket.magic = PKT_MAGIC;
+  pendingPacket.version = PROTOCOL_VERSION;
+  pendingPacket.type = PKT_DATA;
+  pendingPacket.flags = flags;
+  pendingPacket.seq = ++packetSeq;
+  pendingPacket.uptimeMs = millis();
+  pendingPacket.distanceCm = distanceCm;
+  pendingPacket.percent = percent;
+  pendingPacket.litres = litresFromPercent(percent);
+  pendingPacket.valid = valid ? 1 : 0;
+  pendingPacket.filling = fillingActive ? 1 : 0;
+  pendingPacket.draining = drainingActive ? 1 : 0;
+  pendingPacket.crc = crc16((const uint8_t *)&pendingPacket,
+                            offsetof(WaterPacket, crc));
+
+  lastReportValid = valid;
+  lastReportCm = distanceCm;
+  lastReportPercent = percent;
+  lastReportFlags = flags;
+
+  packetPending = true;
+  retriesLeft = SEND_RETRIES;
+  sendStatus = 0;
+  lastSendAttemptMs = millis();
+  esp_err_t err = esp_now_send(ESP32_B_MAC,
+                               (const uint8_t *)&pendingPacket,
+                               sizeof(pendingPacket));
+  if (err != ESP_OK) {
+    sendStatus = 2;
+    DBG("[A] esp_now_send immediate error: %d\n", (int)err);
+  }
+
+  DBG("[A] TX seq=%lu valid=%u d=%.1fcm p=%.1f%% %uL fill=%u drain=%u flags=0x%04X\n",
+      (unsigned long)pendingPacket.seq, (unsigned)pendingPacket.valid,
+      pendingPacket.distanceCm, pendingPacket.percent,
+      (unsigned)pendingPacket.litres, (unsigned)pendingPacket.filling,
+      (unsigned)pendingPacket.draining, (unsigned)pendingPacket.flags);
+}
+
 void startSample() {
   noInterrupts();
   echoComplete = false;
@@ -344,10 +437,9 @@ void finalizeBurst() {
       jumpCount = 0;
     }
 
-    // Stuck-sensor detection: bit-identical distance for a very long time.
+    // Stuck-sensor detection: bit-identical raw distance for a very long time.
     if (valid) {
-      if (haveAccepted &&
-          fabsf(median - lastAcceptedCm) < STUCK_EPS_CM) {
+      if (haveRaw && fabsf(median - lastRawCm) < STUCK_EPS_CM) {
         if (stuckSinceMs == 0) {
           stuckSinceMs = millis();
         } else if ((uint32_t)(millis() - stuckSinceMs) >= STUCK_TIMEOUT_MS) {
@@ -364,45 +456,24 @@ void finalizeBurst() {
   float reportPercent = haveAccepted ? lastPercent : 0.0f;
 
   if (valid) {
-    lastAcceptedCm = median;
-    lastPercent = percentFromDistance(median);
+    if (!haveAccepted) filteredCm = median;
+    else filteredCm = filteredCm * (1.0f - LEVEL_SMOOTH_ALPHA) +
+                      median * LEVEL_SMOOTH_ALPHA;
+
+    lastRawCm = median;
+    haveRaw = true;
+    lastAcceptedCm = filteredCm;
+    lastPercent = percentFromDistance(filteredCm);
     haveAccepted = true;
     lastValidMs = millis();
     reportCm = lastAcceptedCm;
     reportPercent = lastPercent;
   }
 
-  // Build and queue packet.
-  memset(&pendingPacket, 0, sizeof(pendingPacket));
-  pendingPacket.magic = PKT_MAGIC;
-  pendingPacket.version = PROTOCOL_VERSION;
-  pendingPacket.type = PKT_DATA;
-  pendingPacket.flags = flags;
-  pendingPacket.seq = ++packetSeq;
-  pendingPacket.uptimeMs = millis();
-  pendingPacket.distanceCm = reportCm;
-  pendingPacket.percent = reportPercent;
-  pendingPacket.valid = valid ? 1 : 0;
-  pendingPacket.crc = crc16((const uint8_t *)&pendingPacket,
-                            offsetof(WaterPacket, crc));
+  queueWaterPacket(valid, reportCm, reportPercent, flags);
 
-  packetPending = true;
-  retriesLeft = SEND_RETRIES;
-  sendStatus = 0;
-  lastSendAttemptMs = millis();
-  esp_err_t err = esp_now_send(ESP32_B_MAC,
-                               (const uint8_t *)&pendingPacket,
-                               sizeof(pendingPacket));
-  if (err != ESP_OK) {
-    sendStatus = 2;
-    DBG("[A] esp_now_send immediate error: %d\n", (int)err);
-  }
-
-  DBG("[A] seq=%lu valid=%u d=%.1fcm p=%.1f%% flags=0x%04X samples=%u timeouts=%lu\n",
-      (unsigned long)pendingPacket.seq, (unsigned)pendingPacket.valid,
-      pendingPacket.distanceCm, pendingPacket.percent,
-      (unsigned)pendingPacket.flags, (unsigned)validCount,
-      (unsigned long)timeoutCount);
+  DBG("[A] measurement: valid=%u samples=%u timeouts=%lu\n",
+      (unsigned)valid, (unsigned)validCount, (unsigned long)timeoutCount);
 }
 
 void serviceMeasurement() {
@@ -423,7 +494,7 @@ void serviceMeasurement() {
       uint32_t width = fall - rise;
       if (width >= MIN_ECHO_US && width <= MAX_ECHO_US) {
         cm = (float)width * SOUND_CM_PER_US * 0.5f;
-        sampleValid = (cm >= 10.0f && cm <= 400.0f);
+        sampleValid = (cm >= SENSOR_MIN_CM && cm <= SENSOR_MAX_CM);
       }
       sampleDone = true;
     } else if ((int32_t)(micros() - waitDeadlineUs) >= 0) {
@@ -562,6 +633,53 @@ void serviceButtons() {
 }
 
 /* ==========================================================================
+   FILLING / DRAINING TOUCH PROBES
+   ========================================================================== */
+
+bool touchReadingActive(int reading) {
+  return TOUCH_ACTIVE_LOW ? (reading == LOW) : (reading == HIGH);
+}
+
+void setupTouchInputs() {
+  for (uint8_t i = 0; i < 2; i++) {
+    pinMode(touchInputs[i].pin, INPUT_PULLUP);
+    touchInputs[i].lastReading = digitalRead(touchInputs[i].pin);
+    touchInputs[i].stable = touchInputs[i].lastReading;
+    touchInputs[i].changedMs = millis();
+  }
+  fillingActive = touchReadingActive(touchInputs[0].stable);
+  drainingActive = touchReadingActive(touchInputs[1].stable);
+}
+
+void serviceTouchInputs() {
+  for (uint8_t i = 0; i < 2; i++) {
+    TouchInput &t = touchInputs[i];
+    int reading = digitalRead(t.pin);
+
+    if (reading != t.lastReading) {
+      t.lastReading = reading;
+      t.changedMs = millis();
+    }
+
+    if ((uint32_t)(millis() - t.changedMs) >= TOUCH_DEBOUNCE_MS &&
+        reading != t.stable) {
+      t.stable = reading;
+      bool active = touchReadingActive(reading);
+      bool wasActive = (i == 0) ? fillingActive : drainingActive;
+
+      if (active != wasActive) {
+        if (i == 0) fillingActive = active;
+        else        drainingActive = active;
+
+        DBG("[A] %s touch %s\n", t.name, active ? "ACTIVE" : "released");
+        queueWaterPacket(lastReportValid, lastReportCm, lastReportPercent,
+                         lastReportFlags);
+      }
+    }
+  }
+}
+
+/* ==========================================================================
    ESP-NOW
    ========================================================================== */
 
@@ -592,24 +710,7 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
   interrupts();
 }
 
-void setupEspNow() {
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
-  WiFi.setSleep(false);
-
-  if (esp_now_init() != ESP_OK) {
-    DBGLN("[A] ESP-NOW init FAILED");
-    return;
-  }
-
-  esp_err_t chErr = esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
-  if (chErr != ESP_OK) {
-    DBG("[A] esp_wifi_set_channel failed: %d\n", (int)chErr);
-  }
-
-  esp_now_register_send_cb(onDataSent);
-  esp_now_register_recv_cb(onDataRecv);
-
+bool ensureEspNowPeer() {
   esp_now_peer_info_t peer;
   memset(&peer, 0, sizeof(peer));
   memcpy(peer.peer_addr, ESP32_B_MAC, 6);
@@ -617,14 +718,66 @@ void setupEspNow() {
   peer.encrypt = false;
   peer.ifidx = WIFI_IF_STA;
 
+  if (esp_now_is_peer_exist(ESP32_B_MAC)) return true;
+
   esp_err_t addErr = esp_now_add_peer(&peer);
   if (addErr != ESP_OK && addErr != ESP_ERR_ESPNOW_EXIST) {
     DBG("[A] esp_now_add_peer failed: %d\n", (int)addErr);
+    return false;
   }
+  return true;
+}
+
+bool ensureEspNow() {
+  if (!espNowReady) {
+    if (esp_now_init() != ESP_OK) {
+      DBGLN("[A] ESP-NOW init FAILED");
+      return false;
+    }
+    espNowReady = true;
+    esp_now_register_send_cb(onDataSent);
+    esp_now_register_recv_cb(onDataRecv);
+  }
+
+  esp_err_t chErr = esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  if (chErr != ESP_OK) {
+    DBG("[A] esp_wifi_set_channel failed: %d\n", (int)chErr);
+  }
+
+  if (!ensureEspNowPeer()) return false;
 
   DBG("[A] ESP-NOW ready, channel %d, peer %02X:%02X:%02X:%02X:%02X:%02X\n",
       WIFI_CHANNEL, ESP32_B_MAC[0], ESP32_B_MAC[1], ESP32_B_MAC[2],
       ESP32_B_MAC[3], ESP32_B_MAC[4], ESP32_B_MAC[5]);
+  return true;
+}
+
+void setupEspNow() {
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  WiFi.setSleep(false);
+  ensureEspNow();
+}
+
+void serviceHourlyRefresh() {
+  if ((uint32_t)(millis() - lastHourlyRefreshMs) < HOURLY_REFRESH_MS) return;
+  lastHourlyRefreshMs = millis();
+  DBGLN("[A] Hourly internal refresh");
+
+  noInterrupts();
+  echoComplete = false;
+  echoActive = false;
+  interrupts();
+
+  waitingEcho = false;
+  samplesTaken = 0;
+  validCount = 0;
+  timeoutCount = 0;
+  nextActionMs = millis() + 50;
+
+  if (!ensureEspNow()) {
+    DBGLN("[A] Hourly refresh could not restore ESP-NOW; will retry next hour");
+  }
 }
 
 /* ==========================================================================
@@ -646,7 +799,9 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(PIN_ECHO), echoISR, CHANGE);
 
   setupButtons();
+  setupTouchInputs();
   setupEspNow();
+  lastHourlyRefreshMs = millis();
 
   uint8_t mac[6];
   WiFi.macAddress(mac);
@@ -658,8 +813,10 @@ void setup() {
   Serial.printf("Channel: %d (must match ESP32_B AP channel)\n", WIFI_CHANNEL);
   Serial.printf("START button GPIO: %d, STOP button GPIO: %d (-1 = disabled)\n",
                 PIN_BTN_START, PIN_BTN_STOP);
-  Serial.printf("Calibration: full %.1f cm, empty %.1f cm\n",
-                FULL_DISTANCE_CM, EMPTY_DISTANCE_CM);
+  Serial.printf("Touch probes: FILLING GPIO %d, DRAINING GPIO %d (active LOW)\n",
+                PIN_TOUCH_FILLING, PIN_TOUCH_DRAINING);
+  Serial.printf("Calibration: full %.1f cm, empty %.1f cm, capacity %.0f L\n",
+                FULL_DISTANCE_CM, EMPTY_DISTANCE_CM, TANK_CAPACITY_L);
 #if DEBUG_SERIAL
   Serial.println("Diagnostics: ENABLED");
 #else
@@ -675,6 +832,8 @@ void loop() {
   serviceSendRetry();
   serviceCommandBurst();
   serviceButtons();
+  serviceTouchInputs();
+  serviceHourlyRefresh();
 
   static uint32_t lastStatusPrintMs = 0;
   static uint32_t lastStatusSeen = 0;
