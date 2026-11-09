@@ -29,20 +29,25 @@
   Protocol (must match ESP32_B.ino):
     WaterPacket   : magic, version, type=1, flags, seq, uptimeMs,
                     distanceCm, percent, litres, valid, filling, draining,
-                    reserved[1], crc16
+                    validEchoes, timeoutEchoes, resetReason, reserved,
+                    settingsRevision, crc16
     StatusPacket  : magic, version, type=2, flags, seq, uptimeMs, ackSeq,
                     hcDistanceCm, waterPercent, waterDistanceCm, hcValid,
                     reserved[3], crc16
     CommandPacket : magic, version, type=3, command, pressed, seq, uptimeMs,
                     reserved[4], crc16
+    SettingsPacket: magic, version, type=4, revision, calibration/filter config,
+                    crc16
     All structs are packed; CRC16-CCITT over all bytes except trailing crc.
   ============================================================================
 */
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <Preferences.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
+#include <esp_system.h>
 #include <math.h>
 #include <stddef.h>
 #include <string.h>
@@ -81,29 +86,32 @@ static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
 #define TOUCH_ACTIVE_LOW    true
 #define TOUCH_DEBOUNCE_MS   50
 
-// Calibration: sensor-to-water distance in centimetres.
-static const float FULL_DISTANCE_CM  = 10.0f;   // 10 cm or less = 100 %
-static const float EMPTY_DISTANCE_CM = 76.0f;   // calibrated empty tank = 0 %
-static const float EMPTY_DEADBAND_CM = 2.0f;    // keep a true empty tank at 0 %
-static const float SENSOR_MIN_CM     = 2.0f;    // allow full/overflow readings
-static const float SENSOR_MAX_CM     = 150.0f;
-static const float TANK_CAPACITY_L   = 750.0f;
+// Calibration defaults. These are runtime settings saved in NVS and can be
+// updated from the ESP32_B admin page without recompiling ESP32_A.
+#define DEF_FULL_DISTANCE_CM   10.0f
+#define DEF_EMPTY_DISTANCE_CM  76.0f
+#define DEF_EMPTY_DEADBAND_CM   2.0f
+#define DEF_SENSOR_MIN_CM       2.0f
+#define DEF_SENSOR_MAX_CM     150.0f
+#define DEF_TANK_CAPACITY_L   750.0f
+#define DEF_MEASURE_PERIOD_MS  1000u
+#define DEF_SAMPLES_PER_CYCLE     5u
+#define DEF_SAMPLE_SPACING_MS    60u
+#define DEF_LEVEL_SMOOTH_ALPHA  0.35f
+#define DEF_JUMP_LIMIT_CM       30.0f
+#define DEF_JUMP_CONFIRM          3u
+#define DEF_STUCK_TIMEOUT_MS 600000u
 
-// Measurement / filtering.
-static const uint32_t MEASURE_PERIOD_MS  = 1000; // one burst per second
-static const uint8_t  SAMPLES_PER_CYCLE  = 5;    // median of up to five echoes
-static const uint32_t SAMPLE_SPACING_MS  = 60;   // avoids echo cross-talk
+#define MAX_SAMPLES_PER_CYCLE     9u
+#define SETTINGS_MAGIC 0x41535432UL   // "AST2"
+#define SETTINGS_VERSION 1u
+
+// Physical sensor limits and shared constants.
 static const uint32_t ECHO_TIMEOUT_US    = 60000;// 60 ms no-echo timeout
 static const uint32_t MIN_ECHO_US        = 100;  // ~1.7 cm
 static const uint32_t MAX_ECHO_US        = 40000;// ~686 cm
 static const float    SOUND_CM_PER_US    = 0.0343f; // ~343 m/s at 20 C
-
-// Sanity / stuck-sensor handling.
-static const float    LEVEL_SMOOTH_ALPHA = 0.35f;  // EMA; reduces display jitter
-static const float    JUMP_LIMIT_CM      = 30.0f;   // sudden impossible jump
-static const uint8_t  JUMP_CONFIRM       = 3;       // accept only if repeated
 static const float    STUCK_EPS_CM       = 0.15f;   // "same value" tolerance
-static const uint32_t STUCK_TIMEOUT_MS   = 600000;  // 10 min bit-identical
 
 // Retry / periodic internal refresh.
 static const uint8_t  SEND_RETRIES       = 2;
@@ -111,7 +119,7 @@ static const uint32_t SEND_RETRY_MS      = 250;
 static const uint32_t HOURLY_REFRESH_MS  = 3600000;
 
 // Protocol constants (must match ESP32_B).
-#define PROTOCOL_VERSION 1u
+#define PROTOCOL_VERSION 2u
 #define PKT_MAGIC 0x57544131UL   // "WTA1"
 
 #define FLAG_NO_ECHO  0x0001u
@@ -121,13 +129,15 @@ static const uint32_t HOURLY_REFRESH_MS  = 3600000;
 #define FLAG_TIMEOUT  0x0010u
 
 enum PktType : uint8_t {
-  PKT_DATA    = 1,
-  PKT_STATUS  = 2,
-  PKT_COMMAND = 3
+  PKT_DATA     = 1,
+  PKT_STATUS   = 2,
+  PKT_COMMAND  = 3,
+  PKT_SETTINGS = 4
 };
 
 #define CMD_MOTOR_START 1u
 #define CMD_MOTOR_STOP  2u
+#define CMD_REBOOT_A    3u
 
 // Status flag bits (same meanings in both sketches).
 #define STATUS_RELAY1       0x0001u
@@ -151,7 +161,11 @@ struct __attribute__((packed)) WaterPacket {
   uint8_t  valid;
   uint8_t  filling;
   uint8_t  draining;
-  uint8_t  reserved[1];
+  uint8_t  validEchoes;
+  uint8_t  timeoutEchoes;
+  uint8_t  resetReason;
+  uint8_t  reserved;
+  uint32_t settingsRevision;
   uint16_t crc;
 };
 
@@ -183,6 +197,54 @@ struct __attribute__((packed)) CommandPacket {
   uint16_t crc;
 };
 
+struct __attribute__((packed)) SettingsPacket {
+  uint32_t magic;
+  uint8_t  version;
+  uint8_t  type;
+  uint16_t reserved0;
+  uint32_t revision;
+  float    fullDistanceCm;
+  float    emptyDistanceCm;
+  float    emptyDeadbandCm;
+  float    tankCapacityL;
+  float    sensorMinCm;
+  float    sensorMaxCm;
+  float    smoothAlpha;
+  float    jumpLimitCm;
+  uint32_t stuckTimeoutMs;
+  uint16_t measurePeriodMs;
+  uint16_t sampleSpacingMs;
+  uint8_t  jumpConfirm;
+  uint8_t  samplesPerCycle;
+  uint8_t  reserved[2];
+  uint16_t crc;
+};
+
+struct __attribute__((packed)) ASettings {
+  uint32_t magic;
+  uint16_t version;
+  uint16_t reserved0;
+  uint32_t revision;
+  float    fullDistanceCm;
+  float    emptyDistanceCm;
+  float    emptyDeadbandCm;
+  float    tankCapacityL;
+  float    sensorMinCm;
+  float    sensorMaxCm;
+  float    smoothAlpha;
+  float    jumpLimitCm;
+  uint32_t stuckTimeoutMs;
+  uint16_t measurePeriodMs;
+  uint16_t sampleSpacingMs;
+  uint8_t  jumpConfirm;
+  uint8_t  samplesPerCycle;
+  uint8_t  reserved[2];
+};
+
+static_assert(sizeof(WaterPacket) == 39, "WaterPacket size must match ESP32_B");
+static_assert(sizeof(SettingsPacket) == 58, "SettingsPacket size must match ESP32_B");
+static_assert(sizeof(ASettings) == 56, "ASettings NVS blob layout changed");
+
 /* ==========================================================================
    DEBUG MACROS
    ========================================================================== */
@@ -210,6 +272,8 @@ volatile uint32_t lastStatusAckSeq = 0;
 volatile uint32_t lastStatusMs = 0;
 volatile uint32_t suppressSendCbUntilMs = 0;
 
+Preferences prefsA;
+ASettings   cfg;
 WaterPacket pendingPacket;
 bool     packetPending = false;
 uint8_t  retriesLeft = 0;
@@ -218,6 +282,10 @@ uint32_t lastSendAttemptMs = 0;
 // Received ESP32_B status (for diagnostics and delivery confirmation).
 StatusPacket lastStatus;
 volatile bool haveStatus = false;
+volatile bool rebootRequested = false;
+uint8_t lastValidEchoes = 0;
+uint8_t lastTimeoutEchoes = 0;
+uint8_t bootResetReason = 0;
 
 // Optional START/STOP buttons on this board.
 struct LocalButton {
@@ -258,7 +326,7 @@ uint32_t nextActionMs = 0;
 uint8_t  samplesTaken = 0;
 uint8_t  validCount = 0;
 uint32_t timeoutCount = 0;
-float    sampleBuf[SAMPLES_PER_CYCLE];
+float    sampleBuf[MAX_SAMPLES_PER_CYCLE];
 
 // Filtering state.
 bool     haveAccepted = false;
@@ -299,6 +367,152 @@ uint16_t crc16(const uint8_t *data, size_t len) {
 }
 
 /* ==========================================================================
+   PERSISTENT SETTINGS
+   ========================================================================== */
+
+void defaultASettings(ASettings &c) {
+  memset(&c, 0, sizeof(c));
+  c.magic = SETTINGS_MAGIC;
+  c.version = SETTINGS_VERSION;
+  c.revision = 1;
+  c.fullDistanceCm = DEF_FULL_DISTANCE_CM;
+  c.emptyDistanceCm = DEF_EMPTY_DISTANCE_CM;
+  c.emptyDeadbandCm = DEF_EMPTY_DEADBAND_CM;
+  c.tankCapacityL = DEF_TANK_CAPACITY_L;
+  c.sensorMinCm = DEF_SENSOR_MIN_CM;
+  c.sensorMaxCm = DEF_SENSOR_MAX_CM;
+  c.smoothAlpha = DEF_LEVEL_SMOOTH_ALPHA;
+  c.jumpLimitCm = DEF_JUMP_LIMIT_CM;
+  c.stuckTimeoutMs = DEF_STUCK_TIMEOUT_MS;
+  c.measurePeriodMs = DEF_MEASURE_PERIOD_MS;
+  c.sampleSpacingMs = DEF_SAMPLE_SPACING_MS;
+  c.jumpConfirm = DEF_JUMP_CONFIRM;
+  c.samplesPerCycle = DEF_SAMPLES_PER_CYCLE;
+}
+
+void clampASettings(ASettings &c) {
+  if (!isfinite(c.fullDistanceCm)) c.fullDistanceCm = DEF_FULL_DISTANCE_CM;
+  if (!isfinite(c.emptyDistanceCm)) c.emptyDistanceCm = DEF_EMPTY_DISTANCE_CM;
+  if (!isfinite(c.emptyDeadbandCm)) c.emptyDeadbandCm = DEF_EMPTY_DEADBAND_CM;
+  if (!isfinite(c.tankCapacityL)) c.tankCapacityL = DEF_TANK_CAPACITY_L;
+  if (!isfinite(c.sensorMinCm)) c.sensorMinCm = DEF_SENSOR_MIN_CM;
+  if (!isfinite(c.sensorMaxCm)) c.sensorMaxCm = DEF_SENSOR_MAX_CM;
+  if (!isfinite(c.smoothAlpha)) c.smoothAlpha = DEF_LEVEL_SMOOTH_ALPHA;
+  if (!isfinite(c.jumpLimitCm)) c.jumpLimitCm = DEF_JUMP_LIMIT_CM;
+
+  c.fullDistanceCm = constrain(c.fullDistanceCm, 1.0f, 120.0f);
+  c.sensorMinCm = constrain(c.sensorMinCm, 1.0f, 100.0f);
+  c.sensorMaxCm = constrain(c.sensorMaxCm, c.sensorMinCm + 5.0f, 400.0f);
+  c.emptyDistanceCm = constrain(c.emptyDistanceCm, c.fullDistanceCm + 3.0f, 300.0f);
+  c.emptyDeadbandCm = constrain(c.emptyDeadbandCm, 0.0f, 20.0f);
+  if (c.emptyDistanceCm - c.emptyDeadbandCm <= c.fullDistanceCm + 1.0f) {
+    c.emptyDeadbandCm = 0.0f;
+  }
+  c.tankCapacityL = constrain(c.tankCapacityL, 1.0f, 65000.0f);
+  c.smoothAlpha = constrain(c.smoothAlpha, 0.05f, 0.95f);
+  c.jumpLimitCm = constrain(c.jumpLimitCm, 5.0f, 100.0f);
+  c.jumpConfirm = constrain(c.jumpConfirm, 1, 10);
+  c.samplesPerCycle = constrain(c.samplesPerCycle, 3, MAX_SAMPLES_PER_CYCLE);
+  c.measurePeriodMs = constrain(c.measurePeriodMs, 200, 10000);
+  c.sampleSpacingMs = constrain(c.sampleSpacingMs, 20, 500);
+  c.stuckTimeoutMs = constrain(c.stuckTimeoutMs, 10000UL, 86400000UL);
+}
+
+bool loadASettings() {
+  prefsA.begin("water-a", false);
+  size_t got = prefsA.getBytesLength("cfg");
+  if (got == sizeof(cfg)) {
+    prefsA.getBytes("cfg", &cfg, sizeof(cfg));
+    if (cfg.magic != SETTINGS_MAGIC || cfg.version != SETTINGS_VERSION) {
+      defaultASettings(cfg);
+      prefsA.putBytes("cfg", &cfg, sizeof(cfg));
+    }
+  } else {
+    defaultASettings(cfg);
+    prefsA.putBytes("cfg", &cfg, sizeof(cfg));
+  }
+  clampASettings(cfg);
+  return true;
+}
+
+void saveASettings() {
+  prefsA.putBytes("cfg", &cfg, sizeof(cfg));
+  DBG("[CFG] saved rev=%lu samples=%u period=%ums\n",
+      (unsigned long)cfg.revision, cfg.samplesPerCycle, cfg.measurePeriodMs);
+}
+
+void resetMeasurementState() {
+  noInterrupts();
+  waitingEcho = false;
+  echoActive = false;
+  echoComplete = false;
+  interrupts();
+  samplesTaken = 0;
+  validCount = 0;
+  timeoutCount = 0;
+  haveRaw = false;
+  jumpCount = 0;
+  stuckSinceMs = 0;
+  nextActionMs = millis() + 50;
+}
+
+bool settingsBodyEqual(const ASettings &a, const ASettings &b) {
+  return a.fullDistanceCm == b.fullDistanceCm &&
+         a.emptyDistanceCm == b.emptyDistanceCm &&
+         a.emptyDeadbandCm == b.emptyDeadbandCm &&
+         a.tankCapacityL == b.tankCapacityL &&
+         a.sensorMinCm == b.sensorMinCm &&
+         a.sensorMaxCm == b.sensorMaxCm &&
+         a.smoothAlpha == b.smoothAlpha &&
+         a.jumpLimitCm == b.jumpLimitCm &&
+         a.stuckTimeoutMs == b.stuckTimeoutMs &&
+         a.measurePeriodMs == b.measurePeriodMs &&
+         a.sampleSpacingMs == b.sampleSpacingMs &&
+         a.jumpConfirm == b.jumpConfirm &&
+         a.samplesPerCycle == b.samplesPerCycle;
+}
+
+bool applySettingsPacket(const uint8_t *data, int len) {
+  if (len != (int)sizeof(SettingsPacket)) return false;
+  SettingsPacket pkt;
+  memcpy(&pkt, data, sizeof(pkt));
+  if (pkt.magic != PKT_MAGIC || pkt.version != PROTOCOL_VERSION ||
+      pkt.type != PKT_SETTINGS) return false;
+  uint16_t expected = crc16((const uint8_t *)&pkt, sizeof(pkt) - sizeof(pkt.crc));
+  if (pkt.crc != expected) return false;
+
+  ASettings next;
+  memset(&next, 0, sizeof(next));
+  next.magic = SETTINGS_MAGIC;
+  next.version = SETTINGS_VERSION;
+  next.revision = pkt.revision;
+  next.fullDistanceCm = pkt.fullDistanceCm;
+  next.emptyDistanceCm = pkt.emptyDistanceCm;
+  next.emptyDeadbandCm = pkt.emptyDeadbandCm;
+  next.tankCapacityL = pkt.tankCapacityL;
+  next.sensorMinCm = pkt.sensorMinCm;
+  next.sensorMaxCm = pkt.sensorMaxCm;
+  next.smoothAlpha = pkt.smoothAlpha;
+  next.jumpLimitCm = pkt.jumpLimitCm;
+  next.stuckTimeoutMs = pkt.stuckTimeoutMs;
+  next.measurePeriodMs = pkt.measurePeriodMs;
+  next.sampleSpacingMs = pkt.sampleSpacingMs;
+  next.jumpConfirm = pkt.jumpConfirm;
+  next.samplesPerCycle = pkt.samplesPerCycle;
+  clampASettings(next);
+
+  if (next.revision == cfg.revision && settingsBodyEqual(next, cfg)) return true;
+
+  cfg = next;
+  saveASettings();
+  resetMeasurementState();
+  DBG("[CFG] applied rev=%lu full=%.1f empty=%.1f dead=%.1f cap=%.0f\n",
+      (unsigned long)cfg.revision, cfg.fullDistanceCm, cfg.emptyDistanceCm,
+      cfg.emptyDeadbandCm, cfg.tankCapacityL);
+  return true;
+}
+
+/* ==========================================================================
    ULTRASONIC SENSOR
    ========================================================================== */
 
@@ -316,7 +530,7 @@ void IRAM_ATTR echoISR() {
 }
 
 float medianOf(float *values, uint8_t count) {
-  // Small insertion sort; count <= SAMPLES_PER_CYCLE.
+  // Small insertion sort; count <= MAX_SAMPLES_PER_CYCLE.
   for (uint8_t i = 1; i < count; i++) {
     float key = values[i];
     int8_t j = (int8_t)i - 1;
@@ -331,19 +545,21 @@ float medianOf(float *values, uint8_t count) {
 }
 
 float percentFromDistance(float distanceCm) {
-  if (distanceCm >= EMPTY_DISTANCE_CM - EMPTY_DEADBAND_CM) return 0.0f;
+  if (distanceCm >= cfg.emptyDistanceCm - cfg.emptyDeadbandCm) return 0.0f;
 
-  float p = (EMPTY_DISTANCE_CM - distanceCm) /
-            (EMPTY_DISTANCE_CM - FULL_DISTANCE_CM) * 100.0f;
+  float p = (cfg.emptyDistanceCm - distanceCm) /
+            (cfg.emptyDistanceCm - cfg.fullDistanceCm) * 100.0f;
   if (p < 0.0f)   p = 0.0f;
   if (p > 100.0f) p = 100.0f;
   return p;
 }
 
 uint16_t litresFromPercent(float percent) {
-  long litres = lroundf(percent * TANK_CAPACITY_L / 100.0f);
-  if (litres < 0)   litres = 0;
-  if (litres > 750) litres = 750;
+  long litres = lroundf(percent * cfg.tankCapacityL / 100.0f);
+  long maxLitres = lroundf(cfg.tankCapacityL);
+  if (litres < 0) litres = 0;
+  if (litres > maxLitres) litres = maxLitres;
+  if (litres > 65535) litres = 65535;
   return (uint16_t)litres;
 }
 
@@ -365,6 +581,10 @@ void queueWaterPacket(bool valid, float distanceCm, float percent,
   pendingPacket.valid = valid ? 1 : 0;
   pendingPacket.filling = fillingActive ? 1 : 0;
   pendingPacket.draining = drainingActive ? 1 : 0;
+  pendingPacket.validEchoes = lastValidEchoes;
+  pendingPacket.timeoutEchoes = lastTimeoutEchoes;
+  pendingPacket.resetReason = bootResetReason;
+  pendingPacket.settingsRevision = cfg.revision;
   pendingPacket.crc = crc16((const uint8_t *)&pendingPacket,
                             offsetof(WaterPacket, crc));
 
@@ -421,16 +641,16 @@ void finalizeBurst() {
   } else {
     median = medianOf(sampleBuf, validCount);
 
-    if (median < SENSOR_MIN_CM || median > SENSOR_MAX_CM) {
+    if (median < cfg.sensorMinCm || median > cfg.sensorMaxCm) {
       valid = false;
       flags |= FLAG_RANGE;
     }
 
     // Reject single/few sudden jumps; accept only if the new value repeats.
     if (valid && haveAccepted &&
-        fabsf(median - lastAcceptedCm) > JUMP_LIMIT_CM) {
+        fabsf(median - lastAcceptedCm) > cfg.jumpLimitCm) {
       jumpCount++;
-      if (jumpCount < JUMP_CONFIRM) {
+      if (jumpCount < cfg.jumpConfirm) {
         valid = false;
         flags |= FLAG_JUMP;
       } else {
@@ -445,7 +665,7 @@ void finalizeBurst() {
       if (haveRaw && fabsf(median - lastRawCm) < STUCK_EPS_CM) {
         if (stuckSinceMs == 0) {
           stuckSinceMs = millis();
-        } else if ((uint32_t)(millis() - stuckSinceMs) >= STUCK_TIMEOUT_MS) {
+        } else if ((uint32_t)(millis() - stuckSinceMs) >= cfg.stuckTimeoutMs) {
           valid = false;
           flags |= FLAG_STUCK;
         }
@@ -460,8 +680,8 @@ void finalizeBurst() {
 
   if (valid) {
     if (!haveAccepted) filteredCm = median;
-    else filteredCm = filteredCm * (1.0f - LEVEL_SMOOTH_ALPHA) +
-                      median * LEVEL_SMOOTH_ALPHA;
+    else filteredCm = filteredCm * (1.0f - cfg.smoothAlpha) +
+                      median * cfg.smoothAlpha;
 
     lastRawCm = median;
     haveRaw = true;
@@ -473,6 +693,8 @@ void finalizeBurst() {
     reportPercent = lastPercent;
   }
 
+  lastValidEchoes = validCount;
+  lastTimeoutEchoes = timeoutCount > 255 ? 255 : (uint8_t)timeoutCount;
   queueWaterPacket(valid, reportCm, reportPercent, flags);
 
   DBG("[A] measurement: valid=%u samples=%u timeouts=%lu\n",
@@ -497,7 +719,7 @@ void serviceMeasurement() {
       uint32_t width = fall - rise;
       if (width >= MIN_ECHO_US && width <= MAX_ECHO_US) {
         cm = (float)width * SOUND_CM_PER_US * 0.5f;
-        sampleValid = (cm >= SENSOR_MIN_CM && cm <= SENSOR_MAX_CM);
+        sampleValid = (cm >= cfg.sensorMinCm && cm <= cfg.sensorMaxCm);
       }
       sampleDone = true;
     } else if ((int32_t)(micros() - waitDeadlineUs) >= 0) {
@@ -506,19 +728,19 @@ void serviceMeasurement() {
     }
 
     if (sampleDone) {
-      if (sampleValid && validCount < SAMPLES_PER_CYCLE) {
+      if (sampleValid && validCount < cfg.samplesPerCycle) {
         sampleBuf[validCount++] = cm;
       }
       waitingEcho = false;
 
-      if (samplesTaken >= SAMPLES_PER_CYCLE) {
+      if (samplesTaken >= cfg.samplesPerCycle) {
         finalizeBurst();
         samplesTaken = 0;
         validCount = 0;
         timeoutCount = 0;
-        nextActionMs = millis() + MEASURE_PERIOD_MS;
+        nextActionMs = millis() + cfg.measurePeriodMs;
       } else {
-        nextActionMs = millis() + SAMPLE_SPACING_MS;
+        nextActionMs = millis() + cfg.sampleSpacingMs;
       }
     }
     return;
@@ -696,21 +918,39 @@ void onDataSent(const esp_now_send_info_t *txInfo, esp_now_send_status_t status)
 // ESP32 Arduino core 3.x signature.
 void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
   (void)info;
-  if (len != (int)sizeof(StatusPacket)) return;
+  if (len == (int)sizeof(StatusPacket)) {
+    StatusPacket st;
+    memcpy(&st, data, sizeof(st));
+    if (st.magic != PKT_MAGIC || st.version != PROTOCOL_VERSION ||
+        st.type != PKT_STATUS) return;
+    if (st.crc != crc16((const uint8_t *)&st, offsetof(StatusPacket, crc))) return;
 
-  StatusPacket st;
-  memcpy(&st, data, sizeof(st));
-  if (st.magic != PKT_MAGIC || st.version != PROTOCOL_VERSION ||
-      st.type != PKT_STATUS) return;
-  if (st.crc != crc16((const uint8_t *)&st, offsetof(StatusPacket, crc))) return;
+    noInterrupts();
+    lastStatus = st;
+    haveStatus = true;
+    lastStatusAckSeq = st.ackSeq;
+    lastStatusMs = millis();
+    statusCount = statusCount + 1;
+    interrupts();
+    return;
+  }
 
-  noInterrupts();
-  lastStatus = st;
-  haveStatus = true;
-  lastStatusAckSeq = st.ackSeq;
-  lastStatusMs = millis();
-  statusCount = statusCount + 1;
-  interrupts();
+  if (len == (int)sizeof(SettingsPacket)) {
+    applySettingsPacket(data, len);
+    return;
+  }
+
+  if (len == (int)sizeof(CommandPacket)) {
+    CommandPacket cmd;
+    memcpy(&cmd, data, sizeof(cmd));
+    if (cmd.magic != PKT_MAGIC || cmd.version != PROTOCOL_VERSION ||
+        cmd.type != PKT_COMMAND) return;
+    if (cmd.crc != crc16((const uint8_t *)&cmd, offsetof(CommandPacket, crc))) return;
+    if (cmd.command == CMD_REBOOT_A) {
+      DBGLN("[A] Reboot requested by ESP32_B admin");
+      rebootRequested = true;
+    }
+  }
 }
 
 bool ensureEspNowPeer() {
@@ -795,6 +1035,12 @@ void setup() {
   Serial.println(" Smart Water Tank - ESP32_A rooftop sensor");
   Serial.println("==============================================");
 
+  bootResetReason = (uint8_t)esp_reset_reason();
+  loadASettings();
+  Serial.printf("Settings rev %lu (samples=%u, period=%ums, alpha=%.2f)\n",
+                (unsigned long)cfg.revision, cfg.samplesPerCycle,
+                cfg.measurePeriodMs, cfg.smoothAlpha);
+
   // Safe output state first: trigger low; optional buttons are inputs.
   digitalWrite(PIN_TRIG, LOW);
   pinMode(PIN_TRIG, OUTPUT);
@@ -819,8 +1065,8 @@ void setup() {
   Serial.printf("Touch probes: FILLING GPIO %d, DRAINING GPIO %d (active LOW)\n",
                 PIN_TOUCH_FILLING, PIN_TOUCH_DRAINING);
   Serial.printf("Calibration: full %.1f cm, empty %.1f cm, deadband %.1f cm, capacity %.0f L\n",
-                FULL_DISTANCE_CM, EMPTY_DISTANCE_CM, EMPTY_DEADBAND_CM,
-                TANK_CAPACITY_L);
+                cfg.fullDistanceCm, cfg.emptyDistanceCm, cfg.emptyDeadbandCm,
+                cfg.tankCapacityL);
 #if DEBUG_SERIAL
   Serial.println("Diagnostics: ENABLED");
 #else
@@ -838,6 +1084,12 @@ void loop() {
   serviceButtons();
   serviceTouchInputs();
   serviceHourlyRefresh();
+
+  if (rebootRequested) {
+    rebootRequested = false;
+    delay(50);
+    ESP.restart();
+  }
 
   static uint32_t lastStatusPrintMs = 0;
   static uint32_t lastStatusSeen = 0;

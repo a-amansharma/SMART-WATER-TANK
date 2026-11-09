@@ -75,6 +75,77 @@ header{min-height:clamp(54px,8.6vh,70px);flex:none;display:flex;align-items:cent
 .buzzer-btn{width:min(100%,198px);border:1px solid #bd1b32;background:linear-gradient(145deg,#ff7584,#db2340 58%,#b51631);color:#fff;border-radius:15px;padding:clamp(13px,2.1vh,18px) 10px;font-size:clamp(12px,2vh,15px);font-weight:950;letter-spacing:.45px;white-space:nowrap;box-shadow:inset 0 2px 0 #ffffff66,0 6px 0 #901127,0 10px 15px #d91f3d33;cursor:pointer;text-shadow:0 1px 1px #780d1f88}
 .buzzer-btn:active{transform:translateY(5px);box-shadow:inset 0 2px 3px #0004,0 1px 0 #901127}
 footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:1.2;color:#4e6178;font-weight:950;letter-spacing:.5px;white-space:nowrap;padding-bottom:2px;margin-bottom:clamp(8px,2vh,20px);text-shadow:0 1px 0 #fff}
+
+.head-actions{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
+.admin-open{border:1px solid #9ecbb3;background:linear-gradient(180deg,#ffffff,#e7f8ee);color:#087c4a;border-radius:11px;padding:6px 11px;font-size:10px;font-weight:950;letter-spacing:.8px;box-shadow:inset 0 1px 0 #fff,0 3px 0 #b9d8c7,0 5px 9px #102b4514;cursor:pointer}
+.admin-open:active{transform:translateY(2px);box-shadow:inset 0 1px 3px #102b4520,0 1px 0 #b9d8c7}
+.admin-overlay{position:fixed;inset:0;z-index:50;background:linear-gradient(155deg,#f7fcff 0%,#eef7f2 50%,#e9f1f8 100%);overflow-y:auto;overscroll-behavior:contain;padding:14px 14px max(24px,env(safe-area-inset-bottom));display:block}
+.admin-overlay[hidden],.login-overlay[hidden],.admin-notice[hidden]{display:none!important}
+.admin-shell{width:min(100%,980px);margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.admin-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.admin-eyebrow{font-size:10px;font-weight:950;letter-spacing:1.4px;color:#0e9a63}
+.admin-head h1{margin:2px 0 3px;font-size:clamp(22px,4vw,32px);letter-spacing:-.8px}
+.admin-sub{font-size:11px;color:#66778e;font-weight:750}
+.admin-head-actions{display:flex;gap:6px;flex-wrap:wrap}
+.admin-head-actions button,.btn{border:1px solid #cbd9e5;background:linear-gradient(180deg,#fff,#edf4fa);color:#1c334d;border-radius:11px;padding:8px 12px;font-size:11px;font-weight:900;cursor:pointer;box-shadow:0 3px 8px #142b4712,inset 0 1px 0 #fff}
+.admin-head-actions button:active,.btn:active{transform:translateY(1px)}
+.btn.primary{border-color:#0b8a59;background:linear-gradient(145deg,#33d493,#0b8a59);color:#fff;box-shadow:inset 0 1px 0 #ffffff55,0 4px 0 #07633f,0 6px 12px #0b8a5933}
+.btn.danger{border-color:#d83a4f;background:linear-gradient(145deg,#ff7a88,#d9243d);color:#fff;box-shadow:inset 0 1px 0 #ffffff55,0 4px 0 #a81329,0 6px 12px #df3c4f33}
+.admin-notice{border-radius:12px;padding:10px 12px;font-size:12px;font-weight:800;background:#e9fbf1;border:1px solid #abe3c4;color:#087c4a}
+.admin-notice.error{background:#fff0f2;border-color:#efb9c1;color:#bd2d40}
+.admin-live{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px}
+.admin-stat{background:linear-gradient(160deg,#fff,#f4f9fd);border:1px solid #dce6ef;border-radius:13px;padding:9px 10px;box-shadow:inset 0 1px 0 #fff,0 4px 9px #142b470c}
+.admin-stat span{display:block;font-size:9px;font-weight:950;letter-spacing:.8px;color:#74869a;text-transform:uppercase}
+.admin-stat strong{display:block;font-size:14px;margin-top:2px;letter-spacing:-.2px;word-break:break-word}
+.admin-card{background:#fff;border:1px solid #dce6ef;border-radius:18px;padding:13px;box-shadow:0 12px 26px #142b470e,inset 0 1px 0 #fff}
+.admin-card h2{margin:0;font-size:15px;letter-spacing:-.2px}
+.admin-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+.admin-card p.note{margin:6px 0 0;color:#6b7d91;font-size:10px;line-height:1.45;font-weight:700}
+.admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(142px,1fr));gap:9px}
+.field{display:flex;flex-direction:column;gap:4px;min-width:0}
+.field label{font-size:9px;font-weight:950;letter-spacing:.65px;color:#6d8094;text-transform:uppercase}
+.field input,.field select{width:100%;border:1px solid #cbd9e5;background:#f8fbfe;border-radius:9px;padding:8px 9px;font:inherit;font-size:12px;font-weight:750;color:#10243d;outline:none}
+.field input:focus,.field select:focus{border-color:#39b47d;box-shadow:0 0 0 3px #39b47d22;background:#fff}
+.checkline{display:flex;align-items:center;gap:8px;border:1px solid #dce6ef;background:#f8fbfe;border-radius:10px;padding:8px 10px;font-size:11px;font-weight:850;color:#253b55;min-height:38px}
+.checkline input{width:17px;height:17px;accent-color:#0e9a63;flex:none}
+.seg{display:flex;gap:4px;flex-wrap:wrap}
+.seg button{border:1px solid #cbd9e5;background:#f8fbfe;border-radius:8px;padding:6px 9px;font-size:10px;font-weight:900;color:#53677d;cursor:pointer}
+.seg button.on{background:#0e9a63;border-color:#0e9a63;color:#fff;box-shadow:0 2px 0 #07633f}
+.graph-wrap{position:relative;background:linear-gradient(180deg,#f9fdff,#f2f8fc);border:1px solid #dce6ef;border-radius:13px;height:clamp(190px,30vh,300px);overflow:hidden}
+#histChart{width:100%;height:100%;display:block}
+.chart-empty{position:absolute;inset:0;display:grid;place-items:center;font-size:12px;font-weight:850;color:#8293a6;pointer-events:none}
+.chart-empty[hidden]{display:none}
+.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:7px;font-size:10px;font-weight:800;color:#63768b}
+.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;vertical-align:middle;margin-right:4px}
+.event-list{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto;padding-right:2px}
+.event-item{border:1px solid #e3ebf2;background:#f9fcff;border-radius:10px;padding:8px 10px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.event-item b{font-size:11px;display:block}
+.event-item small{font-size:9px;color:#788a9d;font-weight:750}
+.event-item .age{font-size:9px;color:#8293a6;white-space:nowrap;font-weight:800}
+.event-item.warn{background:#fff9ed;border-color:#f0d9a8}
+.event-item.bad{background:#fff2f4;border-color:#efc5cb}
+.settings-section{border-top:1px solid #e8eef4;padding-top:11px;margin-top:11px}
+.settings-section:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.settings-section h3{margin:0 0 8px;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:#2a405a}
+.oled-layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(190px,.9fr);gap:10px;align-items:start}
+.oled-frame{background:#08110d;border:7px solid #24352d;border-radius:16px;padding:5px;box-shadow:inset 0 0 18px #000,0 10px 20px #102b4522}
+.oled-frame canvas{width:100%;aspect-ratio:2/1;display:block;border-radius:5px;background:#050907}
+.savebar{position:sticky;bottom:8px;z-index:3;margin-top:13px;display:flex;align-items:center;gap:10px;justify-content:space-between;background:#ffffffed;backdrop-filter:blur(8px);border:1px solid #dce6ef;border-radius:14px;padding:9px;box-shadow:0 10px 24px #142b4720}
+.savebar span{font-size:10px;color:#6b7d91;font-weight:800}
+.info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;font-size:10px}
+.info-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed #e7eef5;padding:4px 0}
+.info-row span{color:#73859a;font-weight:750}
+.info-row b{text-align:right;word-break:break-word}
+.login-overlay{position:fixed;inset:0;z-index:70;background:#0f1d2bd9;backdrop-filter:blur(5px);display:grid;place-items:center;padding:18px}
+.login-card{width:min(100%,360px);background:#fff;border-radius:20px;padding:20px;box-shadow:0 24px 70px #0006}
+.login-card h2{margin:0 0 4px;font-size:22px;letter-spacing:-.5px}
+.login-card p{margin:0 0 14px;color:#6b7d91;font-size:12px;font-weight:700;line-height:1.4}
+.login-card input{width:100%;border:1px solid #cbd9e5;background:#f8fbfe;border-radius:11px;padding:12px;font:inherit;font-size:20px;font-weight:900;letter-spacing:6px;text-align:center;outline:none}
+.login-card input:focus{border-color:#39b47d;box-shadow:0 0 0 3px #39b47d22}
+.login-actions{display:flex;gap:8px;margin-top:11px}
+.login-actions .btn{flex:1;padding:11px}
+.login-error{min-height:16px;color:#bd2d40;font-size:11px;font-weight:850;margin-top:7px}
+@media(max-width:520px){.oled-layout{grid-template-columns:1fr}.admin-overlay{padding:10px 9px max(18px,env(safe-area-inset-bottom))}.admin-live{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-head-actions{width:100%;justify-content:flex-end}.admin-head-actions button{flex:1}}
 @media(max-height:620px){.app{gap:5px;padding-top:5px}.logo{width:48px;height:48px}.brand-title{font-size:20px}.tank{padding:7px 12px}.bar-wrap{margin:6px 0 4px}.tank-bottom{margin-top:5px}.percent{font-size:clamp(48px,10vh,72px)}.volume strong{font-size:clamp(34px,6.2vh,46px)}.motor-btn{width:clamp(76px,16vh,112px);height:clamp(76px,16vh,112px)}.motor-buttons{gap:5px}.motor-caption{font-size:12px}.side-card{gap:5px;padding:6px}.control-tile{padding:5px}.toggle{width:60px;height:35px}.toggle:after{width:27px;height:27px}.toggle.on:after{transform:translateX(23px)}.buzzer-btn{padding:9px 6px}}
 @media(orientation:landscape) and (max-height:520px){.app{width:min(100%,980px);padding:4px 12px 5px;gap:4px}header{min-height:36px}.logo{width:42px;height:42px}.brand-title{font-size:18px}.credit{font-size:8px}.tank{padding:5px 12px}.percent{font-size:42px}.volume strong{font-size:42px;letter-spacing:-2px}.volume span{font-size:10px}.controls{grid-template-columns:.95fr 1.05fr}.motor-card{padding:4px}.motor-buttons{flex-direction:row;justify-content:space-evenly;gap:5px}.motor-btn{width:min(22vh,112px);height:min(22vh,112px)}.motor-caption{font-size:10px}.side-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:5px}.control-tile{padding:4px;gap:4px}.control-name{font-size:11px}.toggle{width:50px;height:29px}.toggle:after{width:21px;height:21px}.toggle.on:after{transform:translateX(19px)}.buzzer-btn{font-size:8px;padding:7px 3px}footer{margin-bottom:5px}}
 @media(max-width:430px){.app{padding-left:8px;padding-right:8px;gap:7px}.brand{gap:8px}.brand-title{font-size:clamp(18px,5.4vw,23px)}.connection{padding:7px 9px;font-size:10px}.tank{padding:9px 11px}.percent{font-size:clamp(50px,12vw,72px)}.volume strong{font-size:clamp(34px,8vw,48px);letter-spacing:-2px}.volume span{font-size:clamp(10px,2.8vw,12px)}.controls{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:7px}.motor-card{padding:7px 5px}.side-card{padding:6px;gap:6px}.control-tile{padding:6px 3px;gap:5px}.control-name{font-size:clamp(11px,3.1vw,14px)}.control-state{font-size:9px}.timer{font-size:8px}.motor-btn{width:clamp(80px,21vw,118px);height:clamp(80px,21vw,118px)}.motor-caption{font-size:clamp(11px,3vw,14px)}.toggle{width:clamp(54px,15vw,70px);height:35px}.toggle:after{width:27px;height:27px}.toggle.on:after{transform:translateX(clamp(18px,6vw,30px))}.buzzer-btn{font-size:clamp(9px,2.6vw,11px);padding:10px 3px}.capsule{padding:6px 9px;font-size:9px}.distance{font-size:8px}footer{font-size:clamp(7px,2vw,9px);letter-spacing:.2px;margin-bottom:8px}}
@@ -117,13 +188,16 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
   </div>
   <div><div class="brand-title">Smart Water Tank</div><div class="credit">Designed by Aman Sharma</div></div>
  </div>
- <div class="connection offline" id="connection"><i class="dot"></i><span id="connectionText">OFFLINE</span></div>
+ <div class="head-actions">
+  <button class="admin-open" id="adminOpen" type="button">ADMIN</button>
+  <div class="connection offline" id="connection"><i class="dot"></i><span id="connectionText">OFFLINE</span></div>
+ </div>
 </header>
 <section class="card tank" id="tankCard">
  <div class="card-head"><span class="eyebrow">Tank overview</span><span class="live">● LIVE DATA</span></div>
- <div class="water-row"><div class="percent" id="percent">--<small>%</small></div><div class="volume"><strong id="litres">-- L</strong><span>OF 750 L</span></div></div>
+ <div class="water-row"><div class="percent" id="percent">--<small>%</small></div><div class="volume"><strong id="litres">-- L</strong><span id="capacityLabel">OF 750 L</span></div></div>
  <div class="bar-wrap"><div class="bar" id="bar"></div></div>
- <div class="scale"><span>0 L · EMPTY</span><span>750 L · FULL</span></div>
+ <div class="scale"><span>0 L · EMPTY</span><span id="scaleFull">750 L · FULL</span></div>
  <div class="tank-bottom">
   <div class="touch-capsules" id="touchCapsules">
    <span class="capsule filling hidden" id="fillCapsule">FILLING</span>
@@ -167,7 +241,169 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
  </section>
 </section>
 <footer>SMART WATER TANK · LOCAL ESP32 DASHBOARD · DESIGNED BY AMAN SHARMA</footer>
-</main>
+
+<div class="admin-overlay" id="adminOverlay" hidden>
+ <div class="admin-shell">
+  <header class="admin-head">
+   <div><div class="admin-eyebrow">SMART WATER TANK · CONTROL CENTRE</div><h1>Technical Admin</h1><div class="admin-sub" id="adminSub">Passcode protected · settings are saved to ESP32 NVS</div></div>
+   <div class="admin-head-actions">
+    <button type="button" id="adminRefresh">Refresh</button>
+    <button type="button" id="adminLogout">Lock</button>
+    <button type="button" class="btn primary" id="adminClose">Back to dashboard</button>
+   </div>
+  </header>
+  <div class="admin-notice" id="adminNotice" hidden></div>
+  <div class="admin-live">
+   <div class="admin-stat"><span>ESP32_A water</span><strong id="adAState">—</strong></div>
+   <div class="admin-stat"><span>ESP-NOW link</span><strong id="adLink">—</strong></div>
+   <div class="admin-stat"><span>A uptime</span><strong id="adAUptime">—</strong></div>
+   <div class="admin-stat"><span>A reset reason</span><strong id="adAReset">—</strong></div>
+   <div class="admin-stat"><span>Echoes OK / timeout</span><strong id="adEchoes">—</strong></div>
+   <div class="admin-stat"><span>A flags</span><strong id="adFlags">—</strong></div>
+   <div class="admin-stat"><span>A settings sync</span><strong id="adSync">—</strong></div>
+   <div class="admin-stat"><span>Live level</span><strong id="adLevel">—</strong></div>
+  </div>
+
+  <section class="admin-card">
+   <div class="admin-card-head"><div><h2>Water history</h2><p class="note" id="historyMeta">Loading…</p></div><div class="seg" id="rangeSeg"><button type="button" data-range="0" class="on">ALL</button><button type="button" data-range="86400">24H</button><button type="button" data-range="43200">12H</button><button type="button" data-range="21600">6H</button></div></div>
+   <div class="graph-wrap"><canvas id="histChart"></canvas><div class="chart-empty" id="chartEmpty">No history samples yet</div></div>
+   <div class="legend"><span><i style="background:#128fd1"></i>Filling / rising</span><span><i style="background:#df3c4f"></i>Draining / falling</span><span><i style="background:#9aabba"></i>Invalid sample</span></div>
+   <p class="note">The ESP32 has no real-time clock, so the graph is an approximate timeline based on the saved sampling interval. Old samples are trimmed automatically after the retention period.</p>
+  </section>
+
+  <section class="admin-card">
+   <div class="admin-card-head"><h2>Noise &amp; event log</h2><span class="admin-sub" id="eventCount">—</span></div>
+   <div class="event-list" id="eventList"><div class="admin-sub">Loading…</div></div>
+  </section>
+
+  <form id="adminForm" autocomplete="off">
+   <section class="admin-card">
+    <div class="settings-section">
+     <h3>Water sensor, calibration &amp; filtering → ESP32_A</h3>
+     <div class="admin-grid">
+      <div class="field"><label for="fullDistanceCm">Full distance (cm)</label><input id="fullDistanceCm" name="fullDistanceCm" type="number" step="0.1" min="1" max="120"></div>
+      <div class="field"><label for="emptyDistanceCm">Empty distance (cm)</label><input id="emptyDistanceCm" name="emptyDistanceCm" type="number" step="0.1" min="1" max="300"></div>
+      <div class="field"><label for="emptyDeadbandCm">Empty deadband (cm)</label><input id="emptyDeadbandCm" name="emptyDeadbandCm" type="number" step="0.1" min="0" max="20"></div>
+      <div class="field"><label for="tankCapacityL">Tank capacity (L)</label><input id="tankCapacityL" name="tankCapacityL" type="number" step="1" min="1" max="65000"></div>
+      <div class="field"><label for="sensorMinCm">Sensor min (cm)</label><input id="sensorMinCm" name="sensorMinCm" type="number" step="0.1" min="1" max="100"></div>
+      <div class="field"><label for="sensorMaxCm">Sensor max (cm)</label><input id="sensorMaxCm" name="sensorMaxCm" type="number" step="0.1" min="2" max="400"></div>
+      <div class="field"><label for="smoothAlpha">Smoothing alpha</label><input id="smoothAlpha" name="smoothAlpha" type="number" step="0.01" min="0.05" max="0.95"></div>
+      <div class="field"><label for="jumpLimitCm">Jump limit (cm)</label><input id="jumpLimitCm" name="jumpLimitCm" type="number" step="0.1" min="5" max="100"></div>
+      <div class="field"><label for="jumpConfirm">Jump confirmations</label><input id="jumpConfirm" name="jumpConfirm" type="number" step="1" min="1" max="10"></div>
+      <div class="field"><label for="stuckTimeoutMs">Stuck timeout (ms)</label><input id="stuckTimeoutMs" name="stuckTimeoutMs" type="number" step="1000" min="10000" max="86400000"></div>
+      <div class="field"><label for="measurePeriodMs">Measure period (ms)</label><input id="measurePeriodMs" name="measurePeriodMs" type="number" step="50" min="200" max="10000"></div>
+      <div class="field"><label for="sampleSpacingMs">Sample spacing (ms)</label><input id="sampleSpacingMs" name="sampleSpacingMs" type="number" step="10" min="20" max="500"></div>
+      <div class="field"><label for="samplesPerCycle">Samples / cycle</label><input id="samplesPerCycle" name="samplesPerCycle" type="number" step="1" min="3" max="9"></div>
+     </div>
+     <p class="note">Changes are sent over ESP-NOW and saved by ESP32_A. A reboot of ESP32_A is not normally required.</p>
+    </div>
+
+    <div class="settings-section">
+     <h3>Mirror person detection</h3>
+     <div class="admin-grid">
+      <label class="checkline"><input id="mirrorEnabled" name="mirrorEnabled" type="checkbox"> Auto mirror enabled</label>
+      <div class="field"><label for="mirrorOnCm">Detect ON below (cm)</label><input id="mirrorOnCm" name="mirrorOnCm" type="number" step="0.1" min="5" max="300"></div>
+      <div class="field"><label for="mirrorOffCm">Detect OFF above (cm)</label><input id="mirrorOffCm" name="mirrorOffCm" type="number" step="0.1" min="6" max="400"></div>
+      <div class="field"><label for="mirrorOnConfirmMs">ON confirm (ms)</label><input id="mirrorOnConfirmMs" name="mirrorOnConfirmMs" type="number" step="50" min="50" max="10000"></div>
+      <div class="field"><label for="mirrorOffConfirmMs">OFF confirm (ms)</label><input id="mirrorOffConfirmMs" name="mirrorOffConfirmMs" type="number" step="50" min="50" max="10000"></div>
+      <div class="field"><label for="mirrorInvalidHoldoffMs">Invalid holdoff (ms)</label><input id="mirrorInvalidHoldoffMs" name="mirrorInvalidHoldoffMs" type="number" step="100" min="0" max="60000"></div>
+      <div class="field"><label for="mirrorMaxOnMinutes">Max auto-on (min, 0=off)</label><input id="mirrorMaxOnMinutes" name="mirrorMaxOnMinutes" type="number" step="1" min="0" max="1440"></div>
+     </div>
+     <p class="note">Use OFF distance slightly higher than ON distance to prevent flicker. Manual Mirror Light controls stay available on the dashboard.</p>
+    </div>
+
+    <div class="settings-section">
+     <h3>Buzzer</h3>
+     <div class="admin-grid">
+      <label class="checkline"><input id="buzzerEnabled" name="buzzerEnabled" type="checkbox"> Full-tank buzzer enabled</label>
+      <div class="field"><label for="buzzerFullPercent">Start threshold (%)</label><input id="buzzerFullPercent" name="buzzerFullPercent" type="number" step="0.5" min="50" max="100"></div>
+      <div class="field"><label for="buzzerRearmPercent">Re-arm below (%)</label><input id="buzzerRearmPercent" name="buzzerRearmPercent" type="number" step="0.5" min="0" max="99"></div>
+      <div class="field"><label for="buzzerConfirmReadings">Confirm readings</label><input id="buzzerConfirmReadings" name="buzzerConfirmReadings" type="number" step="1" min="1" max="20"></div>
+      <div class="field"><label for="buzzerDurationMs">Max duration (ms)</label><input id="buzzerDurationMs" name="buzzerDurationMs" type="number" step="1000" min="1000" max="300000"></div>
+      <div class="field"><label for="buzzerBeepsPerSec">Beeps per second</label><input id="buzzerBeepsPerSec" name="buzzerBeepsPerSec" type="number" step="0.1" min="0.2" max="10"></div>
+      <div class="field"><label for="buzzerBeepOnMs">Beep ON (ms)</label><input id="buzzerBeepOnMs" name="buzzerBeepOnMs" type="number" step="10" min="10" max="5000"></div>
+      <div class="field"><label for="buzzerIntensity">Intensity 0–100%</label><input id="buzzerIntensity" name="buzzerIntensity" type="number" step="1" min="0" max="100"></div>
+     </div>
+     <p class="note">Beeps per second ≈ 1000 ÷ beep period. Intensity uses PWM and is approximate on active buzzers; some modules only click instead of changing volume.</p>
+    </div>
+
+    <div class="settings-section">
+     <h3>OLED display</h3>
+     <div class="oled-layout">
+      <div class="admin-grid">
+       <label class="checkline"><input type="checkbox" data-oled-bit="1"> Show percent</label>
+       <label class="checkline"><input type="checkbox" data-oled-bit="2"> Show litres</label>
+       <label class="checkline"><input type="checkbox" data-oled-bit="4"> Show link state</label>
+       <label class="checkline"><input type="checkbox" data-oled-bit="8"> Show bottom litres</label>
+       <label class="checkline"><input type="checkbox" data-oled-bit="16"> Show live/stale status</label>
+       <label class="checkline"><input type="checkbox" data-oled-bit="32"> Show distance</label>
+       <div class="field"><label for="oledPercentSize">Percent font size</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
+       <div class="field"><label for="oledLitresSize">Litres font size</label><select id="oledLitresSize" name="oledLitresSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
+       <div class="field"><label for="oledBottomSize">Bottom font size</label><select id="oledBottomSize" name="oledBottomSize"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
+       <div class="field"><label for="oledContrast">Contrast 1–255</label><input id="oledContrast" name="oledContrast" type="number" step="1" min="1" max="255"></div>
+       <label class="checkline"><input id="oledInvert" name="oledInvert" type="checkbox"> Invert display</label>
+      </div>
+      <div>
+       <div class="oled-frame"><canvas id="oledPreview" width="256" height="128"></canvas></div>
+       <p class="note">Approximate 128×64 preview. Default layout is percent size 5, litres size 2, and bottom text size 1.</p>
+      </div>
+     </div>
+    </div>
+
+    <div class="settings-section">
+     <h3>History storage</h3>
+     <div class="admin-grid">
+      <label class="checkline"><input id="historyEnabled" name="historyEnabled" type="checkbox"> Save history</label>
+      <div class="field"><label for="historyIntervalSec">Sample every (seconds)</label><input id="historyIntervalSec" name="historyIntervalSec" type="number" step="10" min="30" max="3600"></div>
+      <div class="field"><label for="historyRetentionDays">Keep for (days)</label><input id="historyRetentionDays" name="historyRetentionDays" type="number" step="1" min="1" max="30"></div>
+     </div>
+     <p class="note">Retention is automatic: the oldest CSV lines are removed when the configured window is exceeded. Storage is LittleFS on ESP32_B.</p>
+    </div>
+
+    <div class="settings-section">
+     <h3>Admin session &amp; passcode</h3>
+     <div class="admin-grid">
+      <div class="field"><label for="adminPass">New passcode (leave blank to keep)</label><input id="adminPass" name="adminPass" type="password" minlength="4" maxlength="7" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" placeholder="4–7 characters"></div>
+      <div class="field"><label for="adminSessionMinutes">Session length (minutes)</label><input id="adminSessionMinutes" name="adminSessionMinutes" type="number" step="1" min="1" max="1440"></div>
+     </div>
+     <p class="note">The default passcode is 14789. This is local-network protection only; it is not internet-grade security.</p>
+    </div>
+
+    <div class="savebar"><button type="submit" class="btn primary" id="saveSettings">Save all settings</button><span id="saveHint">No unsaved changes</span></div>
+   </section>
+  </form>
+
+  <section class="admin-card">
+   <div class="admin-card-head"><h2>Maintenance actions</h2></div>
+   <div class="seg">
+    <button type="button" class="btn" id="rebootA">Reboot ESP32_A</button>
+    <button type="button" class="btn danger" id="rebootB">Reboot ESP32_B</button>
+    <button type="button" class="btn danger" id="clearHistory">Clear history</button>
+    <button type="button" class="btn danger" id="clearEvents">Clear events</button>
+   </div>
+   <p class="note">Rebooting ESP32_A temporarily drops water data. Rebooting ESP32_B also drops this dashboard for a few seconds.</p>
+  </section>
+
+  <section class="admin-card">
+   <div class="admin-card-head"><h2>ESP32_A &amp; ESP32_B technical information</h2><span class="admin-sub" id="infoStamp">—</span></div>
+   <div class="info-grid" id="infoGrid"></div>
+  </section>
+ </div>
+</div>
+
+<div class="login-overlay" id="loginOverlay" hidden>
+ <div class="login-card">
+  <div class="admin-eyebrow">ADMIN ACCESS</div>
+  <h2>Enter passcode</h2>
+  <p>This opens technical settings, stored history and reboot controls.</p>
+  <form id="loginForm">
+   <input id="loginPass" type="password" inputmode="numeric" autocomplete="current-password" placeholder="•••••" maxlength="7" aria-label="Admin passcode">
+   <div class="login-error" id="loginError"></div>
+   <div class="login-actions"><button type="button" class="btn" id="loginCancel">Cancel</button><button type="submit" class="btn primary">Unlock</button></div>
+  </form>
+  <p class="note" style="margin:10px 2px 0">Forgot it? Hold the ESP32_B button for 10 seconds to restore the default passcode 14789.</p>
+ </div>
+</div>
 <script>
 (function(){
 'use strict';
@@ -230,6 +466,11 @@ function renderUnreachable(){
 function render(s){
  if(!s||typeof s!=='object') return;
  current=s;
+ const capacity=num(s.capacityL);
+ if(capacity!==null&&capacity>0){
+  $('capacityLabel').textContent='OF '+Math.round(capacity)+' L';
+  $('scaleFull').textContent=Math.round(capacity)+' L · FULL';
+ }
  const linkOk=(reachable&&s.linkOnline===true);
  const online=(reachable&&s.online===true);
  setOnline(linkOk);
@@ -242,7 +483,7 @@ function render(s){
  if(hasPct){
   percentEl.innerHTML=Math.round(shownPct)+'<small>%</small>';
   const litres=num(s.litres);
-  litresEl.textContent=Math.round(litres!==null?litres:shownPct*7.5)+' L';
+  litresEl.textContent=Math.round(litres!==null?litres:(capacity&&capacity>0?shownPct*capacity/100:shownPct*7.5))+' L';
   barEl.style.width=shownPct.toFixed(1)+'%';
  }else{
   percentEl.innerHTML='--<small>%</small>';
@@ -461,6 +702,336 @@ $('buzzerStop').addEventListener('click',async()=>{
 
 setOnline(false);
 pollState();
+})();
+</script>
+<script>
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const TOKEN_KEY='swtAdminToken';
+const overlay=$('adminOverlay'), loginOverlay=$('loginOverlay');
+const adminForm=$('adminForm'), saveHint=$('saveHint');
+let adminToken=sessionStorage.getItem(TOKEN_KEY)||'';
+let adminData=null, liveState=null, history=null, events=[];
+let liveTimer=null, rangeSec=0, formDirty=false, saving=false;
+
+function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function fmtDur(ms){
+ if(!isFinite(ms)||ms<0) return '—';
+ const s=Math.floor(ms/1000), d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60), r=s%60;
+ if(d) return d+'d '+h+'h';
+ if(h) return h+'h '+m+'m';
+ if(m) return m+'m '+r+'s';
+ return r+'s';
+}
+function fmtAgo(sec){
+ if(!isFinite(sec)||sec<0) return 'earlier boot';
+ if(sec<60) return sec+'s ago';
+ if(sec<3600) return Math.floor(sec/60)+'m ago';
+ if(sec<86400) return Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m ago';
+ return Math.floor(sec/86400)+'d '+Math.floor((sec%86400)/3600)+'h ago';
+}
+function resetName(n){
+ const names=['UNKNOWN','POWER-ON','EXTERNAL','SOFTWARE','PANIC','INT WDT','TASK WDT','WDT','DEEP SLEEP','BROWNOUT','SDIO','USB','JTAG','EFUSE','PWR GLITCH','CPU LOCKUP','VBAT'];
+ return names[n]||('CODE '+n);
+}
+function flagsText(f){
+ f=Number(f)||0; const a=[];
+ if(f&1)a.push('NO ECHO'); if(f&2)a.push('RANGE'); if(f&4)a.push('JUMP'); if(f&8)a.push('STUCK'); if(f&16)a.push('TIMEOUT');
+ return a.length?a.join(' · '):'OK';
+}
+function notice(msg,error){
+ const el=$('adminNotice'); el.textContent=msg; el.classList.toggle('error',!!error); el.hidden=false;
+ clearTimeout(notice._t); notice._t=setTimeout(()=>{el.hidden=true;}, error?7000:4200);
+}
+function openOverlay(){overlay.hidden=false; overlay.scrollTop=0;}
+function closeAdmin(){overlay.hidden=true; stopLive();}
+function clearToken(){adminToken=''; sessionStorage.removeItem(TOKEN_KEY);}
+function lockToLogin(){
+ clearToken(); stopLive();
+ loginOverlay.hidden=false;
+ setTimeout(()=>$('loginPass').focus(),50);
+}
+function stopLive(){ if(liveTimer){clearInterval(liveTimer);liveTimer=null;} }
+function startLive(){
+ stopLive();
+ pollLive();
+ liveTimer=setInterval(pollLive,2500);
+}
+async function adminApi(path,opts){
+ opts=opts||{};
+ const headers=Object.assign({},opts.headers||{});
+ if(adminToken) headers['X-Admin-Token']=adminToken;
+ if(opts.body) headers['Content-Type']='application/json';
+ const r=await fetch(path,Object.assign({},opts,{headers:headers,cache:'no-store'}));
+ if(r.status===401){ lockToLogin(); throw new Error('Admin login required'); }
+ if(!r.ok){
+  let msg='Request failed';
+  try{const j=await r.json(); if(j&&j.error)msg=j.error;}catch(e){}
+  throw new Error(msg);
+ }
+ return r.json();
+}
+async function login(pass){
+ const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:pass}),cache:'no-store'});
+ let j={}; try{j=await r.json();}catch(e){}
+ if(!r.ok){ throw new Error(j.error||'Invalid passcode'); }
+ adminToken=j.token||'';
+ sessionStorage.setItem(TOKEN_KEY,adminToken);
+ loginOverlay.hidden=true;
+ $('loginPass').value='';
+ $('loginError').textContent='';
+ openOverlay();
+ startLive();
+ await refreshAll();
+}
+async function refreshAll(){
+ if(!adminToken) return;
+ try{
+  await Promise.all([loadSettings(),loadHistory(),loadEvents()]);
+ }catch(e){ if(e.message!=='Admin login required') notice(e.message,true); }
+}
+async function loadSettings(){
+ const d=await adminApi('/api/admin/settings');
+ adminData=d;
+ applySettings(d.settings||{});
+ renderInfo(d.info||{},d.state||{});
+ if(d.state) updateLive(d.state);
+}
+function applySettings(s){
+ const nums=['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorOffConfirmMs','mirrorInvalidHoldoffMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledLitresSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays','adminSessionMinutes'];
+ nums.forEach(k=>{const el=$(k); if(el&&s[k]!==undefined)el.value=s[k];});
+ const bps=$('buzzerBeepsPerSec'); if(bps&&s.buzzerBeepPeriodMs)bps.value=(1000/Number(s.buzzerBeepPeriodMs)).toFixed(2);
+ ['mirrorEnabled','buzzerEnabled','historyEnabled'].forEach(k=>{const el=$(k); if(el)el.checked=s[k]===true;});
+ const inv=$('oledInvert'); if(inv)inv.checked=s.oledInvert===true;
+ const show=Number(s.oledShow)||0;
+ document.querySelectorAll('[data-oled-bit]').forEach(el=>{el.checked=(show&Number(el.dataset.oledBit))!==0;});
+ const pass=$('adminPass'); if(pass)pass.value='';
+ formDirty=false; saveHint.textContent='No unsaved changes';
+ renderOled();
+}
+function numVal(id){ const v=Number($(id).value); if(!isFinite(v)) throw new Error('Invalid value in '+id); return v; }
+function collectSettings(){
+ const out={};
+ ['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorOffConfirmMs','mirrorInvalidHoldoffMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledLitresSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays','adminSessionMinutes'].forEach(k=>{out[k]=numVal(k);});
+ ['mirrorEnabled','buzzerEnabled','historyEnabled','oledInvert'].forEach(k=>{out[k]=$(k).checked;});
+ let show=0; document.querySelectorAll('[data-oled-bit]').forEach(el=>{if(el.checked)show|=Number(el.dataset.oledBit);});
+ out.oledShow=show;
+ const bps=numVal('buzzerBeepsPerSec');
+ if(bps<=0) throw new Error('Beeps per second must be greater than 0');
+ out.buzzerBeepPeriodMs=Math.max(100,Math.min(5000,Math.round(1000/bps)));
+ const pass=$('adminPass').value.trim();
+ if(pass) out.adminPass=pass;
+ return out;
+}
+async function saveSettings(e){
+ e.preventDefault();
+ if(saving) return;
+ saving=true; const btn=$('saveSettings'); btn.disabled=true; saveHint.textContent='Saving…';
+ try{
+  const d=await adminApi('/api/admin/settings',{method:'POST',body:JSON.stringify(collectSettings())});
+  adminData=d; applySettings(d.settings||{}); renderInfo(d.info||{},d.state||{});
+  if(d.state) updateLive(d.state);
+  notice('Settings saved. ESP32_A settings are syncing automatically.');
+  loadHistory().catch(()=>{});
+ }catch(err){ notice(err.message,true); }
+ finally{ saving=false; btn.disabled=false; if(!formDirty)saveHint.textContent='Saved'; }
+}
+async function loadHistory(){
+ history=await adminApi('/api/history');
+ const pts=(history&&history.points)||[];
+ $('historyMeta').textContent=pts.length?(pts.length+' shown · '+history.count+' stored · every '+history.intervalSec+'s · keep '+history.retentionDays+' days'):'No samples stored yet';
+ $('chartEmpty').hidden=pts.length>0;
+ drawChart();
+}
+function drawChart(){
+ const c=$('histChart'); if(!c||!history) return;
+ const wrap=c.parentElement, dpr=Math.min(window.devicePixelRatio||1,2);
+ const w=Math.max(10,wrap.clientWidth), h=Math.max(10,wrap.clientHeight);
+ if(c.width!==Math.round(w*dpr)||c.height!==Math.round(h*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(h*dpr);}
+ const ctx=c.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
+ const all=(history.points||[]).filter(p=>isFinite(p.p));
+ let pts=all;
+ if(rangeSec>0) pts=all.filter(p=>Number(p.ago)<=rangeSec);
+ $('chartEmpty').hidden=pts.length>0;
+ if(!pts.length) return;
+ const padL=31,padR=10,padT=12,padB=22, pw=w-padL-padR, ph=h-padT-padB;
+ const maxAgo=Math.max(1,rangeSec||pts[0].ago||1);
+ const xFor=p=>padL+(1-Math.min(1,Number(p.ago)||0)/maxAgo)*pw;
+ const yFor=p=>padT+(1-Math.max(0,Math.min(100,Number(p.p)))/100)*ph;
+ ctx.strokeStyle='#dce6ef'; ctx.lineWidth=1; ctx.font='9px system-ui,sans-serif'; ctx.fillStyle='#8293a6'; ctx.textAlign='right'; ctx.textBaseline='middle';
+ [0,25,50,75,100].forEach(v=>{const y=padT+(1-v/100)*ph;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();ctx.fillText(v+'%',padL-5,y);});
+ ctx.textAlign='left'; ctx.textBaseline='top';
+ const oldAgo=rangeSec||pts[0].ago;
+ ctx.fillText(oldAgo>86400?(oldAgo/86400).toFixed(1)+'d ago':oldAgo>3600?(oldAgo/3600).toFixed(1)+'h ago':'oldest',padL,h-16);
+ ctx.textAlign='right'; ctx.fillText('now',w-padR,h-16);
+ // area under valid data
+ ctx.beginPath(); let started=false;
+ pts.forEach(p=>{if(Number(p.p)<0)return; const x=xFor(p),y=yFor(p); if(!started){ctx.moveTo(x,padT+ph);ctx.lineTo(x,y);started=true;}else ctx.lineTo(x,y);});
+ if(started){ctx.lineTo(xFor(pts[pts.length-1]),padT+ph);ctx.closePath();ctx.fillStyle='rgba(18,143,209,.08)';ctx.fill();}
+ // colored segments
+ for(let i=1;i<pts.length;i++){
+  const a=pts[i-1],b=pts[i];
+  if(Number(a.p)<0||Number(b.p)<0) continue;
+  const rise=Number(b.p)>=Number(a.p);
+  const equal=Math.abs(Number(b.p)-Number(a.p))<0.01;
+  ctx.strokeStyle=equal?'#9aabba':(rise?'#128fd1':'#df3c4f');
+  ctx.lineWidth=2; ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(xFor(a),yFor(a));ctx.lineTo(xFor(b),yFor(b));ctx.stroke();
+ }
+ if(pts.length===1){ctx.fillStyle='#128fd1';ctx.beginPath();ctx.arc(xFor(pts[0]),yFor(pts[0]),3,0,Math.PI*2);ctx.fill();}
+}
+function eventInfo(code){
+ return {
+  1:['No echo','Ultrasonic returned fewer than 3 valid echoes','warn'],
+  2:['Echo timeout','A burst timed out waiting for the echo','warn'],
+  3:['Jump rejected','A sudden distance jump was rejected as noise','warn'],
+  4:['Stuck sensor','Raw distance did not change for the stuck timeout','bad'],
+  5:['Out of range','Distance was outside the configured sensor range','bad'],
+  6:['ESP-NOW lost','Link from ESP32_A stopped','bad'],
+  7:['ESP-NOW restored','Link from ESP32_A is back','ok'],
+  8:['Mirror limit','Automatic mirror light hit its maximum on-time','warn'],
+  9:['Mirror dropout','Person state cleared after HC-SR04 dropout','warn'],
+  10:['Reboot','A reboot was requested from admin','warn'],
+  11:['Settings','New ESP32_A settings revision saved','ok'],
+  12:['Admin login','Admin passcode activity','ok'],
+  13:['Data cleared','History and/or events were cleared','warn']
+ }[Number(code)]||['Event '+code,'Technical event','warn'];
+}
+function renderEvents(){
+ const box=$('eventList');
+ if(!events.length){box.innerHTML='<div class="admin-sub">No events logged yet.</div>';return;}
+ const nowSec=liveState&&isFinite(liveState.uptimeMs)?Math.floor(liveState.uptimeMs/1000):0;
+ box.innerHTML=events.map(ev=>{
+  const info=eventInfo(ev.code), age=(nowSec&&ev.sec<=nowSec)?fmtAgo(nowSec-ev.sec):'earlier boot';
+  const detail=Number(ev.v)?('value '+Number(ev.v).toFixed(1)):'';
+  return '<div class="event-item '+(info[2]==='bad'?'bad':info[2]==='warn'?'warn':'')+'"><div><b>'+esc(info[0])+'</b><small>'+esc(info[1])+(detail?' · '+esc(detail):'')+'</small></div><span class="age">'+esc(age)+'</span></div>';
+ }).join('');
+}
+async function loadEvents(){
+ const d=await adminApi('/api/events');
+ events=(d.events||[]).slice().reverse();
+ $('eventCount').textContent=events.length+' recent';
+ renderEvents();
+}
+async function pollLive(){
+ if(!adminToken) return;
+ try{
+  const r=await fetch('/api/state',{cache:'no-store'});
+  if(!r.ok) throw new Error('state unavailable');
+  updateLive(await r.json());
+ }catch(e){}
+}
+function updateLive(s){
+ if(!s)return; liveState=s;
+ $('adAState').textContent=(s.online===true)?'ONLINE':(s.linkOnline===true?'STALE':'OFFLINE');
+ $('adLink').textContent=(s.linkOnline===true)?'ONLINE':'OFFLINE';
+ $('adAUptime').textContent=fmtDur(s.aUptimeMs);
+ $('adAReset').textContent=resetName(Number(s.aResetReason));
+ $('adEchoes').textContent=(s.aValidEchoes!=null?s.aValidEchoes:'—')+' / '+(s.aTimeoutEchoes!=null?s.aTimeoutEchoes:'—');
+ $('adFlags').textContent=flagsText(s.aFlags);
+ $('adSync').textContent=(s.settingsSynced===true)?'SYNCED':('PENDING · A has '+ (s.aSettingsRevision!=null?s.aSettingsRevision:'?'));
+ const pct=Number(s.percent), litres=Number(s.litres);
+ $('adLevel').textContent=(isFinite(pct)?pct.toFixed(0):'—')+'% · '+(isFinite(litres)?litres.toFixed(0):'—')+' L';
+ if(events.length)renderEvents();
+ renderOled();
+}
+function renderInfo(info,state){
+ if(state) liveState=Object.assign({},liveState||{},state);
+ const bUptime=Number(info.bUptimeMs);
+ const fsTotal=Number(info.fsTotal), fsUsed=Number(info.fsUsed);
+ const pctFs=fsTotal>0?Math.round(fsUsed/fsTotal*100):0;
+ const rows=[
+  ['ESP32_B AP MAC',info.bMac],['ESP32_B STA MAC',info.bStaMac],['ESP32_A MAC',info.aMac],
+  ['Access point',info.ssid+' · '+info.ip],['Channel',info.channel],
+  ['B uptime',isFinite(bUptime)?fmtDur(bUptime):'—'],['B reset reason',resetName(Number(info.bResetReason))],
+  ['Free heap',isFinite(Number(info.freeHeap))?Math.round(Number(info.freeHeap)/1024)+' KB':'—'],
+  ['Flash size',isFinite(Number(info.flashSize))?Math.round(Number(info.flashSize)/1024)+' KB':'—'],
+  ['LittleFS used',isFinite(fsUsed)?Math.round(fsUsed/1024)+' / '+Math.round(fsTotal/1024)+' KB ('+pctFs+'%)':'—'],
+  ['History lines',info.historyLines],['Events stored',info.eventSeq],
+  ['A settings rev',info.aSettingsRevision],['A settings synced',info.settingsSynced?'YES':'PENDING'],
+  ['HC-SR04 trigger / echo',info.pins?info.pins.hcTrig+' / '+info.pins.hcEcho:'—'],
+  ['Relay 1 / Relay 2',info.pins?info.pins.relay1+' / '+info.pins.relay2:'—'],
+  ['Buzzer / button',info.pins?info.pins.buzzer+' / '+info.pins.button:'—'],
+  ['OLED SDA / SCL',info.pins?info.pins.oledSda+' / '+info.pins.oledScl:'—']
+ ];
+ $('infoGrid').innerHTML=rows.map(r=>'<div class="info-row"><span>'+esc(r[0])+'</span><b>'+esc(r[1]==null?'—':r[1])+'</b></div>').join('');
+ $('infoStamp').textContent='Updated '+new Date().toLocaleTimeString();
+}
+function renderOled(){
+ const c=$('oledPreview'); if(!c)return;
+ const ctx=c.getContext('2d');
+ const invert=$('oledInvert').checked;
+ ctx.setTransform(1,0,0,1,0,0);
+ ctx.fillStyle=invert?'#f2f6f3':'#050907'; ctx.fillRect(0,0,c.width,c.height);
+ ctx.setTransform(2,0,0,2,0,0);
+ const ink=invert?'#08110d':'#eafff3';
+ let bits=0; document.querySelectorAll('[data-oled-bit]').forEach(el=>{if(el.checked)bits|=Number(el.dataset.oledBit);});
+ const text=(str,x,y,size,align)=>{ctx.fillStyle=ink;ctx.font='900 '+(size*8)+'px ui-monospace,Menlo,monospace';ctx.textAlign=align||'left';ctx.textBaseline='top';ctx.fillText(String(str),x,y);};
+ const pct=liveState&&isFinite(liveState.percent)?Math.round(liveState.percent):null;
+ const litres=liveState&&isFinite(liveState.litres)?Math.round(liveState.litres):null;
+ const dist=liveState&&isFinite(liveState.distance)?Number(liveState.distance):null;
+ const link=!!(liveState&&liveState.linkOnline);
+ const pctText=pct==null?'--%':pct+'%';
+ const litreText=litres==null?'--L':litres+'L';
+ let y=0;
+ if(bits&1){const size=Number($('oledPercentSize').value)||1;text(pctText,64,0,size,'center');y=size*8+2;}
+ if(bits&2){const size=Number($('oledLitresSize').value)||1;text(litreText,64,y,size,'center');}
+ if((bits&32)&&dist!=null)text(dist.toFixed(0)+'cm',0,47,1,'left');
+ const bottom=Number($('oledBottomSize').value)||1;
+ if(bits&4)text(link?'CONNECTED':'NO LINK',0,56,bottom,'left');
+ if(bits&8)text(litreText,128,56,bottom,'right');
+ if((bits&16)&&!(bits&4))text(link?'LIVE':'STALE',0,56,bottom,'left');
+}
+function bind(){
+ $('adminOpen').addEventListener('click',async()=>{
+  if(!adminToken){ loginOverlay.hidden=false; setTimeout(()=>$('loginPass').focus(),50); return; }
+  openOverlay(); startLive(); await refreshAll();
+ });
+ $('adminClose').addEventListener('click',()=>{closeAdmin();});
+ $('adminRefresh').addEventListener('click',()=>refreshAll());
+ $('adminLogout').addEventListener('click',async()=>{
+  try{if(adminToken)await adminApi('/api/admin/logout',{method:'POST'});}catch(e){}
+  clearToken(); closeAdmin(); loginOverlay.hidden=true; $('loginPass').value='';
+ });
+ $('loginForm').addEventListener('submit',async e=>{
+  e.preventDefault(); $('loginError').textContent='';
+  try{await login($('loginPass').value);}catch(err){$('loginError').textContent=err.message; $('loginPass').select();}
+ });
+ $('loginCancel').addEventListener('click',()=>{loginOverlay.hidden=true; if(!adminToken)overlay.hidden=true;});
+ adminForm.addEventListener('input',()=>{formDirty=true;saveHint.textContent='Unsaved changes';renderOled();});
+ adminForm.addEventListener('change',()=>{formDirty=true;saveHint.textContent='Unsaved changes';renderOled();});
+ adminForm.addEventListener('submit',saveSettings);
+ document.querySelectorAll('[data-oled-bit]').forEach(el=>el.addEventListener('change',renderOled));
+ ['oledPercentSize','oledLitresSize','oledBottomSize','oledInvert'].forEach(id=>$(id).addEventListener('change',renderOled));
+ $('rangeSeg').addEventListener('click',e=>{
+  const b=e.target.closest('button[data-range]'); if(!b)return;
+  rangeSec=Number(b.dataset.range)||0;
+  $('rangeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  drawChart();
+ });
+ $('rebootA').addEventListener('click',async()=>{
+  if(!confirm('Reboot ESP32_A now?'))return;
+  try{await adminApi('/api/admin/reboot-a',{method:'POST'});notice('Reboot command sent to ESP32_A.');}catch(e){notice(e.message,true);}
+ });
+ $('rebootB').addEventListener('click',async()=>{
+  if(!confirm('Reboot ESP32_B now? The dashboard will disconnect briefly.'))return;
+  try{await adminApi('/api/admin/reboot-b',{method:'POST'});}catch(e){notice(e.message,true);}
+ });
+ $('clearHistory').addEventListener('click',async()=>{
+  if(!confirm('Delete all stored water history?'))return;
+  try{await adminApi('/api/admin/clear-data',{method:'POST',body:JSON.stringify({history:true})});notice('History cleared.');await loadHistory();}catch(e){notice(e.message,true);}
+ });
+ $('clearEvents').addEventListener('click',async()=>{
+  if(!confirm('Delete all stored events?'))return;
+  try{await adminApi('/api/admin/clear-data',{method:'POST',body:JSON.stringify({events:true})});notice('Events cleared.');await loadEvents();}catch(e){notice(e.message,true);}
+ });
+ let rt=null;
+ window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(drawChart,150);});
+ if(window.ResizeObserver){new ResizeObserver(()=>{if(!overlay.hidden)drawChart();}).observe($('histChart').parentElement);}
+}
+bind();
+if(!adminToken){$('adminSub').textContent='Passcode protected · click ADMIN to unlock';}
 })();
 </script>
 </body>

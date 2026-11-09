@@ -6,6 +6,7 @@ A two-board ESP32 water-tank monitor and controller.
 - **ESP32_B** is indoors. It runs the OLED, relays, buzzer, motor buttons, Wi-Fi access point, and phone dashboard.
 - The two boards talk wirelessly with **ESP-NOW**. No router or internet is needed.
 - The phone dashboard is served by ESP32_B at **http://192.168.4.1/**.
+- The dashboard includes a passcode-protected **Admin** control centre (default passcode **14789**) for calibration, filtering, mirror, buzzer, OLED, history, diagnostics, and reboot controls.
 
 This folder contains these files:
 
@@ -180,18 +181,22 @@ GPIO (INPUT_PULLUP) ---- collector        | emitter ---- GND
 
 ### ESP32_A calibration
 
-In `ESP32_A.ino`:
+The defaults are stored in ESP32_A NVS and can be changed from the dashboard **Admin**
+page without recompiling:
 
-```cpp
-static const float FULL_DISTANCE_CM  = 10.0f;
-static const float EMPTY_DISTANCE_CM = 76.0f;
-static const float EMPTY_DEADBAND_CM = 2.0f;
-static const float SENSOR_MIN_CM     = 2.0f;
+```text
+Full distance:   10.0 cm  -> 100 %
+Empty distance:  76.0 cm  -> 0 %
+Empty deadband:   2.0 cm
+Sensor range:     2.0 to 150.0 cm
+Tank capacity:  750 L
 ```
 
 Measure from the sensor face to the water surface. Distances of 10 cm or less are clamped
 to 100 %; distances within 2 cm of the 76 cm empty calibration are clamped to 0 %. If the
-sensor is moved or the tank changes, remeasure both the full and empty distances.
+sensor is moved or the tank changes, remeasure both points and save them from the Admin
+page. ESP32_B sends the changed settings over ESP-NOW and ESP32_A applies them
+automatically.
 
 ---
 
@@ -257,15 +262,17 @@ Do not rely on the ESP32 alone for safe relay state at power-up.
 
 The firmware tries address `0x3C` first and then `0x3D`.
 
-The OLED shows:
+The default OLED shows:
 
-- A very large water percentage.
-- Water volume in integer litres below the percentage.
-- Bottom-left link status: `CONNECTED` or `NOT CONNECTED`.
-- Bottom-right integer litres.
+- A very large water percentage (font size 5).
+- Water volume in integer litres below the percentage (font size 2).
+- Bottom-left link status: `CONNECTED` or `NO LINK` (font size 1).
+- Bottom-right integer litres (font size 1).
 
-The previous trend/status bar and buzzer text were removed. OLED brightness is set to the
-maximum value, `0xFF`.
+The Admin page can show/hide percent, litres, link status, bottom litres, live/stale
+status, and distance. It can also change the three font sizes, contrast, and inversion.
+The live preview on the Admin page approximates the 128×64 OLED. Defaults preserve the
+original layout.
 
 ---
 
@@ -340,13 +347,16 @@ Remote button pad B ---- PC817 pin 3, emitter
 
 ### Water reading
 
-1. ESP32_A triggers the sensor 5 times.
+1. ESP32_A triggers the sensor 5 times (configurable in Admin).
 2. Invalid echoes are discarded.
 3. The median of the valid echoes is used.
-4. Readings outside 2 to 150 cm are rejected; 10 cm or less reports 100 %, and 74 cm or more reports 0 %.
+4. Readings outside 2 to 150 cm are rejected by default; 10 cm or less reports 100 %, and 74 cm or more reports 0 %.
 5. A sudden jump over 30 cm must repeat 3 times before it is accepted.
 6. A bit-identical reading for 10 minutes is treated as a stuck sensor.
 7. The accepted distance is converted to percentage and sent to ESP32_B.
+
+All thresholds above are editable in Admin. Use a stable calibration first, then adjust
+filtering only if the installation is noisy.
 
 ### Link status
 
@@ -362,6 +372,8 @@ Remote button pad B ---- PC817 pin 3, emitter
 - Person farther than 105 cm for about 0.8 seconds: Mirror Light OFF.
 - The gap between 100 and 105 cm and the confirmation times reject brief false triggers.
 - If the person sensor reading is invalid, the light holds briefly and then turns OFF after 2 seconds.
+- ON/OFF distances, both confirmation times, invalid holdoff, and an optional maximum
+  auto-on time are editable in Admin. Auto detection can also be disabled.
 - The phone can switch the Mirror Light ON or OFF at any time.
 - Holding the GPIO 4 button for 3 seconds toggles manual override ON/OFF.
 - Phone **OFF** immediately exits manual override and keeps the relay off until the
@@ -382,6 +394,9 @@ Remote button pad B ---- PC817 pin 3, emitter
 - The phone STOP BUZZER button also stops it.
 - It re-arms only after the water level falls below 93 %.
 - The buzzer also stops if the water link is lost.
+- Start threshold, re-arm threshold, confirmation count, duration, beeps per second,
+  beep ON time, and intensity are editable in Admin. Intensity uses PWM and is
+  approximate on an active buzzer; some modules only click instead of changing volume.
 
 ### Motor control
 
@@ -395,15 +410,21 @@ Remote button pad B ---- PC817 pin 3, emitter
 
 ESP32_A sends:
 
-- WaterPacket: distance, percentage, valid flag, sequence number, uptime, fault flags.
-- CommandPacket: START or STOP, pressed or released, sequence number, uptime.
+- WaterPacket: distance, percentage, valid flag, sequence number, uptime, fault flags,
+  echo diagnostics, reset reason, and the settings revision currently applied.
+- CommandPacket: START/STOP or reboot, pressed/released, sequence number, uptime.
 
 ESP32_B sends:
 
 - StatusPacket: HC-SR04 distance, person state, water percentage/distance, relay states, buzzer state, motor states, link state, uptime, and the acknowledged sequence number.
+- SettingsPacket: calibration, filtering, measurement timing, and ESP32_A settings revision.
 - Status is also sent once per second for diagnostics.
 
-ESP32_A prints the received B status to the serial monitor.
+ESP32_A prints the received B status to the serial monitor. ESP32_A saves a valid
+SettingsPacket to NVS, resets its measurement state, and reports the new revision in its
+next WaterPacket. ESP32_B keeps retrying until the revisions match.
+
+Protocol version is **2**. Both boards must be reflashed together.
 
 ---
 
@@ -504,6 +525,36 @@ ESP32_A prints the received B status to the serial monitor.
 | Motor | Press and hold sends pressed; release sends released. |
 | Safety | Releases held motor buttons when the page loses focus or closes. |
 | Buzzer | STOP BUZZER sends the stop command. |
+| Admin | Top-right ADMIN button opens a passcode prompt; default passcode `14789`. |
+
+### Admin control centre
+
+The Admin page is part of the same `index.html` and is served at `http://192.168.4.1/`.
+It is a full-screen overlay; the original dashboard controls remain unchanged behind it.
+
+- **Passcode:** default `14789`, changeable in Admin (4–7 characters). If locked out,
+  hold the ESP32_B GPIO 4 button for 10 seconds to restore the default passcode.
+- **Live diagnostics:** ESP32_A online/link state, uptime, reset reason, valid/timeout
+  echo counts, flags, settings-sync state, current level, ESP-NOW link.
+- **History graph:** stored water samples with rising/filling and falling/draining
+  colours, range buttons, and automatic old-sample trimming.
+- **Noise/event log:** no-echo, timeout, jump, stuck, out-of-range, link loss/restore,
+  mirror dropouts, reboot, settings, and admin events.
+- **Water settings:** full/empty/deadband, capacity, sensor limits, smoothing, jump
+  limit/confirmations, stuck timeout, measure period, sample spacing, samples/cycle.
+- **Mirror settings:** enable, ON/OFF distances, confirm times, invalid holdoff, max auto-on.
+- **Buzzer settings:** enable, start/re-arm thresholds, confirmations, duration, beeps
+  per second, beep ON time, intensity.
+- **OLED settings:** show/hide fields, font sizes, contrast, inversion, live 128×64 preview.
+- **History settings:** enable, sample interval, retention days, clear history/events.
+- **Maintenance:** reboot ESP32_A, reboot ESP32_B, clear history, clear events.
+- **Technical information:** MACs, IP, channel, uptime, reset reasons, free heap, flash,
+  LittleFS usage, stored line counts, and pin assignments.
+
+Settings are saved to NVS on ESP32_B. Water settings are forwarded to ESP32_A over
+ESP-NOW and also persisted in ESP32_A NVS, so they survive reboots. History and events
+are stored in LittleFS on ESP32_B. There is no RTC, so history ages are approximate and
+are based on the configured sampling interval.
 
 ---
 
@@ -722,8 +773,8 @@ Checked with Arduino-ESP32 core 3.3.11:
 
 | Sketch | Flash | RAM |
 |---|---:|---:|
-| ESP32_A | 894,252 bytes (68 %) | 46,216 bytes (14 %) |
-| ESP32_B | 1,013,076 bytes (77 %) | 49,320 bytes (15 %) |
+| ESP32_A | 899,236 bytes (68 %) | 46,304 bytes (14 %) |
+| ESP32_B | 1,163,535 bytes (88 %) | 49,940 bytes (15 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 

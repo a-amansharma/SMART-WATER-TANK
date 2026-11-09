@@ -181,8 +181,9 @@ README and your board pinout:
 
 - Both Echo inputs are 5 V signals and must use the existing resistor dividers.
 - Relay 1 and Relay 2 use the existing active-LOW assumption.
-- The ESP32_A calibration is full **10 cm**, empty **76 cm**, with a **2 cm empty
-  deadband**; an empty tank should read 0 %. Re-measure both points if the sensor moves.
+- The ESP32_A default calibration is full **10 cm**, empty **76 cm**, with a **2 cm
+  empty deadband**; an empty tank should read 0 %. Re-measure both points if the sensor
+  moves, then save them from the dashboard Admin page. No recompile is needed.
 - The ESP32_B Wi-Fi AP and ESP-NOW channel remain channel **6**.
 - Do not assign ESP32_A's optional START/STOP buttons to GPIO 4 or 15.
 - Keep the two boards' grounds separate except where the existing power arrangement
@@ -190,7 +191,46 @@ README and your board pinout:
 
 ---
 
-## 6. Verification checklist
+## 6. Admin page and runtime settings
+
+Open `http://192.168.4.1/` and press **ADMIN** above the connection capsule.
+
+- Default passcode: **14789**. Change it in the Admin page; it is stored in ESP32_B NVS.
+- Lockout recovery: hold the ESP32_B GPIO 4 button for 10 seconds. The 3-second mirror
+  override action also runs first. The passcode then returns to `14789`.
+- The login session is held in browser `sessionStorage` and expires after 30 minutes.
+  Admin API calls send the token as `X-Admin-Token`.
+- ESP32_B is the settings source of truth. Water/measurement settings are forwarded to
+  ESP32_A and persisted in both boards' NVS. ESP32_B keeps retrying until ESP32_A reports
+  the same settings revision.
+- History uses `/history.csv` and events use `/events.csv` in ESP32_B LittleFS. Defaults
+  are one sample every 5 minutes with 4 days retained. Older lines are discarded.
+- There is no RTC. History/event times are approximate ages derived from the configured
+  sample interval and are not wall-clock timestamps.
+- Reboot A/B and clear-history/events actions are in the Admin page.
+- The OLED preview is an approximation of the real 128x64 display.
+
+Admin endpoints:
+
+```text
+POST /api/admin/login       {"passcode":"..."} -> {"ok":true,"token":"..."}
+POST /api/admin/logout
+GET  /api/admin/settings
+POST /api/admin/settings
+POST /api/admin/reboot-a
+POST /api/admin/reboot-b
+POST /api/admin/clear-data  {"history":true} and/or {"events":true}
+GET  /api/history
+GET  /api/events
+```
+
+`/api/state` stays public; the admin endpoints above require `X-Admin-Token` except login.
+Buzzer intensity is PWM duty on an active buzzer and may only click or have little volume
+change. Treat it as an optional tuning aid, not a guaranteed volume control.
+
+---
+
+## 7. Verification checklist
 
 1. Disconnect power before adding the two probes or changing the buzzer transistor.
 2. Check GPIO 15 is HIGH at ESP32_A reset; add the 10 kOhm pull-up if it is not.
@@ -211,3 +251,6 @@ README and your board pinout:
 11. Confirm the OLED shows a large percentage, litres below it, and
     `CONNECTED`/`NOT CONNECTED` plus litres on the bottom row.
 12. Confirm the dashboard and embedded HTML are still byte-identical after any edits.
+13. Open Admin, change a harmless value such as OLED contrast, save, reload, and confirm
+    it persists. Then restore the desired value.
+14. Confirm Admin history shows new samples and that clear-history only clears history.
