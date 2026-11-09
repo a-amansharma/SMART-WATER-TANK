@@ -774,7 +774,7 @@ Checked with Arduino-ESP32 core 3.3.11:
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 899,236 bytes (68 %) | 46,304 bytes (14 %) |
-| ESP32_B | 1,163,535 bytes (88 %) | 49,940 bytes (15 %) |
+| ESP32_B | 1,155,599 bytes (88 %) | 49,940 bytes (15 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
