@@ -264,13 +264,13 @@ The firmware tries address `0x3C` first and then `0x3D`.
 
 The default OLED shows:
 
-- A very large water percentage (font size 6) with a smaller `%` sign.
+- A large water percentage with a smaller `%` sign. U8g2 Logisoso fonts are rendered at their native size with 1 px curves, so the digits do not show scaled 8×8 blocks.
 - Bottom-left link status: `CONNECTED` or `NO LINK` (font size 1).
 - Bottom-right integer litres (font size 1).
 
 The Admin page can show/hide percent, link status, bottom litres, live/stale status,
-and distance. It can also change the percentage and bottom font sizes, contrast, and
-inversion. The live preview approximates the 128×64 OLED.
+and distance. It can also change the percentage scale and bottom font size, contrast,
+and inversion. The live preview approximates the 128×64 OLED.
 
 ---
 
@@ -391,6 +391,7 @@ filtering only if the installation is noisy.
 - A short GPIO 4 button press stops it.
 - A 3-second GPIO 4 long press also acknowledges an active buzzer while toggling mirror override.
 - The phone STOP BUZZER button also stops it.
+- The phone TEST BUZZER (5s) button plays the same beep pattern for 5 seconds, then stops automatically. STOP BUZZER also ends a test immediately.
 - It re-arms only after the water level falls below 93 %.
 - The buzzer also stops if the water link is lost.
 - Start threshold, re-arm threshold, confirmation count, duration, beeps per second,
@@ -464,12 +465,13 @@ Current protocol version is **2**. ESP32_B also accepts legacy v1 WaterPacket an
 | `initSafeOutputs()` | Forces relays, RF outputs, indicators, and buzzer OFF at boot. |
 | `computeLinkOnline()` | Checks for any valid ESP-NOW packet newer than 8 seconds. |
 | `computeOnline()` | Checks for a valid water packet newer than 8 seconds. |
-| `buzzerStateName()` | Returns ALERTING, SILENCED, or READY. |
+| `buzzerStateName()` | Returns TESTING, ALERTING, SILENCED, or READY. |
 | `stopBuzzerForLinkLoss()` | Stops the buzzer if the water link is lost. |
-| `manualStopBuzzer()` | Stops the buzzer from a button or the dashboard. |
+| `manualStopBuzzer()` | Stops an alert or test from a button or the dashboard. |
 | `startBuzzerAlert()` | Starts a 40-second full-tank alert. |
+| `startBuzzerTest()` | Starts the same beep pattern as a 5-second test. |
 | `updateBuzzerFromWater()` | Starts and re-arms the full-tank buzzer at 97 % / 93 %. |
-| `serviceBuzzer()` | Produces the 3-beeps-per-second pattern without blocking. |
+| `serviceBuzzer()` | Produces the configured beep pattern for alerts and tests without blocking. |
 | `applyRelay1()` | Chooses manual override or automatic Mirror Light state and writes Relay 1. |
 | `applyRelay2()` | Writes Relay 2. |
 | `toggleMirrorOverride()` | Toggles the 3-second button Mirror Light override. |
@@ -500,6 +502,7 @@ Current protocol version is **2**. ESP32_B also accepts legacy v1 WaterPacket an
 | `handleMirrorLight()` | Handles manual Mirror Light commands. |
 | `handleBulb()` | Handles Bulb commands. |
 | `handleBuzzerStop()` | Handles buzzer-stop commands. |
+| `handleBuzzerTest()` | Handles the 5-second buzzer-test command. |
 | `handleMotor()` | Handles phone START/STOP press and release. |
 | `onDataRecv()` | Copies incoming ESP-NOW data into a queue. |
 | `sendStatus()` | Builds and sends a StatusPacket to ESP32_A. |
@@ -523,7 +526,7 @@ Current protocol version is **2**. ESP32_B also accepts legacy v1 WaterPacket an
 | Bulb | Toggle follows Relay 2. |
 | Motor | Press and hold sends pressed; release sends released. |
 | Safety | Releases held motor buttons when the page loses focus or closes. |
-| Buzzer | STOP BUZZER sends the stop command. |
+| Buzzer | TEST BUZZER plays the alert pattern for 5 seconds; STOP BUZZER ends an alert or test. |
 | Admin | Top-right ADMIN button opens the Admin page directly; no passcode. |
 
 ### Admin control centre
@@ -543,7 +546,7 @@ It is a full-screen overlay; the original dashboard controls remain unchanged be
 - **Mirror settings:** enable, ON/OFF distances, ON confirm time, max auto-on. OFF is immediate.
 - **Buzzer settings:** enable, start/re-arm thresholds, confirmations, duration, beeps
   per second, beep ON time, intensity.
-- **OLED settings:** show/hide fields, percentage/bottom font sizes, contrast, inversion, live 128×64 preview.
+- **OLED settings:** show/hide fields, percentage scale, bottom font size, contrast, inversion, live 128×64 preview.
 - **History settings:** enable, sample interval, retention days, clear history/events.
 - **Maintenance:** reboot ESP32_A, reboot ESP32_B, clear history, clear events.
 - **Technical information:** MACs, IP, channel, uptime, reset reasons, free heap, flash,
@@ -629,7 +632,7 @@ These are the addresses already configured in this project. Verify them against 
 
 1. Install the ESP32 board package.
 2. Select board **ESP32 Dev Module**.
-3. Install **Adafruit GFX Library**, **Adafruit SSD1306**, and **Adafruit BusIO**.
+3. Install **U8g2** (used for the SSD1306 OLED).
 4. Open `ESP32_A.ino` and upload it to the rooftop board.
 5. Open `ESP32_B.ino` and upload it to the indoor board.
 6. Set both boards to the same ESP-NOW channel.
@@ -685,7 +688,8 @@ Do not move the dashboard to an external file or CDN. ESP32_B must serve everyth
 | GET | `/api/state` | none | Returns current water, relay, buzzer, motor, and sensor state. |
 | POST | `/api/mirror-light` | `{"on":true}` | Manual Mirror Light ON/OFF. |
 | POST | `/api/bulb` | `{"on":true}` | Bulb ON/OFF. |
-| POST | `/api/buzzer/stop` | `{}` | Stop the buzzer. |
+| POST | `/api/buzzer/test` | `{}` | Play the alert beep pattern for 5 seconds. |
+| POST | `/api/buzzer/stop` | `{}` | Stop an alert or test immediately. |
 | POST | `/api/motor` | `{"button":"start","pressed":true}` | Press or release the RF motor button. |
 
 The dashboard polls state every 500 ms. Command requests time out after 3 seconds.
@@ -704,10 +708,11 @@ The dashboard polls state every 500 ms. Command requests time out after 3 second
 8. Remove your hand beyond 105 cm. Mirror Light should turn OFF immediately.
 9. Use the phone Mirror Light toggle while no person is detected. It should stay ON or OFF with no timer.
 10. Test the Bulb toggle.
-11. Test the buzzer at full water, then press the physical button and the dashboard button.
-12. Test phone START/STOP. Each press should release after 4 seconds.
-13. Assign ESP32_A button GPIOs and test START/STOP from the rooftop board.
-14. Check that the dashboard updates after a page reload.
+11. Press TEST BUZZER. Confirm it uses the same pattern as a full-tank alert and stops automatically after 5 seconds. Press TEST BUZZER again and stop it early with STOP BUZZER and with the physical button.
+12. Test the buzzer at full water, then press the physical button and the dashboard button.
+13. Test phone START/STOP. Each press should release after 4 seconds.
+14. Assign ESP32_A button GPIOs and test START/STOP from the rooftop board.
+15. Check that the dashboard updates after a page reload.
 
 ---
 
@@ -772,7 +777,7 @@ Checked with Arduino-ESP32 core 3.3.11:
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 899,236 bytes (68 %) | 46,304 bytes (14 %) |
-| ESP32_B | 1,147,855 bytes (87 %) | 49,924 bytes (15 %) |
+| ESP32_B | 1,169,115 bytes (89 %) | 51,068 bytes (15 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 

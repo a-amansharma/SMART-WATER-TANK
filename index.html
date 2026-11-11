@@ -73,8 +73,11 @@ header{min-height:clamp(54px,8.6vh,70px);flex:none;display:flex;align-items:cent
 .toggle:after{content:"";display:block;width:clamp(31px,4.9vh,41px);height:clamp(31px,4.9vh,41px);border-radius:50%;background:linear-gradient(145deg,#fff,#e9eef3);box-shadow:0 3px 6px #0003,inset 0 1px 1px #fff;transition:.18s}
 .toggle.on{background:linear-gradient(145deg,#33d493,#0b8a59);border-color:#0b8a59;box-shadow:inset 0 2px 4px #064d3226,0 3px 0 #07633f,0 0 14px #12a96b88}
 .toggle.on:after{transform:translateX(clamp(28px,4.4vh,39px))}
+.buzzer-actions{display:flex;flex-direction:column;align-items:center;gap:clamp(4px,0.7vh,7px);width:100%}
 .buzzer-btn{width:min(100%,198px);border:1px solid #bd1b32;background:linear-gradient(145deg,#ff7584,#db2340 58%,#b51631);color:#fff;border-radius:15px;padding:clamp(13px,2.1vh,18px) 10px;font-size:clamp(12px,2vh,15px);font-weight:950;letter-spacing:.45px;white-space:nowrap;box-shadow:inset 0 2px 0 #ffffff66,0 6px 0 #901127,0 10px 15px #d91f3d33;cursor:pointer;text-shadow:0 1px 1px #780d1f88}
 .buzzer-btn:active{transform:translateY(5px);box-shadow:inset 0 2px 3px #0004,0 1px 0 #901127}
+.buzzer-btn.test{border-color:#087a4c;background:linear-gradient(145deg,#59e6a5,#16b978 58%,#087a4c);font-size:clamp(10px,1.6vh,12px);padding:clamp(8px,1.3vh,11px) 10px;box-shadow:inset 0 2px 0 #ffffff66,0 5px 0 #05633e,0 9px 13px #0d9b5e26;text-shadow:0 1px 1px #04523388}
+.buzzer-btn.test:active{transform:translateY(4px);box-shadow:inset 0 2px 3px #0004,0 1px 0 #05633e}
 footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:1.2;color:#4e6178;font-weight:950;letter-spacing:.5px;white-space:nowrap;padding-bottom:2px;margin-bottom:clamp(8px,2vh,20px);text-shadow:0 1px 0 #fff}
 
 .head-actions{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
@@ -199,7 +202,10 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
   </div>
   <div class="control-tile">
    <div class="control-name">Buzzer</div>
-   <button class="buzzer-btn" id="buzzerStop">STOP BUZZER</button>
+   <div class="buzzer-actions">
+    <button class="buzzer-btn test" id="buzzerTest">TEST BUZZER (5s)</button>
+    <button class="buzzer-btn" id="buzzerStop">STOP BUZZER</button>
+   </div>
    <div class="control-state" id="buzzerState">STATE UNKNOWN</div>
   </div>
  </section>
@@ -297,14 +303,14 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
        <label class="checkline"><input type="checkbox" data-oled-bit="8"> Show bottom litres</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="16"> Show live/stale status</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="32"> Show distance</label>
-       <div class="field"><label for="oledPercentSize">Percent font size</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option></select></div>
+       <div class="field"><label for="oledPercentSize">Percent scale</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option></select></div>
        <div class="field"><label for="oledBottomSize">Bottom font size</label><select id="oledBottomSize" name="oledBottomSize"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
        <div class="field"><label for="oledContrast">Contrast 1–255</label><input id="oledContrast" name="oledContrast" type="number" step="1" min="1" max="255"></div>
        <label class="checkline"><input id="oledInvert" name="oledInvert" type="checkbox"> Invert display</label>
       </div>
       <div>
        <div class="oled-frame"><canvas id="oledPreview" width="256" height="128"></canvas></div>
-       <p class="note">Approximate 128×64 preview. Default layout is a large percentage with bottom litres at size 1.</p>
+       <p class="note">Approximate 128×64 preview. Large digits use 1 px smooth curves, not scaled block pixels.</p>
       </div>
      </div>
     </div>
@@ -464,7 +470,13 @@ function render(s){
   buzzerStateEl.textContent='STATE UNKNOWN';
  }else{
   const b=String(s.buzzerState||'READY').toUpperCase();
-  buzzerStateEl.textContent=(s.buzzerActive===true)?'ALERTING':b;
+  const testing=(s.buzzerTest===true)||b==='TESTING';
+  if(testing){
+   const rem=Number(s.buzzerTestRemainingMs);
+   buzzerStateEl.textContent='TESTING'+(rem>0?' · '+Math.ceil(rem/1000)+'s':' · AUTO STOP');
+  }else{
+   buzzerStateEl.textContent=(s.buzzerActive===true)?'ALERTING':b;
+  }
  }
 
  const startPressed=(reachable&&s.motorStart===true), stopPressed=(reachable&&s.motorStop===true);
@@ -629,6 +641,12 @@ relay2Btn.addEventListener('click',async()=>{
   const on=!(current&&current.relay2===true);
   await sendCommand('/api/bulb',{on:on},r2state);
  }finally{bulbBusy=false;}
+});
+$('buzzerTest').addEventListener('click',async()=>{
+ if(buzzerBusy) return;
+ buzzerBusy=true;
+ try{ await sendCommand('/api/buzzer/test',{},buzzerStateEl); }
+ finally{buzzerBusy=false;}
 });
 $('buzzerStop').addEventListener('click',async()=>{
  if(buzzerBusy) return;
@@ -885,15 +903,21 @@ function renderOled(){
  const pctText=pct==null?'--':String(pct);
  const litreText=litres==null?'--L':litres+'L';
  if(bits&1){
-  const size=Number($('oledPercentSize').value)||6;
-  const signSize=Math.max(1,Math.floor(size/2));
-  ctx.font='900 '+(size*8)+'px ui-monospace,Menlo,monospace';
+  const scale=Number($('oledPercentSize').value)||6;
+  const numberPx=scale<=2?24:(scale<=4?32:42);
+  const signPx=scale<=2?18:(scale<=4?22:30);
+  const baseline=Math.round((46-numberPx)/2+numberPx);
+  const family='Arial,Helvetica,sans-serif';
+  ctx.fillStyle=ink; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  ctx.font='500 '+numberPx+'px '+family;
   const numberWidth=ctx.measureText(pctText).width;
-  ctx.font='900 '+(signSize*8)+'px ui-monospace,Menlo,monospace';
+  ctx.font='500 '+signPx+'px '+family;
   const signWidth=ctx.measureText('%').width;
   const x=Math.max(0,(128-numberWidth-signWidth)/2);
-  text(pctText,x,0,size,'left');
-  text('%',x+numberWidth,size*8-signSize*8,signSize,'left');
+  ctx.font='500 '+numberPx+'px '+family;
+  ctx.fillText(pctText,x,baseline);
+  ctx.font='500 '+signPx+'px '+family;
+  ctx.fillText('%',x+numberWidth,baseline);
  }
  if((bits&32)&&dist!=null)text(dist.toFixed(0)+'cm',0,47,1,'left');
  const bottom=Number($('oledBottomSize').value)||1;

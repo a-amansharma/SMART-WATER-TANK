@@ -4,7 +4,7 @@
   ============================================================================
   Board target : ESP32 DevKit / ESP32-WROOM-32 (or equivalent)
   Arduino core : esp32:esp32 3.3.11 (tested build target; 3.x ESP-NOW API)
-  Libraries    : Adafruit GFX Library, Adafruit SSD1306
+  Libraries    : U8g2 (SSD1306 full framebuffer)
   Web server   : built-in WebServer (HTTP polling, JSON; no CDN/cloud)
 
   Responsibilities:
@@ -41,8 +41,7 @@
 #include <esp_wifi.h>
 #include <esp_system.h>
 #include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <U8g2lib.h>
 #include <math.h>
 #include <stddef.h>
 #include <string.h>
@@ -117,6 +116,7 @@ static const float    FULL_LEVEL_PERCENT     = 97.0f; // buzzer alert threshold
 static const uint8_t  FULL_CONFIRM_READINGS  = 2;
 static const float    REARM_PERCENT          = 93.0f;
 static const uint32_t BUZZER_ALERT_MAX_MS    = 40000;
+static const uint32_t BUZZER_TEST_MS         = 5000;
 static const uint32_t BUZZER_BEEP_PERIOD_MS  = 333;  // 3 beeps per second
 static const uint32_t BUZZER_BEEP_ON_MS      = 120;
 
@@ -413,8 +413,11 @@ header{min-height:clamp(54px,8.6vh,70px);flex:none;display:flex;align-items:cent
 .toggle:after{content:"";display:block;width:clamp(31px,4.9vh,41px);height:clamp(31px,4.9vh,41px);border-radius:50%;background:linear-gradient(145deg,#fff,#e9eef3);box-shadow:0 3px 6px #0003,inset 0 1px 1px #fff;transition:.18s}
 .toggle.on{background:linear-gradient(145deg,#33d493,#0b8a59);border-color:#0b8a59;box-shadow:inset 0 2px 4px #064d3226,0 3px 0 #07633f,0 0 14px #12a96b88}
 .toggle.on:after{transform:translateX(clamp(28px,4.4vh,39px))}
+.buzzer-actions{display:flex;flex-direction:column;align-items:center;gap:clamp(4px,0.7vh,7px);width:100%}
 .buzzer-btn{width:min(100%,198px);border:1px solid #bd1b32;background:linear-gradient(145deg,#ff7584,#db2340 58%,#b51631);color:#fff;border-radius:15px;padding:clamp(13px,2.1vh,18px) 10px;font-size:clamp(12px,2vh,15px);font-weight:950;letter-spacing:.45px;white-space:nowrap;box-shadow:inset 0 2px 0 #ffffff66,0 6px 0 #901127,0 10px 15px #d91f3d33;cursor:pointer;text-shadow:0 1px 1px #780d1f88}
 .buzzer-btn:active{transform:translateY(5px);box-shadow:inset 0 2px 3px #0004,0 1px 0 #901127}
+.buzzer-btn.test{border-color:#087a4c;background:linear-gradient(145deg,#59e6a5,#16b978 58%,#087a4c);font-size:clamp(10px,1.6vh,12px);padding:clamp(8px,1.3vh,11px) 10px;box-shadow:inset 0 2px 0 #ffffff66,0 5px 0 #05633e,0 9px 13px #0d9b5e26;text-shadow:0 1px 1px #04523388}
+.buzzer-btn.test:active{transform:translateY(4px);box-shadow:inset 0 2px 3px #0004,0 1px 0 #05633e}
 footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:1.2;color:#4e6178;font-weight:950;letter-spacing:.5px;white-space:nowrap;padding-bottom:2px;margin-bottom:clamp(8px,2vh,20px);text-shadow:0 1px 0 #fff}
 
 .head-actions{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
@@ -539,7 +542,10 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
   </div>
   <div class="control-tile">
    <div class="control-name">Buzzer</div>
-   <button class="buzzer-btn" id="buzzerStop">STOP BUZZER</button>
+   <div class="buzzer-actions">
+    <button class="buzzer-btn test" id="buzzerTest">TEST BUZZER (5s)</button>
+    <button class="buzzer-btn" id="buzzerStop">STOP BUZZER</button>
+   </div>
    <div class="control-state" id="buzzerState">STATE UNKNOWN</div>
   </div>
  </section>
@@ -637,14 +643,14 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
        <label class="checkline"><input type="checkbox" data-oled-bit="8"> Show bottom litres</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="16"> Show live/stale status</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="32"> Show distance</label>
-       <div class="field"><label for="oledPercentSize">Percent font size</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option></select></div>
+       <div class="field"><label for="oledPercentSize">Percent scale</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option></select></div>
        <div class="field"><label for="oledBottomSize">Bottom font size</label><select id="oledBottomSize" name="oledBottomSize"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
        <div class="field"><label for="oledContrast">Contrast 1–255</label><input id="oledContrast" name="oledContrast" type="number" step="1" min="1" max="255"></div>
        <label class="checkline"><input id="oledInvert" name="oledInvert" type="checkbox"> Invert display</label>
       </div>
       <div>
        <div class="oled-frame"><canvas id="oledPreview" width="256" height="128"></canvas></div>
-       <p class="note">Approximate 128×64 preview. Default layout is a large percentage with bottom litres at size 1.</p>
+       <p class="note">Approximate 128×64 preview. Large digits use 1 px smooth curves, not scaled block pixels.</p>
       </div>
      </div>
     </div>
@@ -704,9 +710,13 @@ const motor={
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
 function num(v){return (typeof v==='number'&&isFinite(v))?v:null;}
-function setOnline(online){
+function setOnline(online,linkOk){
  connection.classList.toggle('offline',!online);
- connectionText.textContent=online?'ONLINE':'OFFLINE';
+ if(!online){
+  connectionText.textContent='OFFLINE';
+ }else{
+  connectionText.textContent=(linkOk===false)?'B ONLINE · A LINK DOWN':'ONLINE';
+ }
 }
 function renderCapsules(filling,overflowing,linkOk){
  filling=linkOk&&filling===true;
@@ -726,19 +736,16 @@ function flashError(el,msg){
  el._errTimer=setTimeout(()=>{ if(reachable&&current) render(current); },1400);
 }
 function renderUnreachable(){
- if(current) render(current);
- else {
-  tankCard.classList.remove('stale');
-  percentEl.innerHTML='--<small>%</small>';
-  litresEl.textContent='-- L';
-  barEl.style.width='0%';
-  distanceEl.textContent='Device unreachable · reconnecting…';
-  renderCapsules(false,false,false);
-  r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='No connection';
-  r2state.textContent='STATE UNKNOWN';
-  buzzerStateEl.textContent='STATE UNKNOWN';
-  motorStatusEl.textContent='REMOTE STATE UNKNOWN';
- }
+ tankCard.classList.remove('stale');
+ percentEl.innerHTML='--<small>%</small>';
+ litresEl.textContent='-- L';
+ barEl.style.width='0%';
+ distanceEl.textContent='ESP32_B unreachable · reconnecting…';
+ renderCapsules(false,false,false);
+ r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='ESP32_B unreachable';
+ r2state.textContent='STATE UNKNOWN';
+ buzzerStateEl.textContent='STATE UNKNOWN';
+ motorStatusEl.textContent='ESP32_B unreachable';
 }
 function render(s){
  if(!s||typeof s!=='object') return;
@@ -749,14 +756,14 @@ function render(s){
   $('scaleFull').textContent=Math.round(capacity)+' L · FULL';
  }
  const linkOk=(reachable&&s.linkOnline===true);
- const online=(reachable&&s.online===true);
- setOnline(linkOk);
+ const waterOnline=(reachable&&s.online===true);
+ setOnline(reachable, linkOk);
  const pct=num(s.percent);
- const hasPct=(pct!==null);
+ const hasPct=(pct!==null && linkOk);
  const shownPct=hasPct?clamp(pct,0,100):null;
- const stale=!online;
+ const stale=!waterOnline;
 
- tankCard.classList.toggle('stale',stale);
+ tankCard.classList.toggle('stale',stale && linkOk);
  if(hasPct){
   percentEl.innerHTML=Math.round(shownPct)+'<small>%</small>';
   const litres=num(s.litres);
@@ -769,9 +776,11 @@ function render(s){
  }
  const dist=num(s.distance);
  if(!reachable){
-  distanceEl.textContent='Device unreachable · reconnecting…';
- }else if(dist!==null){
+  distanceEl.textContent='ESP32_B unreachable · reconnecting…';
+ }else if(linkOk && dist!==null){
   distanceEl.textContent=(stale?'Last distance: ':'Sensor distance: ')+dist.toFixed(1)+' cm'+(stale?' · STALE':'');
+ }else if(!linkOk){
+  distanceEl.textContent='ESP-NOW link to ESP32_A unavailable · water data paused';
  }else{
   distanceEl.textContent='Sensor distance: —';
  }
@@ -782,7 +791,7 @@ function render(s){
  relay1Btn.setAttribute('aria-pressed',mirrorOn?'true':'false');
  mirrorTile.classList.toggle('light-on',mirrorOn);
  if(!reachable){
-  r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='No connection';
+  r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='ESP32_B unreachable';
  }else{
   const person=(s.personDetected===true);
   const override=(s.mirrorOverride===true);
@@ -791,6 +800,7 @@ function render(s){
   r1state.textContent=mirrorOn?'ON':'OFF';
   let info=override?'MANUAL OVERRIDE · ':blocked?'AUTO BLOCKED · ':(person?'AUTO · PERSON · ':'AUTO · CLEAR · ');
   info+=hc!==null?(hc/100).toFixed(1)+' m':'—';
+  if(!linkOk) info+=' · ESP-NOW A offline';
   mirrorInfo.textContent=info;
  }
 
@@ -804,14 +814,22 @@ function render(s){
   buzzerStateEl.textContent='STATE UNKNOWN';
  }else{
   const b=String(s.buzzerState||'READY').toUpperCase();
-  buzzerStateEl.textContent=(s.buzzerActive===true)?'ALERTING':b;
+  const testing=(s.buzzerTest===true)||b==='TESTING';
+  if(testing){
+   const rem=Number(s.buzzerTestRemainingMs);
+   buzzerStateEl.textContent='TESTING'+(rem>0?' · '+Math.ceil(rem/1000)+'s':' · AUTO STOP');
+  }else{
+   buzzerStateEl.textContent=(s.buzzerActive===true)?'ALERTING':b;
+  }
  }
 
  const startPressed=(reachable&&s.motorStart===true), stopPressed=(reachable&&s.motorStop===true);
  startBtn.setAttribute('aria-pressed',startPressed?'true':'false');
  stopBtn.setAttribute('aria-pressed',stopPressed?'true':'false');
  if(!reachable){
-  motorStatusEl.textContent='REMOTE STATE UNKNOWN';
+  motorStatusEl.textContent='ESP32_B unreachable';
+ }else if(!linkOk){
+  motorStatusEl.textContent=startPressed?'START PRESSED (local) · ESP-NOW A offline':stopPressed?'STOP PRESSED (local) · ESP-NOW A offline':'ESP-NOW A offline · remote motor unavailable';
  }else if(startPressed){
   const rs=Math.ceil((num(s.motorStartRemainingMs)||0)/1000);
   motorStatusEl.textContent='REMOTE START PRESSED'+(rs>0?' · '+rs+'s':'');
@@ -969,6 +987,12 @@ relay2Btn.addEventListener('click',async()=>{
   const on=!(current&&current.relay2===true);
   await sendCommand('/api/bulb',{on:on},r2state);
  }finally{bulbBusy=false;}
+});
+$('buzzerTest').addEventListener('click',async()=>{
+ if(buzzerBusy) return;
+ buzzerBusy=true;
+ try{ await sendCommand('/api/buzzer/test',{},buzzerStateEl); }
+ finally{buzzerBusy=false;}
 });
 $('buzzerStop').addEventListener('click',async()=>{
  if(buzzerBusy) return;
@@ -1225,15 +1249,21 @@ function renderOled(){
  const pctText=pct==null?'--':String(pct);
  const litreText=litres==null?'--L':litres+'L';
  if(bits&1){
-  const size=Number($('oledPercentSize').value)||6;
-  const signSize=Math.max(1,Math.floor(size/2));
-  ctx.font='900 '+(size*8)+'px ui-monospace,Menlo,monospace';
+  const scale=Number($('oledPercentSize').value)||6;
+  const numberPx=scale<=2?24:(scale<=4?32:42);
+  const signPx=scale<=2?18:(scale<=4?22:30);
+  const baseline=Math.round((46-numberPx)/2+numberPx);
+  const family='Arial,Helvetica,sans-serif';
+  ctx.fillStyle=ink; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  ctx.font='500 '+numberPx+'px '+family;
   const numberWidth=ctx.measureText(pctText).width;
-  ctx.font='900 '+(signSize*8)+'px ui-monospace,Menlo,monospace';
+  ctx.font='500 '+signPx+'px '+family;
   const signWidth=ctx.measureText('%').width;
   const x=Math.max(0,(128-numberWidth-signWidth)/2);
-  text(pctText,x,0,size,'left');
-  text('%',x+numberWidth,size*8-signSize*8,signSize,'left');
+  ctx.font='500 '+numberPx+'px '+family;
+  ctx.fillText(pctText,x,baseline);
+  ctx.font='500 '+signPx+'px '+family;
+  ctx.fillText('%',x+numberWidth,baseline);
  }
  if((bits&32)&&dist!=null)text(dist.toFixed(0)+'cm',0,47,1,'left');
  const bottom=Number($('oledBottomSize').value)||1;
@@ -1289,7 +1319,7 @@ bind();
    ========================================================================== */
 
 WebServer server(80);
-Adafruit_SSD1306 display(OLED_WIDTH, OLED_HEIGHT, &Wire, -1);
+U8G2_SSD1306_128X64_NONAME_F_HW_I2C display(U8G2_R0, U8X8_PIN_NONE, PIN_I2C_SCL, PIN_I2C_SDA);
 bool oledReady = false;
 
 // --- Persistent configuration / admin ---
@@ -1333,8 +1363,10 @@ uint8_t  aProtocolVersion = PROTOCOL_VERSION;
 
 // --- Buzzer ---
 bool     buzzerAlerting = false;
+bool     buzzerTesting = false;
 bool     buzzerArmed = true;
 uint32_t buzzerStartMs = 0;
+uint32_t buzzerTestStartMs = 0;
 uint8_t  fullConfirmCount = 0;
 
 // --- HC-SR04 / Relay 1 ---
@@ -1907,15 +1939,10 @@ void setBuzzerOutput(bool on) {
     else    noTone(PIN_BUZZER);
     return;
   }
-  if (!on) {
-    digitalWrite(PIN_BUZZER, BUZZER_ACTIVE_HIGH ? LOW : HIGH);
-    return;
-  }
-  int intensity = constrain((int)settings.buzzerIntensity, 0, 100);
-  int duty = map(intensity, 0, 100, 0, 255);
-  if (!BUZZER_ACTIVE_HIGH) duty = 255 - duty;
-  // PWM approximates volume on an active buzzer; some modules only click.
-  analogWrite(PIN_BUZZER, duty);
+  // Active buzzer (e.g. TMB12A05): drive with a clean digital level.
+  // PWM/analogWrite is unreliable across cores/modules and can prevent beeping.
+  bool level = BUZZER_ACTIVE_HIGH ? on : !on;
+  digitalWrite(PIN_BUZZER, level ? HIGH : LOW);
 }
 
 void initSafeOutputs() {
@@ -1979,12 +2006,15 @@ bool computeOnline() {
    ========================================================================== */
 
 const char *buzzerStateName() {
+  if (buzzerTesting)  return "TESTING";
   if (buzzerAlerting) return "ALERTING";
   if (!buzzerArmed)   return "SILENCED";
   return "READY";
 }
 
 void stopBuzzerForLinkLoss() {
+  // Keep manual/test beep independent of ESP-NOW/water link state.
+  // Only stop automatic full-tank alert when water data is no longer valid.
   if (buzzerAlerting) {
     buzzerAlerting = false;
     buzzerArmed = false;      // re-arm only after valid level < 93 %
@@ -1993,15 +2023,18 @@ void stopBuzzerForLinkLoss() {
 }
 
 void manualStopBuzzer() {
+  bool wasActive = buzzerAlerting || buzzerTesting;
+  buzzerTesting = false;
   if (buzzerAlerting) {
     buzzerAlerting = false;
     buzzerArmed = false;      // remains disarmed until level < 93 %
-    setBuzzerOutput(false);
-    DBGLN("[B] Buzzer stopped by user");
   }
+  setBuzzerOutput(false);
+  if (wasActive) DBGLN("[B] Buzzer stopped by user");
 }
 
 void startBuzzerAlert() {
+  buzzerTesting = false;
   buzzerAlerting = true;
   buzzerArmed = false;
   buzzerStartMs = millis();
@@ -2009,7 +2042,14 @@ void startBuzzerAlert() {
   DBGLN("[B] FULL TANK: buzzer alert started");
 }
 
+void startBuzzerTest() {
+  buzzerTesting = true;
+  buzzerTestStartMs = millis();
+  DBG("[B] Buzzer test started (%lu s)\n", (unsigned long)(BUZZER_TEST_MS / 1000UL));
+}
+
 void updateBuzzerFromWater(float p, bool onlineNow) {
+  if (buzzerTesting) return;
   if (!onlineNow) return;
   if (!settings.buzzerEnabled) {
     if (buzzerAlerting) {
@@ -2043,6 +2083,19 @@ void updateBuzzerFromWater(float p, bool onlineNow) {
 }
 
 void serviceBuzzer() {
+  if (buzzerTesting) {
+    uint32_t testElapsed = millis() - buzzerTestStartMs;
+    if (testElapsed >= BUZZER_TEST_MS) {
+      buzzerTesting = false;
+      setBuzzerOutput(false);
+      DBGLN("[B] Buzzer test finished");
+      return;
+    }
+    uint32_t testPhase = testElapsed % settings.buzzerBeepPeriodMs;
+    setBuzzerOutput(testPhase < settings.buzzerBeepOnMs);
+    return;
+  }
+
   if (!buzzerAlerting) {
     setBuzzerOutput(false);
     return;
@@ -2137,8 +2190,24 @@ float medianOfValidHc() {
 }
 
 void pushHcSample(float cm, bool valid) {
-  hcRing[hcRingHead] = valid ? cm : 0.0f;
-  hcRingValid[hcRingHead] = valid;
+  // No echo / out-of-range means nothing detected: clear immediately (no delay).
+  if (!valid) {
+    for (uint8_t i = 0; i < HC_FILTER_SAMPLES; i++) hcRingValid[i] = false;
+    hcRingHead = 0;
+    hcValid = false;
+    personDetected = false;
+    hcNearSinceMs = 0;
+    hcFarSinceMs = millis();
+    if (!mirrorOverride) {
+      autoRelay1On = false;
+      autoRelay1OnSinceMs = 0;
+    }
+    applyRelay1();
+    return;
+  }
+
+  hcRing[hcRingHead] = cm;
+  hcRingValid[hcRingHead] = true;
   hcRingHead = (hcRingHead + 1) % HC_FILTER_SAMPLES;
 
   float med = medianOfValidHc();
@@ -2440,26 +2509,29 @@ void initOled() {
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   Wire.setClock(400000);
 
-  oledReady = display.begin(SSD1306_SWITCHCAPVCC, OLED_I2C_ADDRESS);
-  if (!oledReady) {
-    // Common alternative address.
-    oledReady = display.begin(SSD1306_SWITCHCAPVCC, 0x3D);
-    if (oledReady) {
-      DBGLN("[B] OLED found at 0x3D (config says 0x3C)");
+  uint8_t address = OLED_I2C_ADDRESS;
+  Wire.beginTransmission(address);
+  if (Wire.endTransmission() != 0) {
+    address = 0x3D;
+    Wire.beginTransmission(address);
+    if (Wire.endTransmission() != 0) {
+      DBGLN("[B] OLED not found - dashboard continues without display");
+      return;
     }
-  }
-  if (!oledReady) {
-    DBGLN("[B] OLED not found - dashboard continues without display");
-    return;
+    DBGLN("[B] OLED found at 0x3D (config says 0x3C)");
   }
 
-  display.ssd1306_command(0x81);     // SETCONTRAST
-  display.ssd1306_command(settings.oledContrast);
-  display.ssd1306_command(settings.oledInvert ? 0xA7 : 0xA6);
-  display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
-  display.setTextWrap(false);
-  display.display();
+  display.setI2CAddress((uint8_t)(address << 1));
+  display.setBusClock(400000);
+  display.begin();
+  oledReady = true;
+
+  display.setContrast(settings.oledContrast);
+  display.sendF("c", settings.oledInvert ? 0x0a7 : 0x0a6);
+  display.clearBuffer();
+  display.setDrawColor(1);
+  display.setFontMode(1);
+  display.sendBuffer();
 }
 
 void drawOled() {
@@ -2474,35 +2546,46 @@ void drawOled() {
   static int8_t appliedInvert = -1;
   if (appliedContrast != settings.oledContrast) {
     appliedContrast = settings.oledContrast;
-    display.ssd1306_command(0x81);
-    display.ssd1306_command(appliedContrast);
+    display.setContrast(appliedContrast);
   }
   if (appliedInvert != (int8_t)settings.oledInvert) {
     appliedInvert = (int8_t)settings.oledInvert;
-    display.ssd1306_command(appliedInvert ? 0xA7 : 0xA6);
+    display.sendF("c", appliedInvert ? 0x0a7 : 0x0a6);
   }
 
-  display.clearDisplay();
-  display.setTextColor(SSD1306_WHITE);
-  display.setTextWrap(false);
+  display.clearBuffer();
+  display.setDrawColor(1);
+  display.setFontMode(1);
 
   char pct[10];
   if (haveValidWater) snprintf(pct, sizeof(pct), "%d", (int)lroundf(lastValidPercent));
   else                snprintf(pct, sizeof(pct), "--");
 
   if (show & OLED_SHOW_PERCENT) {
-    uint8_t size = settings.oledPercentSize;
-    uint8_t signSize = size > 1 ? size / 2 : 1;
-    int16_t numberWidth = (int16_t)strlen(pct) * 6 * size;
-    int16_t signWidth = 6 * signSize;
+    const uint8_t *numberFont = u8g2_font_logisoso42_tn;
+    const uint8_t *signFont   = u8g2_font_logisoso30_tf;
+    if (settings.oledPercentSize <= 2) {
+      numberFont = u8g2_font_logisoso24_tn;
+      signFont   = u8g2_font_logisoso18_tf;
+    } else if (settings.oledPercentSize <= 4) {
+      numberFont = u8g2_font_logisoso32_tn;
+      signFont   = u8g2_font_logisoso22_tf;
+    }
+
+    display.setFont(numberFont);
+    int16_t numberWidth = (int16_t)display.getStrWidth(pct);
+    int16_t ascent = display.getAscent();
+    int16_t baseline = (46 - ascent) / 2 + ascent;
+
+    display.setFont(signFont);
+    int16_t signWidth = (int16_t)display.getStrWidth("%");
     int16_t x = (OLED_WIDTH - numberWidth - signWidth) / 2;
     if (x < 0) x = 0;
-    display.setTextSize(size);
-    display.setCursor(x, 0);
-    display.print(pct);
-    display.setTextSize(signSize);
-    display.setCursor(x + numberWidth, size * 8 - signSize * 8);
-    display.print("%");
+
+    display.setFont(numberFont);
+    display.drawStr(x, baseline, pct);
+    display.setFont(signFont);
+    display.drawStr(x + numberWidth, baseline, "%");
   }
 
   char litres[10];
@@ -2512,28 +2595,29 @@ void drawOled() {
   if ((show & OLED_SHOW_DISTANCE) && haveValidWater) {
     char dist[16];
     snprintf(dist, sizeof(dist), "%.0fcm", lastValidDistanceCm);
-    display.setTextSize(1);
-    display.setCursor(0, 47);
-    display.print(dist);
+    display.setFont(u8g2_font_5x7_tf);
+    display.drawStr(0, 55, dist);
   }
 
-  display.setTextSize(settings.oledBottomSize);
+  const uint8_t *bottomFont = u8g2_font_5x7_tf;
+  if (settings.oledBottomSize >= 4)      bottomFont = u8g2_font_8x13B_tf;
+  else if (settings.oledBottomSize == 3) bottomFont = u8g2_font_7x13B_tf;
+  else if (settings.oledBottomSize == 2) bottomFont = u8g2_font_6x10_tf;
+  display.setFont(bottomFont);
+
   if (show & OLED_SHOW_LINK) {
-    display.setCursor(0, 56);
-    display.print(linkNow ? "CONNECTED" : "NO LINK");
+    display.drawStr(0, 63, linkNow ? "CONNECTED" : "NO LINK");
   }
   if (show & OLED_SHOW_BOTTOM_L) {
-    int16_t x = OLED_WIDTH - (int16_t)strlen(litres) * 6 * settings.oledBottomSize;
+    int16_t x = OLED_WIDTH - (int16_t)display.getStrWidth(litres);
     if (x < 0) x = 0;
-    display.setCursor(x, 56);
-    display.print(litres);
+    display.drawStr(x, 63, litres);
   }
   if ((show & OLED_SHOW_STATUS) && !(show & OLED_SHOW_LINK)) {
-    display.setCursor(0, 56);
-    display.print(linkNow ? "LIVE" : "STALE");
+    display.drawStr(0, 63, linkNow ? "LIVE" : "STALE");
   }
 
-  display.display();
+  display.sendBuffer();
 }
 
 /* ==========================================================================
@@ -2577,7 +2661,10 @@ String buildStateJson() {
   j += ",\"autoBlocked\":";  j += autoBlocked ? "true" : "false";
   j += ",\"relay2\":";       j += relay2On ? "true" : "false";
 
-  j += ",\"buzzerActive\":"; j += buzzerAlerting ? "true" : "false";
+  j += ",\"buzzerActive\":"; j += (buzzerAlerting || buzzerTesting) ? "true" : "false";
+  j += ",\"buzzerTest\":";   j += buzzerTesting ? "true" : "false";
+  j += ",\"buzzerTestRemainingMs\":";
+  j += buzzerTesting ? String((unsigned long)(BUZZER_TEST_MS - (millis() - buzzerTestStartMs))) : "0";
   j += ",\"buzzerArmed\":";  j += buzzerArmed ? "true" : "false";
   j += ",\"buzzerState\":\""; j += buzzerStateName(); j += "\"";
 
@@ -2803,6 +2890,20 @@ void handleBuzzerStop() {
     return;
   }
   manualStopBuzzer();
+  sendJsonState();
+}
+
+void handleBuzzerTest() {
+  if (server.method() != HTTP_POST) {
+    server.sendHeader("Allow", "POST");
+    sendApiError(405, "use POST");
+    return;
+  }
+  if (server.arg("plain").length() > 256) {
+    sendApiError(400, "body too large");
+    return;
+  }
+  startBuzzerTest();
   sendJsonState();
 }
 
@@ -3108,7 +3209,7 @@ void sendStatus() {
 
   if (relay1On)      st.flags |= STATUS_RELAY1;
   if (relay2On)      st.flags |= STATUS_RELAY2;
-  if (buzzerAlerting) st.flags |= STATUS_BUZZER;
+  if (buzzerAlerting || buzzerTesting) st.flags |= STATUS_BUZZER;
   if (motorStartPressed) st.flags |= STATUS_MOTOR_START;
   if (motorStopPressed)  st.flags |= STATUS_MOTOR_STOP;
   if (personDetected) st.flags |= STATUS_PERSON;
@@ -3379,6 +3480,7 @@ void setup() {
   server.on("/api/mirror-light", HTTP_ANY, handleMirrorLight);
   server.on("/api/bulb", HTTP_ANY, handleBulb);
   server.on("/api/buzzer/stop", HTTP_ANY, handleBuzzerStop);
+  server.on("/api/buzzer/test", HTTP_ANY, handleBuzzerTest);
   server.on("/api/motor", HTTP_ANY, handleMotor);
   server.on("/api/admin/settings", HTTP_ANY, handleAdminSettings);
   server.on("/api/admin/reboot-a", HTTP_ANY, handleAdminRebootA);
