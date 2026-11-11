@@ -733,38 +733,38 @@ function flashError(el,msg){
  if(!el) return;
  el.textContent=msg||'COMMAND FAILED';
  clearTimeout(el._errTimer);
- el._errTimer=setTimeout(()=>{ if(reachable&&current) render(current); },1400);
+ el._errTimer=setTimeout(()=>{ if(current) render(current, reachable); },1400);
 }
 function renderUnreachable(){
- if(current && typeof current==='object'){
-  render(current);
-  setOnline(false,false);
-  connectionText.textContent='ESP32_B unreachable · reconnecting…';
+ reachable=false;
+ if(current && typeof current==='object') render(current,false);
+ else {
+  tankCard.classList.remove('stale');
+  percentEl.innerHTML='--<small>%</small>';
+  litresEl.textContent='-- L';
+  barEl.style.width='0%';
   distanceEl.textContent='ESP32_B unreachable · reconnecting…';
-  return;
+  renderCapsules(false,false,false);
+  r1state.textContent='OFF'; mirrorInfo.textContent='ESP32_B unreachable';
+  r2state.textContent='OFF';
+  buzzerStateEl.textContent='READY';
+  motorStatusEl.textContent='ESP32_B unreachable';
  }
- tankCard.classList.remove('stale');
- percentEl.innerHTML='--<small>%</small>';
- litresEl.textContent='-- L';
- barEl.style.width='0%';
- distanceEl.textContent='ESP32_B unreachable · reconnecting…';
- renderCapsules(false,false,false);
- r1state.textContent='OFF'; mirrorInfo.textContent='ESP32_B unreachable';
- r2state.textContent='OFF';
- buzzerStateEl.textContent='READY';
- motorStatusEl.textContent='ESP32_B unreachable';
+ setOnline(false,false);
+ connectionText.textContent='ESP32_B unreachable · reconnecting…';
 }
-function render(s){
+function render(s,bReachable){
  if(!s||typeof s!=='object') return;
  current=s;
+ const bOk = (bReachable===undefined)?reachable:(bReachable===true);
  const capacity=num(s.capacityL);
  if(capacity!==null&&capacity>0){
   $('capacityLabel').textContent='OF '+Math.round(capacity)+' L';
   $('scaleFull').textContent=Math.round(capacity)+' L · FULL';
  }
- const linkOk=(reachable&&s.linkOnline===true);
- const waterOnline=(reachable&&s.online===true);
- setOnline(reachable, linkOk);
+ const linkOk=(bOk && s.linkOnline===true);
+ const waterOnline=(bOk && s.online===true);
+ setOnline(bOk, linkOk);
  const pct=num(s.percent);
  const hasPct=(pct!==null && linkOk);
  const shownPct=hasPct?clamp(pct,0,100):null;
@@ -782,7 +782,7 @@ function render(s){
   barEl.style.width='0%';
  }
  const dist=num(s.distance);
- if(!reachable){
+ if(!bOk){
   distanceEl.textContent='ESP32_B unreachable · reconnecting…';
  }else if(linkOk && dist!==null){
   distanceEl.textContent=(stale?'Last distance: ':'Sensor distance: ')+dist.toFixed(1)+' cm'+(stale?' · STALE':'');
@@ -793,13 +793,12 @@ function render(s){
  }
  renderCapsules(s.filling,s.draining,linkOk);
 
- const mirrorOn=(reachable&&s.relay1===true);
+ // Local controls (relay1/2, buzzer, RF outputs) are on ESP32_B: always show live B state when B reachable.
+ const mirrorOn=(s.relay1===true);
  relay1Btn.classList.toggle('on',mirrorOn);
  relay1Btn.setAttribute('aria-pressed',mirrorOn?'true':'false');
  mirrorTile.classList.toggle('light-on',mirrorOn);
- if(!reachable){
-  r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='ESP32_B unreachable';
- }else{
+ {
   const person=(s.personDetected===true);
   const override=(s.mirrorOverride===true);
   const blocked=(s.autoBlocked===true);
@@ -807,19 +806,18 @@ function render(s){
   r1state.textContent=mirrorOn?'ON':'OFF';
   let info=override?'MANUAL OVERRIDE · ':blocked?'AUTO BLOCKED · ':(person?'AUTO · PERSON · ':'AUTO · CLEAR · ');
   info+=hc!==null?(hc/100).toFixed(1)+' m':'—';
-  if(!linkOk) info+=' · ESP-NOW A offline';
+  if(!bOk) info='ESP32_B unreachable';
+  else if(!linkOk) info+=' · ESP-NOW A offline';
   mirrorInfo.textContent=info;
  }
 
- const bulbOn=(reachable&&s.relay2===true);
+ const bulbOn=(s.relay2===true);
  relay2Btn.classList.toggle('on',bulbOn);
  relay2Btn.setAttribute('aria-pressed',bulbOn?'true':'false');
  bulbTile.classList.toggle('bulb-on',bulbOn);
- r2state.textContent=reachable?(bulbOn?'ON':'OFF'):'STATE UNKNOWN';
+ r2state.textContent=bulbOn?'ON':'OFF';
 
- if(!reachable){
-  buzzerStateEl.textContent='STATE UNKNOWN';
- }else{
+ {
   const b=String(s.buzzerState||'READY').toUpperCase();
   const testing=(s.buzzerTest===true)||b==='TESTING';
   if(testing){
@@ -830,27 +828,25 @@ function render(s){
   }
  }
 
- const startPressed=(reachable&&s.motorStart===true), stopPressed=(reachable&&s.motorStop===true);
+ const startPressed=(s.motorStart===true), stopPressed=(s.motorStop===true);
  startBtn.setAttribute('aria-pressed',startPressed?'true':'false');
  stopBtn.setAttribute('aria-pressed',stopPressed?'true':'false');
- if(!reachable){
+ if(!bOk){
   motorStatusEl.textContent='ESP32_B unreachable';
- }else if(!linkOk){
-  motorStatusEl.textContent=startPressed?'START PRESSED (local) · ESP-NOW A offline':stopPressed?'STOP PRESSED (local) · ESP-NOW A offline':'ESP-NOW A offline · remote motor unavailable';
  }else if(startPressed){
   const rs=Math.ceil((num(s.motorStartRemainingMs)||0)/1000);
-  motorStatusEl.textContent='REMOTE START PRESSED'+(rs>0?' · '+rs+'s':'');
+  motorStatusEl.textContent='START PRESSED'+(rs>0?' · '+rs+'s':'')+(linkOk?'':' · ESP-NOW A offline');
  }else if(stopPressed){
   const rs=Math.ceil((num(s.motorStopRemainingMs)||0)/1000);
-  motorStatusEl.textContent='REMOTE STOP PRESSED'+(rs>0?' · '+rs+'s':'');
+  motorStatusEl.textContent='STOP PRESSED'+(rs>0?' · '+rs+'s':'')+(linkOk?'':' · ESP-NOW A offline');
  }else{
-  motorStatusEl.textContent='REMOTE IDLE';
+  motorStatusEl.textContent=linkOk?'REMOTE IDLE':'ESP-NOW A offline · remote motor unavailable';
  }
 }
 
 async function sendCommand(path,body,errorEl){
  const ctrl=new AbortController();
- const to=setTimeout(()=>ctrl.abort(),3000);
+ const to=setTimeout(()=>ctrl.abort(),3500);
  try{
   const r=await fetch(path,{
    method:'POST',cache:'no-store',
@@ -862,10 +858,10 @@ async function sendCommand(path,body,errorEl){
   const s=await r.json();
   if(s&&s.error) throw new Error(s.error);
   reachable=true; failures=0;
-  render(s);
+  render(s,true);
   return true;
  }catch(e){
-  flashError(errorEl);
+  if(errorEl) flashError(errorEl,'FAILED · RETRY');
   return false;
  }finally{
   clearTimeout(to);
@@ -875,7 +871,7 @@ async function sendCommand(path,body,errorEl){
 function schedulePoll(){
  clearTimeout(pollTimer);
  if(document.hidden) return;
- const delay=reachable?POLL_MS:Math.min(1000+failures*500,5000);
+ const delay=reachable?POLL_MS:Math.min(800+failures*400,4000);
  pollTimer=setTimeout(pollState,delay);
 }
 async function pollState(){
@@ -888,10 +884,9 @@ async function pollState(){
   if(!r.ok) throw new Error('HTTP '+r.status);
   const s=await r.json();
   reachable=true; failures=0;
-  render(s);
+  render(s,true);
  }catch(e){
   failures++;
-  reachable=false;
   renderUnreachable();
  }finally{
   clearTimeout(to);
@@ -973,8 +968,7 @@ document.addEventListener('visibilitychange',()=>{
   clearTimeout(pollTimer);
  }else{
   clearTimeout(pollTimer);
-  if(!inFlight) render(current); // initial default
- pollState(); else schedulePoll();
+  if(!inFlight) pollState(); else schedulePoll();
  }
 });
 window.addEventListener('pagehide',()=>releaseAllMotors(true));
@@ -1008,7 +1002,7 @@ $('buzzerStop').addEventListener('click',async()=>{
  finally{buzzerBusy=false;}
 });
 
-setOnline(false);
+render(current,false);
 pollState();
 })();
 </script>
@@ -1941,15 +1935,16 @@ void writeIndicatorPin(uint8_t pin, bool on) {
 }
 
 void setBuzzerOutput(bool on) {
+  // Active buzzer (e.g. TMB12A05): GPIO13 -> 1k -> NPN base, emitter GND,
+  // collector -> buzzer(-), buzzer(+) -> +5V. HIGH on GPIO turns NPN on => beep.
+  noTone(PIN_BUZZER);
+  pinMode(PIN_BUZZER, OUTPUT);
   if (!BUZZER_IS_ACTIVE) {
-    if (on) tone(PIN_BUZZER, 2700);
-    else    noTone(PIN_BUZZER);
+    if (on) { tone(PIN_BUZZER, 2700); }
+    else    { noTone(PIN_BUZZER); digitalWrite(PIN_BUZZER, BUZZER_ACTIVE_HIGH ? LOW : HIGH); }
     return;
   }
-  // Active buzzer (e.g. TMB12A05): drive with a clean digital level.
-  // PWM/analogWrite is unreliable across cores/modules and can prevent beeping.
-  bool level = BUZZER_ACTIVE_HIGH ? on : !on;
-  digitalWrite(PIN_BUZZER, level ? HIGH : LOW);
+  digitalWrite(PIN_BUZZER, (BUZZER_ACTIVE_HIGH == on) ? HIGH : LOW);
 }
 
 void initSafeOutputs() {
@@ -1977,15 +1972,11 @@ void initSafeOutputs() {
   writeIndicatorPin(PIN_IND_BLUE, false);
   writeIndicatorPin(PIN_IND_RED, false);
 
-  // Buzzer off.
-  if (BUZZER_IS_ACTIVE) {
-    digitalWrite(PIN_BUZZER, BUZZER_ACTIVE_HIGH ? LOW : HIGH);
-    pinMode(PIN_BUZZER, OUTPUT);
-    setBuzzerOutput(false);
-  } else {
-    pinMode(PIN_BUZZER, OUTPUT);
-    noTone(PIN_BUZZER);
-  }
+  // Buzzer off (GPIO13 -> 1k -> NPN base).
+  noTone(PIN_BUZZER);
+  pinMode(PIN_BUZZER, OUTPUT);
+  digitalWrite(PIN_BUZZER, BUZZER_ACTIVE_HIGH ? LOW : HIGH);
+  setBuzzerOutput(false);
 
   // Buzzer-stop button, active low, internal pull-up.
   pinMode(PIN_BTN_BUZZER_STOP, INPUT_PULLUP);
@@ -2564,54 +2555,45 @@ void drawOled() {
   display.setDrawColor(1);
   display.setFontMode(1);
 
-  char pct[10];
-  if (haveValidWater) snprintf(pct, sizeof(pct), "%d", (int)lroundf(lastValidPercent));
-  else                snprintf(pct, sizeof(pct), "--");
+  char pct[12];
+  if (haveValidWater) snprintf(pct, sizeof(pct), "%d%%", (int)lroundf(lastValidPercent));
+  else                snprintf(pct, sizeof(pct), "--%%");
 
   if (show & OLED_SHOW_PERCENT) {
-    // Fill available area above footer (bottom row reserved ~52..63).
-    const uint8_t *numberFont = u8g2_font_logisoso50_tn;
-    const uint8_t *signFont   = u8g2_font_logisoso34_tf;
+    // Fill most of 128x64 above footer; use same bold font for digits and '%'.
+    const uint8_t *pctFont = u8g2_font_logisoso54_tf;
+    int16_t baseline = 50;
     if (settings.oledPercentSize <= 2) {
-      numberFont = u8g2_font_logisoso32_tn;
-      signFont   = u8g2_font_logisoso22_tf;
+      pctFont = u8g2_font_logisoso38_tf; baseline = 42;
     } else if (settings.oledPercentSize <= 4) {
-      numberFont = u8g2_font_logisoso42_tn;
-      signFont   = u8g2_font_logisoso28_tf;
+      pctFont = u8g2_font_logisoso46_tf; baseline = 47;
+    } else {
+      pctFont = u8g2_font_logisoso54_tf; baseline = 50;
     }
 
-    display.setFont(numberFont);
-    int16_t numberWidth = (int16_t)display.getStrWidth(pct);
-    display.setFont(signFont);
-    int16_t signWidth = (int16_t)display.getStrWidth("%");
-    int16_t totalW = numberWidth + signWidth;
-    int16_t x = (OLED_WIDTH - totalW) / 2;
+    display.setFont(pctFont);
+    int16_t w = (int16_t)display.getStrWidth(pct);
+    int16_t x = (OLED_WIDTH - w) / 2;
     if (x < 0) x = 0;
-    // Keep clear of footer/litres row at bottom.
-    int16_t baseline = 50;
-
-    display.setFont(numberFont);
     display.drawStr(x, baseline, pct);
-    display.setFont(signFont);
-    display.drawStr(x + numberWidth, baseline, "%");
   }
 
   char litres[10];
   if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
   else                snprintf(litres, sizeof(litres), "--L");
 
+  // Slightly larger footer text, kept at bottom.
+  const uint8_t *bottomFont = u8g2_font_6x10_tf;
+  if (settings.oledBottomSize >= 4)      bottomFont = u8g2_font_9x15B_tf;
+  else if (settings.oledBottomSize == 3) bottomFont = u8g2_font_8x13B_tf;
+  else if (settings.oledBottomSize == 2) bottomFont = u8g2_font_7x13B_tf;
+  display.setFont(bottomFont);
+
   if ((show & OLED_SHOW_DISTANCE) && haveValidWater) {
     char dist[16];
     snprintf(dist, sizeof(dist), "%.0fcm", lastValidDistanceCm);
-    display.setFont(u8g2_font_5x7_tf);
-    display.drawStr(0, 55, dist);
+    display.drawStr(0, 63, dist);
   }
-
-  const uint8_t *bottomFont = u8g2_font_5x7_tf;
-  if (settings.oledBottomSize >= 4)      bottomFont = u8g2_font_8x13B_tf;
-  else if (settings.oledBottomSize == 3) bottomFont = u8g2_font_7x13B_tf;
-  else if (settings.oledBottomSize == 2) bottomFont = u8g2_font_6x10_tf;
-  display.setFont(bottomFont);
 
   if (show & OLED_SHOW_LINK) {
     display.drawStr(0, 63, linkNow ? "CONNECTED" : "NO LINK");
