@@ -1943,11 +1943,12 @@ void writeIndicatorPin(uint8_t pin, bool on) {
 void setBuzzerOutput(bool on) {
   // Active buzzer (e.g. TMB12A05): GPIO13 -> 1k -> NPN base, emitter GND,
   // collector -> buzzer(-), buzzer(+) -> +5V. HIGH on GPIO turns NPN on => beep.
-  noTone(PIN_BUZZER);
   pinMode(PIN_BUZZER, OUTPUT);
+  noTone(PIN_BUZZER);
   if (!BUZZER_IS_ACTIVE) {
-    if (on) { tone(PIN_BUZZER, 2700); }
-    else    { noTone(PIN_BUZZER); digitalWrite(PIN_BUZZER, BUZZER_ACTIVE_HIGH ? LOW : HIGH); }
+    digitalWrite(PIN_BUZZER, BUZZER_ACTIVE_HIGH ? LOW : HIGH);
+    if (on) tone(PIN_BUZZER, 2700);
+    else noTone(PIN_BUZZER);
     return;
   }
   digitalWrite(PIN_BUZZER, (BUZZER_ACTIVE_HIGH == on) ? HIGH : LOW);
@@ -2047,8 +2048,10 @@ void startBuzzerAlert() {
 }
 
 void startBuzzerTest() {
+  buzzerAlerting = false;
   buzzerTesting = true;
   buzzerTestStartMs = millis();
+  setBuzzerOutput(true); // immediate audible feedback
   DBG("[B] Buzzer test started (%lu s)\n", (unsigned long)(BUZZER_TEST_MS / 1000UL));
 }
 
@@ -2566,44 +2569,56 @@ void drawOled() {
   else                snprintf(pctNum, sizeof(pctNum), "--");
 
   if (show & OLED_SHOW_PERCENT) {
-    // Keep all content within 128x52 above footer (no top clipping).
-    const uint8_t *numFont = u8g2_font_logisoso42_tn;
-    int16_t baseline = 45;
-    int16_t topY = 4, areaH = 46; // drawing area for custom % symbol
+    // Draw number + custom '%' fully inside frame above footer (y ~0..51).
+    const uint8_t *numFont = u8g2_font_logisoso38_tn;
+    int16_t baseline = 44;
+    int16_t areaH = 38;
     if (settings.oledPercentSize <= 2) {
-      numFont = u8g2_font_logisoso28_tn; baseline = 37; topY = 9; areaH = 28;
+      numFont = u8g2_font_logisoso26_tn; baseline = 36; areaH = 26;
     } else if (settings.oledPercentSize <= 4) {
-      numFont = u8g2_font_logisoso34_tn; baseline = 41; topY = 6; areaH = 36;
+      numFont = u8g2_font_logisoso32_tn; baseline = 41; areaH = 32;
     } else {
-      numFont = u8g2_font_logisoso42_tn; baseline = 45; topY = 4; areaH = 42;
+      numFont = u8g2_font_logisoso38_tn; baseline = 44; areaH = 38;
     }
 
     display.setFont(numFont);
-    int16_t numW = (int16_t)display.getStrWidth(pctNum);
-    int16_t signW = (areaH * 11) / 16;            // custom percent symbol width
-    int16_t gap = (areaH >= 40) ? 4 : 3;
+    int16_t baseW = (int16_t)display.getStrWidth(pctNum);
+    int16_t signW = (areaH * 3) / 4;              // wider custom percent symbol
+    int16_t gap = 4;
+    int16_t extra = (int16_t)strlen(pctNum) * 2;  // faux-bold/wider spacing
+    int16_t numW = baseW + extra;
     int16_t totalW = numW + gap + signW;
     int16_t x = (OLED_WIDTH - totalW) / 2;
-    if (x < 0) x = 0;
+    if (x < 2) x = 2;
 
-    display.drawStr(x, baseline, pctNum);
+    // Draw digits twice with 1px horizontal offset for wider/bolder look.
+    for (int pass = 0; pass < 2; pass++) {
+      int16_t cx = x + pass;
+      for (size_t i = 0; pctNum[i]; i++) {
+        char ch[2] = {pctNum[i], 0};
+        display.drawStr(cx, baseline, ch);
+        cx += (int16_t)display.getStrWidth(ch) + 2;
+      }
+    }
 
-    // Custom '%' symbol: diagonal slash + two hollow circular dots.
+    // Custom '%' symbol: thick slash + two hollow circular dots.
     int16_t sx = x + numW + gap;
-    int16_t sy = baseline - areaH;               // top of percent area
-    if (sy < 0) sy = 0;
-    int16_t r = (areaH >= 40) ? 5 : (areaH >= 34 ? 4 : 3);
+    int16_t topY = baseline - areaH + 2;
+    if (topY < 1) topY = 1;
+    int16_t bottomY = topY + areaH - 3;
+    if (bottomY > 49) bottomY = 49;
+    int16_t r = (areaH >= 36) ? 5 : 4;
     int16_t x1 = sx + r + 1;
-    int16_t y1 = sy + r + 1;
-    int16_t x2 = sx + signW - r - 2;
-    int16_t y2 = sy + areaH - r - 2;
-    // Slash (thickened for bold look)
-    display.drawLine(x1, y2, x2, y1);
-    display.drawLine(x1 + 1, y2, x2 + 1, y1);
-    if (areaH >= 36) display.drawLine(x1, y2 - 1, x2, y1 - 1);
-    // Two hollow circles
+    int16_t y1 = topY + r;
+    int16_t x2 = sx + signW - r - 1;
+    int16_t y2 = bottomY - r;
+    for (int t = -1; t <= 1; t++) {
+      display.drawLine(x1 + t, y2, x2 + t, y1);
+    }
     display.drawCircle(x1, y1, r, U8G2_DRAW_ALL);
+    display.drawCircle(x1, y1, r - 1, U8G2_DRAW_ALL);
     display.drawCircle(x2, y2, r, U8G2_DRAW_ALL);
+    display.drawCircle(x2, y2, r - 1, U8G2_DRAW_ALL);
   }
 
   char litres[10];
@@ -3240,7 +3255,10 @@ void sendStatus() {
   st.crc = crc16((const uint8_t *)&st, offsetof(StatusPacket, crc));
 
   lastStatusTxMs = millis();
-  esp_now_send(ESP32_A_MAC, (const uint8_t *)&st, sizeof(st));
+  esp_err_t err = esp_now_send(ESP32_A_MAC, (const uint8_t *)&st, sizeof(st));
+  if (err != ESP_OK) {
+    ensureEspNowPeerB();
+  }
 }
 
 void handleCommandPacket(const RxItem &item) {
@@ -3433,11 +3451,42 @@ void setupEspNow() {
   if (err != ESP_OK && err != ESP_ERR_ESPNOW_EXIST) {
     DBG("[B] esp_now_add_peer failed: %d\n", (int)err);
   }
+  esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
   DBG("[B] ESP-NOW ready on channel %d\n", WIFI_CHANNEL);
 }
 
+void ensureEspNowPeerB() {
+  esp_now_peer_info_t peer;
+  memset(&peer, 0, sizeof(peer));
+  memcpy(peer.peer_addr, ESP32_A_MAC, 6);
+  peer.channel = WIFI_CHANNEL;
+  peer.encrypt = false;
+  peer.ifidx = WIFI_IF_AP;
+  if (!esp_now_is_peer_exist(ESP32_A_MAC)) {
+    esp_err_t err = esp_now_add_peer(&peer);
+    if (err != ESP_OK && err != ESP_ERR_ESPNOW_EXIST) {
+      DBG("[B] esp_now_add_peer retry failed: %d\n", (int)err);
+    }
+  }
+}
+
+void ensureEspNowB() {
+  // Keep AP/ESP-NOW channel and peer stable.
+  esp_err_t chErr = esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  if (chErr != ESP_OK) {
+    // AP should hold channel, but enforce for ESP-NOW reliability.
+  }
+  ensureEspNowPeerB();
+}
+
 void serviceStatusTx() {
-  if ((uint32_t)(millis() - lastStatusTxMs) >= STATUS_TX_PERIOD_MS) {
+  static uint32_t lastPeerCheckMs = 0;
+  uint32_t now = millis();
+  if ((uint32_t)(now - lastPeerCheckMs) >= 5000UL) {
+    lastPeerCheckMs = now;
+    ensureEspNowB();
+  }
+  if ((uint32_t)(now - lastStatusTxMs) >= STATUS_TX_PERIOD_MS) {
     sendStatus();
   }
 }

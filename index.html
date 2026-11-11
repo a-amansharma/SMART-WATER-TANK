@@ -370,9 +370,13 @@ const motor={
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
 function num(v){return (typeof v==='number'&&isFinite(v))?v:null;}
-function setOnline(online){
+function setOnline(online,linkOk){
  connection.classList.toggle('offline',!online);
- connectionText.textContent=online?'ONLINE':'OFFLINE';
+ if(!online){
+  connectionText.textContent='OFFLINE';
+ }else{
+  connectionText.textContent=(linkOk===false)?'B ONLINE · A LINK DOWN':'ONLINE';
+ }
 }
 function renderCapsules(filling,overflowing,linkOk){
  filling=linkOk&&filling===true;
@@ -389,44 +393,44 @@ function flashError(el,msg){
  if(!el) return;
  el.textContent=msg||'COMMAND FAILED';
  clearTimeout(el._errTimer);
- el._errTimer=setTimeout(()=>{ if(reachable&&current) render(current); },1400);
+ el._errTimer=setTimeout(()=>{ if(current) render(current, reachable); },1400);
 }
 function renderUnreachable(){
- if(current && typeof current==='object'){
-  render(current);
-  setOnline(false,false);
-  connectionText.textContent='ESP32_B unreachable · reconnecting…';
+ reachable=false;
+ if(current && typeof current==='object') render(current,false);
+ else {
+  tankCard.classList.remove('stale');
+  percentEl.innerHTML='--<small>%</small>';
+  litresEl.textContent='-- L';
+  barEl.style.width='0%';
   distanceEl.textContent='ESP32_B unreachable · reconnecting…';
-  return;
+  renderCapsules(false,false,false);
+  r1state.textContent='OFF'; mirrorInfo.textContent='ESP32_B unreachable';
+  r2state.textContent='OFF';
+  buzzerStateEl.textContent='READY';
+  motorStatusEl.textContent='ESP32_B unreachable';
  }
- tankCard.classList.remove('stale');
- percentEl.innerHTML='--<small>%</small>';
- litresEl.textContent='-- L';
- barEl.style.width='0%';
- distanceEl.textContent='ESP32_B unreachable · reconnecting…';
- renderCapsules(false,false,false);
- r1state.textContent='OFF'; mirrorInfo.textContent='ESP32_B unreachable';
- r2state.textContent='OFF';
- buzzerStateEl.textContent='READY';
- motorStatusEl.textContent='ESP32_B unreachable';
+ setOnline(false,false);
+ connectionText.textContent='ESP32_B unreachable · reconnecting…';
 }
-function render(s){
+function render(s,bReachable){
  if(!s||typeof s!=='object') return;
  current=s;
+ const bOk = (bReachable===undefined)?reachable:(bReachable===true);
  const capacity=num(s.capacityL);
  if(capacity!==null&&capacity>0){
   $('capacityLabel').textContent='OF '+Math.round(capacity)+' L';
   $('scaleFull').textContent=Math.round(capacity)+' L · FULL';
  }
- const linkOk=(reachable&&s.linkOnline===true);
- const online=(reachable&&s.online===true);
- setOnline(linkOk);
+ const linkOk=(bOk && s.linkOnline===true);
+ const waterOnline=(bOk && s.online===true);
+ setOnline(bOk, linkOk);
  const pct=num(s.percent);
- const hasPct=(pct!==null);
+ const hasPct=(pct!==null && linkOk);
  const shownPct=hasPct?clamp(pct,0,100):null;
- const stale=!online;
+ const stale=!waterOnline;
 
- tankCard.classList.toggle('stale',stale);
+ tankCard.classList.toggle('stale',stale && linkOk);
  if(hasPct){
   percentEl.innerHTML=Math.round(shownPct)+'<small>%</small>';
   const litres=num(s.litres);
@@ -438,22 +442,23 @@ function render(s){
   barEl.style.width='0%';
  }
  const dist=num(s.distance);
- if(!reachable){
-  distanceEl.textContent='Device unreachable · reconnecting…';
- }else if(dist!==null){
+ if(!bOk){
+  distanceEl.textContent='ESP32_B unreachable · reconnecting…';
+ }else if(linkOk && dist!==null){
   distanceEl.textContent=(stale?'Last distance: ':'Sensor distance: ')+dist.toFixed(1)+' cm'+(stale?' · STALE':'');
+ }else if(!linkOk){
+  distanceEl.textContent='ESP-NOW link to ESP32_A unavailable · water data paused';
  }else{
   distanceEl.textContent='Sensor distance: —';
  }
  renderCapsules(s.filling,s.draining,linkOk);
 
- const mirrorOn=(reachable&&s.relay1===true);
+ // Local controls (relay1/2, buzzer, RF outputs) are on ESP32_B: always show live B state when B reachable.
+ const mirrorOn=(s.relay1===true);
  relay1Btn.classList.toggle('on',mirrorOn);
  relay1Btn.setAttribute('aria-pressed',mirrorOn?'true':'false');
  mirrorTile.classList.toggle('light-on',mirrorOn);
- if(!reachable){
-  r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='No connection';
- }else{
+ {
   const person=(s.personDetected===true);
   const override=(s.mirrorOverride===true);
   const blocked=(s.autoBlocked===true);
@@ -461,18 +466,18 @@ function render(s){
   r1state.textContent=mirrorOn?'ON':'OFF';
   let info=override?'MANUAL OVERRIDE · ':blocked?'AUTO BLOCKED · ':(person?'AUTO · PERSON · ':'AUTO · CLEAR · ');
   info+=hc!==null?(hc/100).toFixed(1)+' m':'—';
+  if(!bOk) info='ESP32_B unreachable';
+  else if(!linkOk) info+=' · ESP-NOW A offline';
   mirrorInfo.textContent=info;
  }
 
- const bulbOn=(reachable&&s.relay2===true);
+ const bulbOn=(s.relay2===true);
  relay2Btn.classList.toggle('on',bulbOn);
  relay2Btn.setAttribute('aria-pressed',bulbOn?'true':'false');
  bulbTile.classList.toggle('bulb-on',bulbOn);
- r2state.textContent=reachable?(bulbOn?'ON':'OFF'):'STATE UNKNOWN';
+ r2state.textContent=bulbOn?'ON':'OFF';
 
- if(!reachable){
-  buzzerStateEl.textContent='STATE UNKNOWN';
- }else{
+ {
   const b=String(s.buzzerState||'READY').toUpperCase();
   const testing=(s.buzzerTest===true)||b==='TESTING';
   if(testing){
@@ -483,19 +488,19 @@ function render(s){
   }
  }
 
- const startPressed=(reachable&&s.motorStart===true), stopPressed=(reachable&&s.motorStop===true);
+ const startPressed=(s.motorStart===true), stopPressed=(s.motorStop===true);
  startBtn.setAttribute('aria-pressed',startPressed?'true':'false');
  stopBtn.setAttribute('aria-pressed',stopPressed?'true':'false');
- if(!reachable){
-  motorStatusEl.textContent='REMOTE STATE UNKNOWN';
+ if(!bOk){
+  motorStatusEl.textContent='ESP32_B unreachable';
  }else if(startPressed){
   const rs=Math.ceil((num(s.motorStartRemainingMs)||0)/1000);
-  motorStatusEl.textContent='REMOTE START PRESSED'+(rs>0?' · '+rs+'s':'');
+  motorStatusEl.textContent='START PRESSED'+(rs>0?' · '+rs+'s':'')+(linkOk?'':' · ESP-NOW A offline');
  }else if(stopPressed){
   const rs=Math.ceil((num(s.motorStopRemainingMs)||0)/1000);
-  motorStatusEl.textContent='REMOTE STOP PRESSED'+(rs>0?' · '+rs+'s':'');
+  motorStatusEl.textContent='STOP PRESSED'+(rs>0?' · '+rs+'s':'')+(linkOk?'':' · ESP-NOW A offline');
  }else{
-  motorStatusEl.textContent='REMOTE IDLE';
+  motorStatusEl.textContent=linkOk?'REMOTE IDLE':'ESP-NOW A offline · remote motor unavailable';
  }
 }
 
