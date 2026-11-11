@@ -100,7 +100,7 @@ static const char OTA_PASSWORD[] = "dks12345";  // >>> CHANGE before deployment
 //   GPIO 2, GPIO 14, GPIO 23.  Assign only after reviewing boot-strap rules.
 
 // Timing / filtering.
-static const uint32_t LINK_TIMEOUT_MS        = 8000;
+static const uint32_t LINK_TIMEOUT_MS        = 15000;  // tolerant window to avoid brief A-link flaps
 static const uint32_t OLED_REFRESH_MS        = 250;
 static const uint32_t HC_SAMPLE_PERIOD_MS    = 250;
 static const uint32_t HC_ECHO_TIMEOUT_US     = 30000;
@@ -2586,6 +2586,7 @@ void handleCommandPacket(const RxItem &item) {
       cmd.type != PKT_COMMAND) return;
   if (cmd.crc != crc16((const uint8_t *)&cmd, offsetof(CommandPacket, crc))) return;
   aProtocolVersion = cmd.version;
+  lastAnyRxMs = millis();
 
   bool pressed = (cmd.pressed != 0);
   if (cmd.command == CMD_MOTOR_START) {
@@ -2665,6 +2666,8 @@ void handleWaterPacket(const RxItem &item) {
 
   uint32_t now = millis();
   aProtocolVersion = version;
+  // Any valid packet from A proves ESP-NOW link is alive.
+  lastAnyRxMs = now;
 
   // Duplicate / out-of-order / restart handling.
   bool accept = true;
@@ -2680,7 +2683,6 @@ void handleWaterPacket(const RxItem &item) {
   lastSeq = seq;
   lastAUptimeMs = uptimeMs;
   haveSeq = true;
-  lastAnyRxMs = now;
   lastFlags = flags;
   fillingActive = (filling != 0);
   drainingActive = (draining != 0);
@@ -2786,18 +2788,16 @@ void ensureEspNowPeerB() {
 }
 
 void ensureEspNowB() {
-  // Keep AP/ESP-NOW channel and peer stable.
-  esp_err_t chErr = esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
-  if (chErr != ESP_OK) {
-    // AP should hold channel, but enforce for ESP-NOW reliability.
-  }
+  // Keep AP/ESP-NOW channel and peer stable for continuous A<->B link.
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
   ensureEspNowPeerB();
 }
 
 void serviceStatusTx() {
   static uint32_t lastPeerCheckMs = 0;
   uint32_t now = millis();
-  if ((uint32_t)(now - lastPeerCheckMs) >= 5000UL) {
+  if ((uint32_t)(now - lastPeerCheckMs) >= 3000UL) {
     lastPeerCheckMs = now;
     ensureEspNowB();
   }
@@ -2839,6 +2839,7 @@ void setup() {
   // 3) Wi-Fi access point with fixed channel (shared with ESP-NOW).
   WiFi.mode(WIFI_AP);
   WiFi.setSleep(false);
+  esp_wifi_set_ps(WIFI_PS_NONE);
   IPAddress apIP(192, 168, 4, 1);
   IPAddress gateway(192, 168, 4, 1);
   IPAddress subnet(255, 255, 255, 0);
@@ -2848,6 +2849,7 @@ void setup() {
   if (!WiFi.softAP(AP_SSID, AP_WIFI_PASSWORD, WIFI_CHANNEL, false, AP_MAX_CLIENTS)) {
     DBGLN("[B] softAP start FAILED (check password length >= 8)");
   }
+  esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
 
   // 4) ESP-NOW queue + radio.
   rxQueue = xQueueCreate(8, sizeof(RxItem));
