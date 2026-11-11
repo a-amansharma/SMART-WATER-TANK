@@ -66,7 +66,7 @@ This guide explains how to upload new firmware to **ESP32_B only** wirelessly (A
 7. Click **Upload**.
 8. If prompted, enter the **OTA password**: `swtb-ota-2026` (or your changed password).
 9. Wait for upload progress and “Done uploading”. ESP32_B will reboot automatically.
-10. Reconnect to `ESP32_WATER_B` if needed and verify at `http://192.168.4.1/` and/or Serial logs (if accessible).
+10. Reconnect to `Smart Water Tank` if needed and verify at `http://192.168.4.1/` and/or Serial logs (if accessible).
 
 ### B. Using Arduino CLI (example)
 

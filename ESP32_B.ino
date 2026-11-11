@@ -2561,27 +2561,49 @@ void drawOled() {
   display.setDrawColor(1);
   display.setFontMode(1);
 
-  char pct[12];
-  if (haveValidWater) snprintf(pct, sizeof(pct), "%d%%", (int)lroundf(lastValidPercent));
-  else                snprintf(pct, sizeof(pct), "--%%");
+  char pctNum[8];
+  if (haveValidWater) snprintf(pctNum, sizeof(pctNum), "%d", (int)lroundf(lastValidPercent));
+  else                snprintf(pctNum, sizeof(pctNum), "--");
 
   if (show & OLED_SHOW_PERCENT) {
-    // Fill most of 128x64 above footer; use same bold font for digits and '%'.
-    const uint8_t *pctFont = u8g2_font_logisoso54_tf;
-    int16_t baseline = 50;
+    // Keep all content within 128x52 above footer (no top clipping).
+    const uint8_t *numFont = u8g2_font_logisoso42_tn;
+    int16_t baseline = 45;
+    int16_t topY = 4, areaH = 46; // drawing area for custom % symbol
     if (settings.oledPercentSize <= 2) {
-      pctFont = u8g2_font_logisoso38_tf; baseline = 42;
+      numFont = u8g2_font_logisoso28_tn; baseline = 37; topY = 9; areaH = 28;
     } else if (settings.oledPercentSize <= 4) {
-      pctFont = u8g2_font_logisoso46_tf; baseline = 47;
+      numFont = u8g2_font_logisoso34_tn; baseline = 41; topY = 6; areaH = 36;
     } else {
-      pctFont = u8g2_font_logisoso54_tf; baseline = 50;
+      numFont = u8g2_font_logisoso42_tn; baseline = 45; topY = 4; areaH = 42;
     }
 
-    display.setFont(pctFont);
-    int16_t w = (int16_t)display.getStrWidth(pct);
-    int16_t x = (OLED_WIDTH - w) / 2;
+    display.setFont(numFont);
+    int16_t numW = (int16_t)display.getStrWidth(pctNum);
+    int16_t signW = (areaH * 11) / 16;            // custom percent symbol width
+    int16_t gap = (areaH >= 40) ? 4 : 3;
+    int16_t totalW = numW + gap + signW;
+    int16_t x = (OLED_WIDTH - totalW) / 2;
     if (x < 0) x = 0;
-    display.drawStr(x, baseline, pct);
+
+    display.drawStr(x, baseline, pctNum);
+
+    // Custom '%' symbol: diagonal slash + two hollow circular dots.
+    int16_t sx = x + numW + gap;
+    int16_t sy = baseline - areaH;               // top of percent area
+    if (sy < 0) sy = 0;
+    int16_t r = (areaH >= 40) ? 5 : (areaH >= 34 ? 4 : 3);
+    int16_t x1 = sx + r + 1;
+    int16_t y1 = sy + r + 1;
+    int16_t x2 = sx + signW - r - 2;
+    int16_t y2 = sy + areaH - r - 2;
+    // Slash (thickened for bold look)
+    display.drawLine(x1, y2, x2, y1);
+    display.drawLine(x1 + 1, y2, x2 + 1, y1);
+    if (areaH >= 36) display.drawLine(x1, y2 - 1, x2, y1 - 1);
+    // Two hollow circles
+    display.drawCircle(x1, y1, r, U8G2_DRAW_ALL);
+    display.drawCircle(x2, y2, r, U8G2_DRAW_ALL);
   }
 
   char litres[10];
