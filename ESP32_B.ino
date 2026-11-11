@@ -123,8 +123,8 @@ static const uint8_t  FULL_CONFIRM_READINGS  = 2;
 static const float    REARM_PERCENT          = 93.0f;
 static const uint32_t BUZZER_ALERT_MAX_MS    = 40000;
 static const uint32_t BUZZER_TEST_MS         = 5000;
-static const uint32_t BUZZER_BEEP_PERIOD_MS  = 333;  // 3 beeps per second
-static const uint32_t BUZZER_BEEP_ON_MS      = 120;
+static const uint32_t BUZZER_BEEP_PERIOD_MS  = 200;  // 5 beeps per second
+static const uint32_t BUZZER_BEEP_ON_MS      = 80;
 
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
 #define B_SETTINGS_VERSION 2u

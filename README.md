@@ -387,7 +387,7 @@ filtering only if the installation is noisy.
 ### Full-tank buzzer
 
 - At 97 % or higher for 2 readings, the buzzer starts.
-- It beeps 3 times per second for up to 40 seconds.
+- It beeps 5 times per second for up to 40 seconds.
 - A short GPIO 4 button press stops it.
 - A 3-second GPIO 4 long press also acknowledges an active buzzer while toggling mirror override.
 - The phone STOP BUZZER button also stops it.

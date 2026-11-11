@@ -130,7 +130,7 @@ TO-92 packages, flat side facing you, leads pointing down:
 
 - The metal-can 2N2222 package has a different pinout; check its datasheet.
 - Always confirm the actual part and package with a multimeter or datasheet.
-- The buzzer sounds at 3 beeps per second for up to **40 seconds** when the water level
+- The buzzer sounds at 5 beeps per second for up to **40 seconds** when the water level
   reaches **97%**. It re-arms only after the level falls below **93%**, or after a short
   press acknowledges it and the level falls below 93%.
 
