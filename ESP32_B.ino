@@ -2562,25 +2562,26 @@ void drawOled() {
   else                snprintf(pct, sizeof(pct), "--");
 
   if (show & OLED_SHOW_PERCENT) {
-    const uint8_t *numberFont = u8g2_font_logisoso42_tn;
-    const uint8_t *signFont   = u8g2_font_logisoso30_tf;
+    // Fill available area above footer (bottom row reserved ~52..63).
+    const uint8_t *numberFont = u8g2_font_logisoso50_tn;
+    const uint8_t *signFont   = u8g2_font_logisoso34_tf;
     if (settings.oledPercentSize <= 2) {
-      numberFont = u8g2_font_logisoso24_tn;
-      signFont   = u8g2_font_logisoso18_tf;
-    } else if (settings.oledPercentSize <= 4) {
       numberFont = u8g2_font_logisoso32_tn;
       signFont   = u8g2_font_logisoso22_tf;
+    } else if (settings.oledPercentSize <= 4) {
+      numberFont = u8g2_font_logisoso42_tn;
+      signFont   = u8g2_font_logisoso28_tf;
     }
 
     display.setFont(numberFont);
     int16_t numberWidth = (int16_t)display.getStrWidth(pct);
-    int16_t ascent = display.getAscent();
-    int16_t baseline = (46 - ascent) / 2 + ascent;
-
     display.setFont(signFont);
     int16_t signWidth = (int16_t)display.getStrWidth("%");
-    int16_t x = (OLED_WIDTH - numberWidth - signWidth) / 2;
+    int16_t totalW = numberWidth + signWidth;
+    int16_t x = (OLED_WIDTH - totalW) / 2;
     if (x < 0) x = 0;
+    // Keep clear of footer/litres row at bottom.
+    int16_t baseline = 50;
 
     display.setFont(numberFont);
     display.drawStr(x, baseline, pct);
