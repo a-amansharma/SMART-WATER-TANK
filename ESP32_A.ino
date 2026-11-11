@@ -48,6 +48,7 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <esp_system.h>
+#include <ArduinoOTA.h>
 #include <math.h>
 #include <stddef.h>
 #include <string.h>
@@ -64,6 +65,14 @@ static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
 // Radio channel. MUST exactly match WIFI_CHANNEL in ESP32_B.ino.
 // 1, 6 or 11 are the usual non-overlapping choices. Default 6.
 #define WIFI_CHANNEL 6
+
+// ESP32_A Wi-Fi AP for wireless firmware uploads (OTA).
+// Fixed to channel 6 for continuous ESP-NOW with ESP32_B.
+static const char OTA_AP_SSID[]      = "• TP-Link_8080";
+static const char OTA_AP_PASSWORD[]  = "dks12345";
+static const char OTA_HOSTNAME[]     = "ESP32-WATER-A";
+static const char OTA_PASSWORD[]     = "dks12345";
+static const uint8_t OTA_AP_MAX_CLIENTS = 2;
 
 // JSN-SR04T/AJ-SR04M pins (ESP32 DevKit). Echo needs a divider/level shifter.
 #define PIN_TRIG 5
@@ -113,10 +122,9 @@ static const uint32_t MAX_ECHO_US        = 40000;// ~686 cm
 static const float    SOUND_CM_PER_US    = 0.0343f; // ~343 m/s at 20 C
 static const float    STUCK_EPS_CM       = 0.15f;   // "same value" tolerance
 
-// Retry / periodic internal refresh.
+// Retry / send timing.
 static const uint8_t  SEND_RETRIES       = 2;
 static const uint32_t SEND_RETRY_MS      = 250;
-static const uint32_t HOURLY_REFRESH_MS  = 3600000;
 
 // Protocol constants (must match ESP32_B).
 #define PROTOCOL_VERSION 2u
@@ -346,9 +354,8 @@ float    lastReportCm = 0.0f;
 float    lastReportPercent = 0.0f;
 uint16_t lastReportFlags = 0;
 
-// ESP-NOW / hourly refresh.
+// ESP-NOW state.
 bool     espNowReady = false;
-uint32_t lastHourlyRefreshMs = 0;
 
 /* ==========================================================================
    CRC16-CCITT
@@ -959,7 +966,8 @@ bool ensureEspNowPeer() {
   memcpy(peer.peer_addr, ESP32_B_MAC, 6);
   peer.channel = WIFI_CHANNEL;
   peer.encrypt = false;
-  peer.ifidx = WIFI_IF_STA;
+  // ESP32_A runs AP for OTA on same channel; ESP32_B peer is B's AP MAC.
+  peer.ifidx = WIFI_IF_AP;
 
   if (esp_now_is_peer_exist(ESP32_B_MAC)) return true;
 
@@ -982,6 +990,9 @@ bool ensureEspNow() {
     esp_now_register_recv_cb(onDataRecv);
   }
 
+  // Max range/stability: no power save, fixed channel, max TX power, ensure peer.
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  esp_wifi_set_max_tx_power(78); // ~19.5 dBm (subject to regulatory limits)
   esp_err_t chErr = esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
   if (chErr != ESP_OK) {
     DBG("[A] esp_wifi_set_channel failed: %d\n", (int)chErr);
@@ -996,30 +1007,23 @@ bool ensureEspNow() {
 }
 
 void setupEspNow() {
-  WiFi.mode(WIFI_STA);
-  WiFi.disconnect();
+  // AP mode provides OTA SSID "• TP-Link_8080" while sharing fixed channel 6 with ESP-NOW.
+  WiFi.mode(WIFI_AP);
   WiFi.setSleep(false);
-  ensureEspNow();
-}
+  esp_wifi_set_ps(WIFI_PS_NONE);
+  esp_wifi_set_max_tx_power(78);
 
-void serviceHourlyRefresh() {
-  if ((uint32_t)(millis() - lastHourlyRefreshMs) < HOURLY_REFRESH_MS) return;
-  lastHourlyRefreshMs = millis();
-  DBGLN("[A] Hourly internal refresh");
-
-  noInterrupts();
-  echoComplete = false;
-  echoActive = false;
-  interrupts();
-
-  waitingEcho = false;
-  samplesTaken = 0;
-  validCount = 0;
-  timeoutCount = 0;
-  nextActionMs = millis() + 50;
+  IPAddress apIP(192, 168, 10, 1);
+  IPAddress gateway(192, 168, 10, 1);
+  IPAddress subnet(255, 255, 255, 0);
+  WiFi.softAPConfig(apIP, gateway, subnet);
+  if (!WiFi.softAP(OTA_AP_SSID, OTA_AP_PASSWORD, WIFI_CHANNEL, false, OTA_AP_MAX_CLIENTS)) {
+    DBGLN("[A] OTA AP start FAILED (check password length >= 8)");
+  }
+  esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
 
   if (!ensureEspNow()) {
-    DBGLN("[A] Hourly refresh could not restore ESP-NOW; will retry next hour");
+    DBGLN("[A] ESP-NOW setup failed; will retry in loop");
   }
 }
 
@@ -1050,12 +1054,32 @@ void setup() {
   setupButtons();
   setupTouchInputs();
   setupEspNow();
-  lastHourlyRefreshMs = millis();
+
+  // ArduinoOTA over ESP32_A AP: SSID "• TP-Link_8080", password "dks12345"
+  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.onStart([]() {
+    String type = (ArduinoOTA.getCommand() == U_FLASH) ? "sketch" : "filesystem";
+    Serial.printf("[A] OTA start: %s\n", type.c_str());
+  });
+  ArduinoOTA.onEnd([]() { Serial.println("\n[A] OTA end"); });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    if (total) Serial.printf("[A] OTA progress: %u%%\r", (progress * 100U) / total);
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("\n[A] OTA error[%u]\n", (unsigned)error);
+  });
+  ArduinoOTA.begin();
 
   uint8_t mac[6];
+  WiFi.softAPmacAddress(mac);
+  Serial.printf("ESP32_A AP MAC (OTA): %02X:%02X:%02X:%02X:%02X:%02X\n",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   WiFi.macAddress(mac);
   Serial.printf("ESP32_A STA MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  Serial.printf("OTA AP SSID: %s  IP: %s\n", OTA_AP_SSID, WiFi.softAPIP().toString().c_str());
+  Serial.printf("OTA hostname: %s  OTA/WiFi password: %s\n", OTA_HOSTNAME, OTA_PASSWORD);
   Serial.printf("Target ESP32_B MAC: %02X:%02X:%02X:%02X:%02X:%02X (must be B AP MAC)\n",
                 ESP32_B_MAC[0], ESP32_B_MAC[1], ESP32_B_MAC[2],
                 ESP32_B_MAC[3], ESP32_B_MAC[4], ESP32_B_MAC[5]);
@@ -1078,12 +1102,20 @@ void setup() {
 }
 
 void loop() {
+  ArduinoOTA.handle();
   serviceMeasurement();
   serviceSendRetry();
   serviceCommandBurst();
   serviceButtons();
   serviceTouchInputs();
-  serviceHourlyRefresh();
+
+  // Continuous ESP-NOW/radio maintenance (no disruptive periodic refresh).
+  static uint32_t lastRadioMaintainMs = 0;
+  uint32_t nowMaintain = millis();
+  if ((uint32_t)(nowMaintain - lastRadioMaintainMs) >= 3000UL) {
+    lastRadioMaintainMs = nowMaintain;
+    ensureEspNow();
+  }
 
   if (rebootRequested) {
     rebootRequested = false;

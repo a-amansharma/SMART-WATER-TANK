@@ -2790,8 +2790,9 @@ void ensureEspNowPeerB() {
 }
 
 void ensureEspNowB() {
-  // Keep AP/ESP-NOW channel and peer stable for continuous A<->B link.
+  // Keep AP/ESP-NOW channel, power and peer stable for continuous A<->B link.
   esp_wifi_set_ps(WIFI_PS_NONE);
+  esp_wifi_set_max_tx_power(78);
   esp_wifi_set_channel(WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
   ensureEspNowPeerB();
 }
@@ -2842,6 +2843,7 @@ void setup() {
   WiFi.mode(WIFI_AP);
   WiFi.setSleep(false);
   esp_wifi_set_ps(WIFI_PS_NONE);
+  esp_wifi_set_max_tx_power(78); // ~19.5 dBm max TX power for range (regulatory limits apply)
   IPAddress apIP(192, 168, 4, 1);
   IPAddress gateway(192, 168, 4, 1);
   IPAddress subnet(255, 255, 255, 0);
