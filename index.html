@@ -501,7 +501,7 @@ function render(s){
 
 async function sendCommand(path,body,errorEl){
  const ctrl=new AbortController();
- const to=setTimeout(()=>ctrl.abort(),3000);
+ const to=setTimeout(()=>ctrl.abort(),3500);
  try{
   const r=await fetch(path,{
    method:'POST',cache:'no-store',
@@ -513,10 +513,10 @@ async function sendCommand(path,body,errorEl){
   const s=await r.json();
   if(s&&s.error) throw new Error(s.error);
   reachable=true; failures=0;
-  render(s);
+  render(s,true);
   return true;
  }catch(e){
-  flashError(errorEl);
+  if(errorEl) flashError(errorEl,'FAILED · RETRY');
   return false;
  }finally{
   clearTimeout(to);
@@ -526,7 +526,7 @@ async function sendCommand(path,body,errorEl){
 function schedulePoll(){
  clearTimeout(pollTimer);
  if(document.hidden) return;
- const delay=reachable?POLL_MS:Math.min(1000+failures*500,5000);
+ const delay=reachable?POLL_MS:Math.min(800+failures*400,4000);
  pollTimer=setTimeout(pollState,delay);
 }
 async function pollState(){
@@ -539,10 +539,9 @@ async function pollState(){
   if(!r.ok) throw new Error('HTTP '+r.status);
   const s=await r.json();
   reachable=true; failures=0;
-  render(s);
+  render(s,true);
  }catch(e){
   failures++;
-  reachable=false;
   renderUnreachable();
  }finally{
   clearTimeout(to);
@@ -624,8 +623,7 @@ document.addEventListener('visibilitychange',()=>{
   clearTimeout(pollTimer);
  }else{
   clearTimeout(pollTimer);
-  if(!inFlight) render(current); // initial default
- pollState(); else schedulePoll();
+  if(!inFlight) pollState(); else schedulePoll();
  }
 });
 window.addEventListener('pagehide',()=>releaseAllMotors(true));
@@ -659,7 +657,7 @@ $('buzzerStop').addEventListener('click',async()=>{
  finally{buzzerBusy=false;}
 });
 
-setOnline(false);
+render(current,false);
 pollState();
 })();
 </script>
