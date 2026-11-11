@@ -516,7 +516,7 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 </section>
 <section class="controls">
  <section class="card motor-card">
-  <div class="motor-title"><span class="eyebrow">Motor control · RF remote</span><div class="control-state" id="motorStatus">REMOTE STATE UNKNOWN</div></div>
+  <div class="motor-title"><span class="eyebrow">Motor control · RF remote</span><div class="control-state" id="motorStatus">REMOTE IDLE</div></div>
   <div class="motor-buttons">
    <div class="motor-unit">
     <button class="motor-btn start" id="motorStart" aria-label="Start motor — press and hold" aria-pressed="false"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><path d="M24 5v20"/><path d="M12.5 12.5a18 18 0 1 0 23 0"/></svg></button>
@@ -532,13 +532,13 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
   <div class="control-tile" id="mirrorTile">
    <div class="control-name">Mirror Light</div>
    <button class="toggle" id="relay1" aria-label="Toggle Mirror Light" aria-pressed="false"></button>
-   <div class="control-state" id="r1state">STATE UNKNOWN</div>
-   <div class="timer" id="mirrorInfo">No connection</div>
+   <div class="control-state" id="r1state">OFF</div>
+   <div class="timer" id="mirrorInfo">—</div>
   </div>
   <div class="control-tile" id="bulbTile">
    <div class="control-name">Bulb</div>
    <button class="toggle" id="relay2" aria-label="Toggle bulb" aria-pressed="false"></button>
-   <div class="control-state" id="r2state">STATE UNKNOWN</div>
+   <div class="control-state" id="r2state">OFF</div>
   </div>
   <div class="control-tile">
    <div class="control-name">Buzzer</div>
@@ -546,7 +546,7 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
     <button class="buzzer-btn test" id="buzzerTest">TEST BUZZER (5s)</button>
     <button class="buzzer-btn" id="buzzerStop">STOP BUZZER</button>
    </div>
-   <div class="control-state" id="buzzerState">STATE UNKNOWN</div>
+   <div class="control-state" id="buzzerState">READY</div>
   </div>
  </section>
 </section>
@@ -700,7 +700,7 @@ const r1state=$('r1state'), r2state=$('r2state'), mirrorInfo=$('mirrorInfo'), bu
 const startBtn=$('motorStart'), stopBtn=$('motorStop');
 
 const POLL_MS=500, POLL_TIMEOUT_MS=2500;
-let current=null, reachable=false, failures=0, inFlight=false, pollTimer=null;
+let current={online:false,linkOnline:false,sensorValid:false,percent:null,litres:null,distance:null,filling:false,draining:false,hcsr04Valid:false,hcsr04Distance:null,personDetected:false,relay1:false,mirrorOverride:false,autoBlocked:false,relay2:false,buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,buzzerArmed:true,buzzerState:"READY",motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,capacityL:750}, reachable=false, failures=0, inFlight=false, pollTimer=null;
 let mirrorBusy=false, bulbBusy=false, buzzerBusy=false;
 
 const motor={
@@ -736,15 +736,22 @@ function flashError(el,msg){
  el._errTimer=setTimeout(()=>{ if(reachable&&current) render(current); },1400);
 }
 function renderUnreachable(){
+ if(current && typeof current==='object'){
+  render(current);
+  setOnline(false,false);
+  connectionText.textContent='ESP32_B unreachable · reconnecting…';
+  distanceEl.textContent='ESP32_B unreachable · reconnecting…';
+  return;
+ }
  tankCard.classList.remove('stale');
  percentEl.innerHTML='--<small>%</small>';
  litresEl.textContent='-- L';
  barEl.style.width='0%';
  distanceEl.textContent='ESP32_B unreachable · reconnecting…';
  renderCapsules(false,false,false);
- r1state.textContent='STATE UNKNOWN'; mirrorInfo.textContent='ESP32_B unreachable';
- r2state.textContent='STATE UNKNOWN';
- buzzerStateEl.textContent='STATE UNKNOWN';
+ r1state.textContent='OFF'; mirrorInfo.textContent='ESP32_B unreachable';
+ r2state.textContent='OFF';
+ buzzerStateEl.textContent='READY';
  motorStatusEl.textContent='ESP32_B unreachable';
 }
 function render(s){
@@ -885,7 +892,6 @@ async function pollState(){
  }catch(e){
   failures++;
   reachable=false;
-  setOnline(false);
   renderUnreachable();
  }finally{
   clearTimeout(to);
@@ -967,7 +973,8 @@ document.addEventListener('visibilitychange',()=>{
   clearTimeout(pollTimer);
  }else{
   clearTimeout(pollTimer);
-  if(!inFlight) pollState(); else schedulePoll();
+  if(!inFlight) render(current); // initial default
+ pollState(); else schedulePoll();
  }
 });
 window.addEventListener('pagehide',()=>releaseAllMotors(true));
