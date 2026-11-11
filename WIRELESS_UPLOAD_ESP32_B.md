@@ -13,7 +13,7 @@ This guide explains how to upload new firmware to **ESP32_B only** wirelessly (A
 - ESP32_B runs as a WiFi Access Point: **SSID `Smart Water Tank`** (see `AP_SSID` in `ESP32_B.ino`), IP **`192.168.4.1`**, channel **6**.
 - OTA service is enabled in `ESP32_B.ino`:
   - **Hostname:** `ESP32-WATER-B`
-  - **OTA password:** `swtb-ota-2026` (change in code before deployment if needed)
+  - **OTA password:** `dks12345` (change in code before deployment if needed)
 - To upload wirelessly, your laptop must be connected to **`Smart Water Tank`** and reach **`192.168.4.1`**.
 - During upload the dashboard/ESP-NOW may pause briefly; ESP32_B reboots automatically after a successful upload.
 
@@ -64,7 +64,7 @@ This guide explains how to upload new firmware to **ESP32_B only** wirelessly (A
 5. Go to **Tools → Port** and select the **network port** for `ESP32-WATER-B` / `192.168.4.1` (it may take a few seconds to appear after joining the AP).
 6. Keep the same board settings and OTA-capable partition scheme used in the USB flash.
 7. Click **Upload**.
-8. If prompted, enter the **OTA password**: `swtb-ota-2026` (or your changed password).
+8. If prompted, enter the **OTA password**: `dks12345` (or your changed password).
 9. Wait for upload progress and “Done uploading”. ESP32_B will reboot automatically.
 10. Reconnect to `Smart Water Tank` if needed and verify at `http://192.168.4.1/` and/or Serial logs (if accessible).
 
@@ -78,7 +78,7 @@ This guide explains how to upload new firmware to **ESP32_B only** wirelessly (A
    *(If compiling from a folder with multiple `.ino` files causes sketch-name conflicts, compile from a B-only sketch folder/copy.)*
 3. Upload over network (port/password flags may vary by core/CLI version):
    ```bash
-   arduino-cli upload -p 192.168.4.1 --fqbn esp32:esp32:esp32 --upload-field password=swtb-ota-2026 "ESP32_B.ino"
+   arduino-cli upload -p 192.168.4.1 --fqbn esp32:esp32:esp32 --upload-field password=dks12345 "ESP32_B.ino"
    ```
    If your CLI/core exposes a network protocol flag, use the appropriate one (e.g. `--protocol network`) and provide the OTA password as required.
 4. Wait for completion and automatic reboot, then verify dashboard/behavior.

@@ -65,7 +65,7 @@ static const uint8_t AP_MAX_CLIENTS = 4;
 // ArduinoOTA (wireless firmware upload while connected to ESP32_B AP).
 // One-time USB flash of this OTA-enabled firmware is required first.
 static const char OTA_HOSTNAME[] = "ESP32-WATER-B";
-static const char OTA_PASSWORD[] = "swtb-ota-2026";  // >>> CHANGE before deployment
+static const char OTA_PASSWORD[] = "dks12345";  // >>> CHANGE before deployment
 
 // GPIO allocation (ESP32 DevKit V1 style). Verify YOUR board pinout!
 #define PIN_I2C_SDA        21
