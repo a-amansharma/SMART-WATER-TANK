@@ -40,6 +40,7 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <esp_system.h>
+#include <ArduinoOTA.h>
 #include <Wire.h>
 #include <U8g2lib.h>
 #include <math.h>
@@ -60,6 +61,11 @@ static const uint8_t ESP32_A_MAC[6] = {0x00, 0x70, 0x07, 0xA1, 0xDC, 0x80};
 static const char AP_SSID[] = "Smart Water Tank";          // exact SSID required
 static const char AP_WIFI_PASSWORD[] = "dks12345";
 static const uint8_t AP_MAX_CLIENTS = 4;
+
+// ArduinoOTA (wireless firmware upload while connected to ESP32_B AP).
+// One-time USB flash of this OTA-enabled firmware is required first.
+static const char OTA_HOSTNAME[] = "ESP32-WATER-B";
+static const char OTA_PASSWORD[] = "swtb-ota-2026";  // >>> CHANGE before deployment
 
 // GPIO allocation (ESP32 DevKit V1 style). Verify YOUR board pinout!
 #define PIN_I2C_SDA        21
@@ -3481,6 +3487,32 @@ void setup() {
   server.onNotFound(handleNotFound);
   server.begin();
 
+  // 5b) ArduinoOTA - wireless firmware uploads over ESP32_B AP (192.168.4.1).
+  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  ArduinoOTA.setPassword(OTA_PASSWORD);
+  ArduinoOTA.onStart([]() {
+    String type = (ArduinoOTA.getCommand() == U_FLASH) ? "sketch" : "filesystem";
+    Serial.printf("[B] OTA start: %s\n", type.c_str());
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\n[B] OTA end");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    if (total) Serial.printf("[B] OTA progress: %u%%\r", (progress * 100U) / total);
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("\n[B] OTA error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+    else Serial.println("Unknown");
+  });
+  ArduinoOTA.begin();
+  Serial.printf("OTA hostname: %s\n", OTA_HOSTNAME);
+  Serial.println("OTA: ready (connect laptop to ESP32_B AP for wireless upload)");
+
   // 6) Timers.
   hcNextSampleMs = millis() + 300;
   lastOledMs = 0;
@@ -3536,6 +3568,7 @@ void setup() {
    ========================================================================== */
 
 void loop() {
+  ArduinoOTA.handle();
   serviceEspNowQueue();
   serviceLink();
   serviceHcSensor();
