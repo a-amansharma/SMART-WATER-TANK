@@ -9,164 +9,90 @@
 :root{--ink:#10243d;--muted:#66778e;--line:#dce6ef;--green:#0e9a63;--red:#df3c4f;--blue:#128fd1}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;overscroll-behavior:none}
-body{font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:var(--ink);touch-action:manipulation;background:radial-gradient(circle at 12% -8%,#d9f8e8 0,transparent 34%),radial-gradient(circle at 92% 4%,#dff1ff 0,transparent 30%),linear-gradient(155deg,#fbfefd 0%,#f0f7fb 55%,#e9f1f8 100%)}
+body{font-family:Inter,system-ui,-apple-system,"Segoe UI",Arial,sans-serif;color:var(--ink);touch-action:manipulation;background:linear-gradient(155deg,#fbfefd 0%,#f0f7fb 55%,#e9f1f8 100%)}
 button{font:inherit}
-.app{width:min(100%,700px);height:100dvh;margin:auto;padding:clamp(8px,1.8vh,15px) 14px max(20px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:clamp(7px,1.4vh,12px)}
-header{min-height:clamp(54px,8.6vh,70px);flex:none;display:flex;align-items:center;justify-content:space-between;gap:8px}
-.brand{display:flex;align-items:center;gap:12px;min-width:0}
-.logo{width:clamp(54px,8.4vh,68px);height:clamp(54px,8.4vh,68px);flex:none;border-radius:18px;background:linear-gradient(145deg,#ffffff,#d8f4e3);border:1px solid #c2e7d1;display:grid;place-items:center;box-shadow:inset 0 2px 3px #fff,inset 0 -7px 12px #0b855218,0 10px 22px #0d7c4b22,0 2px 0 #fff}
-.logo img{width:94%;height:94%;object-fit:contain;border-radius:14px;filter:drop-shadow(0 3px 3px #0a5d3b22)}
-.brand-title{font-size:clamp(23px,4vw,33px);font-weight:950;letter-spacing:-.95px;white-space:nowrap;text-shadow:0 2px 0 #fff,0 8px 18px #102b451f}
-.credit{font-size:clamp(9px,1.55vh,11px);color:var(--muted);margin-top:2px;font-weight:750;letter-spacing:.15px}
-.connection{display:flex;align-items:center;gap:7px;padding:9px 12px;border-radius:24px;background:linear-gradient(145deg,#f4fff9,#ddf8e9);border:1px solid #aee3c4;color:#087c4a;font-size:11px;font-weight:950;letter-spacing:.7px;flex:none;box-shadow:inset 0 1px 0 #fff,0 5px 12px #0d9b5e1f}
-.connection.offline{background:linear-gradient(145deg,#fff7f8,#ffe4e7);border-color:#f0b9c1;color:#c52c40;box-shadow:inset 0 1px 0 #fff,0 5px 12px #df3c4f1f}
-.dot{width:9px;height:9px;border-radius:50%;background:#16a66a;box-shadow:0 0 0 3px #16a66a20,0 0 12px #16a66a88}
-.offline .dot{background:#df3c4f;box-shadow:0 0 0 3px #df3c4f20,0 0 12px #df3c4f88}
-.card{background:linear-gradient(160deg,#ffffff 0%,#f9fcff 100%);border:1px solid var(--line);border-radius:22px;box-shadow:0 18px 36px #142b4712,0 3px 0 #fff inset,0 -5px 14px #102b4510 inset}
-.tank{padding:clamp(10px,1.8vh,16px) 17px;flex:none;background:linear-gradient(150deg,#ffffff 0%,#f4fbf8 52%,#edf6fc 100%)}
-.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
-.eyebrow{font-size:11px;font-weight:950;letter-spacing:1.25px;color:#687b91;text-transform:uppercase}
-.live{font-size:10px;color:var(--green);font-weight:950;letter-spacing:.75px;text-shadow:0 1px 0 #fff}
-.tank.stale .live{opacity:.35}
+.app{width:min(100%,700px);height:100dvh;margin:auto;padding:10px 12px max(16px,env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:10px}
+header{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.logo{width:52px;height:52px;border-radius:16px;background:#e8f7ef;border:1px solid #c7e7d5;display:grid;place-items:center;font-size:22px}
+.brand-title{font-size:24px;font-weight:900;letter-spacing:-.8px;white-space:nowrap}
+.credit{font-size:10px;color:var(--muted);font-weight:700}
+.connection{display:flex;align-items:center;gap:7px;padding:8px 12px;border-radius:20px;background:#e8f8ee;border:1px solid #b8e3c8;color:#087c4a;font-size:11px;font-weight:900}
+.connection.offline{background:#fff1f3;border-color:#efc0c7;color:#c52c40}
+.dot{width:9px;height:9px;border-radius:50%;background:#16a66a}
+.offline .dot{background:#df3c4f}
+.card{background:#fff;border:1px solid var(--line);border-radius:20px}
+.tank{padding:12px 14px}
+.card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.eyebrow{font-size:11px;font-weight:900;letter-spacing:1px;color:#687b91;text-transform:uppercase}
+.live{font-size:10px;color:var(--green);font-weight:900}
 .water-row{display:flex;align-items:flex-end;justify-content:space-between;gap:8px}
-.percent{font-size:clamp(58px,10.5vh,92px);font-weight:950;letter-spacing:-4.5px;line-height:.82;color:#0d2440;font-variant-numeric:tabular-nums;text-shadow:0 2px 0 #fff,0 9px 18px #102b4522}
-.percent small{font-size:.36em;color:#65778c;letter-spacing:-.5px;margin-left:3px}
-.volume{text-align:right;padding-bottom:4px}
-.volume strong{font-size:clamp(38px,6.6vh,58px);font-weight:950;display:block;letter-spacing:-3px;line-height:.84;font-variant-numeric:tabular-nums;color:#0d2440;text-shadow:0 2px 0 #fff,0 7px 15px #102b451c}
-.volume span{font-size:clamp(12px,1.9vh,15px);color:var(--muted);font-weight:900;letter-spacing:.8px}
-.bar-wrap{height:13px;border-radius:14px;background:linear-gradient(180deg,#dfe8f0,#eef4f8);border:1px solid #d5e0ea;overflow:hidden;margin:12px 0 6px;box-shadow:inset 0 3px 6px #102b451c,0 1px 0 #fff}
-.bar{height:100%;width:0%;border-radius:14px;background:linear-gradient(90deg,#0c86c9,#22b8b0 55%,#53d68f);box-shadow:0 0 14px #18a9a8aa,inset 0 2px 0 #ffffff66,inset 0 -3px 5px #075b6d38;transition:width .4s}
-.scale{display:flex;justify-content:space-between;color:#788a9d;font-size:9px;font-weight:850;letter-spacing:.2px}
-.tank-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;min-height:30px}
-.touch-capsules{display:flex;align-items:center;gap:6px;min-width:0}
-.capsule{font-size:clamp(9px,1.55vh,12px);font-weight:950;letter-spacing:.75px;border-radius:999px;padding:7px 12px;border:1px solid #dbe3eb;background:linear-gradient(180deg,#f8fafc,#e9eef3);color:#65768a;box-shadow:inset 0 1px 0 #fff,0 3px 0 #b9c5d0,0 6px 10px #102b4518;white-space:nowrap;transition:.18s}
+.percent{font-size:72px;font-weight:950;letter-spacing:-3px;line-height:.85;color:#0d2440}
+.percent small{font-size:.38em;color:#65778c;margin-left:2px}
+.volume{text-align:right}
+.volume strong{font-size:42px;font-weight:950;display:block;letter-spacing:-2px;line-height:.9}
+.volume span{font-size:12px;color:var(--muted);font-weight:800}
+.bar-wrap{height:12px;border-radius:12px;background:#e8eef4;border:1px solid #d5e0ea;overflow:hidden;margin:10px 0 6px}
+.bar{height:100%;width:0%;border-radius:12px;background:linear-gradient(90deg,#0c86c9,#22b8b0 55%,#53d68f);transition:width .3s}
+.scale{display:flex;justify-content:space-between;color:#788a9d;font-size:9px;font-weight:800}
+.tank-bottom{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;min-height:28px}
+.touch-capsules{display:flex;gap:6px;flex-wrap:wrap}
+.capsule{font-size:10px;font-weight:900;letter-spacing:.6px;border-radius:999px;padding:6px 10px;border:1px solid #dbe3eb;background:#f3f7fa;color:#65768a}
 .capsule.hidden{display:none}
-.capsule.filling.active{color:#fff;border-color:#2eb7f0;background:linear-gradient(145deg,#59d4ff,#087fce);box-shadow:inset 0 2px 0 #ffffff70,0 4px 0 #075f9e,0 0 15px #1ba8ffcc,0 0 32px #1ba8ff66;animation:bluePulse 1.7s ease-in-out infinite}
-.capsule.overflowing.active{color:#fff;border-color:#f27182;background:linear-gradient(145deg,#ff8794,#d9243d);box-shadow:inset 0 2px 0 #ffffff70,0 4px 0 #a81329,0 0 15px #ff405fcc,0 0 32px #ff405f66;animation:redPulse 1.35s ease-in-out infinite}
-.capsule.stable{color:#087c4a;border-color:#b9e6cd;background:linear-gradient(180deg,#f4fff9,#dff7e9);box-shadow:inset 0 1px 0 #fff,0 3px 0 #9fd4b7,0 0 12px #20aa6b33}
-.capsule.stable.offline{color:#bd2d40;border-color:#efbdc4;background:linear-gradient(180deg,#fff8f9,#ffe5e8);box-shadow:inset 0 1px 0 #fff,0 3px 0 #dda7af}
-@keyframes bluePulse{50%{filter:brightness(1.14);box-shadow:inset 0 2px 0 #ffffff80,0 4px 0 #075f9e,0 0 23px #36c2ff,0 0 48px #1ba8ff88}}
-@keyframes redPulse{50%{filter:brightness(1.12);box-shadow:inset 0 2px 0 #ffffff80,0 4px 0 #a81329,0 0 23px #ff5772,0 0 48px #ff405f88}}
-.distance{font-size:9px;color:#6f8195;font-weight:750;text-align:right;line-height:1.2}
-.tank.stale .percent{opacity:1;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;text-decoration-color:#8c9bad}
-.tank.stale .volume strong,.tank.stale .bar{opacity:.45}
-.controls{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:11px}
-.motor-card{padding:11px;display:flex;flex-direction:column;align-items:center;min-height:0}
-.motor-title{text-align:center;margin-bottom:3px}
-.motor-title .control-state{margin-top:4px;font-size:clamp(8px,1.3vh,10px);letter-spacing:.45px}
-.motor-buttons{display:flex;flex:1;min-height:0;width:100%;flex-direction:column;align-items:center;justify-content:center;gap:clamp(8px,1.4vh,14px)}
-.motor-unit{display:flex;flex-direction:column;align-items:center;gap:5px;min-height:0}
-.motor-btn{width:clamp(98px,18.5vh,162px);height:clamp(98px,18.5vh,162px);max-width:100%;aspect-ratio:1;border:none;border-radius:50%;display:grid;place-items:center;cursor:pointer;touch-action:none;box-shadow:none;transition:transform .12s,filter .12s,opacity .12s}
-.motor-btn svg{width:43%;height:43%;filter:none}
-.motor-btn.start{background:#11a86a;color:#fff}
-.motor-btn.stop{background:#e04658;color:#fff}
-.motor-btn:active,.motor-btn.held{transform:scale(.96);filter:brightness(.96);box-shadow:none}
-.motor-caption{font-size:clamp(14px,2.35vh,19px);font-weight:900;letter-spacing:1.2px;color:#1e314a;text-shadow:none}
-.side-card{padding:9px;display:flex;flex-direction:column;justify-content:center;gap:clamp(7px,1.3vh,12px);min-height:0}
-.control-tile{flex:1;min-height:0;border:1px solid #e0e8f0;background:linear-gradient(160deg,#ffffff,#f4f8fc);border-radius:17px;padding:9px 6px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(5px,1vh,9px);text-align:center;box-shadow:inset 0 1px 0 #fff,0 5px 12px #142b470d,0 2px 0 #d8e2eb}
-.control-tile.light-on{background:linear-gradient(160deg,#fffdf1,#fff2c5);border-color:#efd16f;box-shadow:inset 0 1px 0 #fff,0 0 13px #f4d36a99,0 0 29px #f4d36a55,0 5px 12px #142b4712}
-.control-tile.bulb-on{background:linear-gradient(160deg,#f4fcff,#dff4ff);border-color:#9ed4f4;box-shadow:inset 0 1px 0 #fff,0 0 13px #75c6f599,0 0 29px #75c6f555,0 5px 12px #142b4712}
-.control-name{font-size:clamp(13px,2.1vh,17px);font-weight:950;line-height:1.08;letter-spacing:-.2px}
-.control-state{font-size:clamp(9px,1.4vh,11px);color:#78889b;font-weight:850;line-height:1.1}
-.timer{font-size:clamp(8px,1.25vh,10px);color:#5d7088;font-weight:850;min-height:10px}
-.toggle{width:clamp(72px,11.5vh,92px);height:clamp(41px,6.5vh,52px);flex:none;border:1px solid #b9c7d5;background:linear-gradient(180deg,#dfe6ed,#ccd6e0);border-radius:32px;padding:4px;cursor:pointer;transition:.18s;box-shadow:inset 0 3px 6px #102b4526,0 3px 0 #aab7c4,0 6px 10px #102b4518}
-.toggle:after{content:"";display:block;width:clamp(31px,4.9vh,41px);height:clamp(31px,4.9vh,41px);border-radius:50%;background:linear-gradient(145deg,#fff,#e9eef3);box-shadow:0 3px 6px #0003,inset 0 1px 1px #fff;transition:.18s}
-.toggle.on{background:linear-gradient(145deg,#33d493,#0b8a59);border-color:#0b8a59;box-shadow:inset 0 2px 4px #064d3226,0 3px 0 #07633f,0 0 14px #12a96b88}
-.toggle.on:after{transform:translateX(clamp(28px,4.4vh,39px))}
-.buzzer-actions{display:flex;flex-direction:column;align-items:center;gap:clamp(4px,0.7vh,7px);width:100%}
-.buzzer-btn{width:min(100%,198px);border:1px solid #bd1b32;background:linear-gradient(145deg,#ff7584,#db2340 58%,#b51631);color:#fff;border-radius:15px;padding:clamp(13px,2.1vh,18px) 10px;font-size:clamp(12px,2vh,15px);font-weight:950;letter-spacing:.45px;white-space:nowrap;box-shadow:inset 0 2px 0 #ffffff66,0 6px 0 #901127,0 10px 15px #d91f3d33;cursor:pointer;text-shadow:0 1px 1px #780d1f88}
-.buzzer-btn:active{transform:translateY(5px);box-shadow:inset 0 2px 3px #0004,0 1px 0 #901127}
-.buzzer-btn.test{border-color:#087a4c;background:linear-gradient(145deg,#59e6a5,#16b978 58%,#087a4c);font-size:clamp(10px,1.6vh,12px);padding:clamp(8px,1.3vh,11px) 10px;box-shadow:inset 0 2px 0 #ffffff66,0 5px 0 #05633e,0 9px 13px #0d9b5e26;text-shadow:0 1px 1px #04523388}
-.buzzer-btn.test:active{transform:translateY(4px);box-shadow:inset 0 2px 3px #0004,0 1px 0 #05633e}
-footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:1.2;color:#4e6178;font-weight:950;letter-spacing:.5px;white-space:nowrap;padding-bottom:2px;margin-bottom:clamp(8px,2vh,20px);text-shadow:0 1px 0 #fff}
-
-.head-actions{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:none}
-.admin-open{border:1px solid #9ecbb3;background:linear-gradient(180deg,#ffffff,#e7f8ee);color:#087c4a;border-radius:11px;padding:6px 11px;font-size:10px;font-weight:950;letter-spacing:.8px;box-shadow:inset 0 1px 0 #fff,0 3px 0 #b9d8c7,0 5px 9px #102b4514;cursor:pointer}
-.admin-open:active{transform:translateY(2px);box-shadow:inset 0 1px 3px #102b4520,0 1px 0 #b9d8c7}
-.admin-overlay{position:fixed;inset:0;z-index:50;background:linear-gradient(155deg,#f7fcff 0%,#eef7f2 50%,#e9f1f8 100%);overflow-y:auto;overscroll-behavior:contain;padding:14px 14px max(24px,env(safe-area-inset-bottom));display:block}
-.admin-overlay[hidden],.admin-notice[hidden]{display:none!important}
-.admin-shell{width:min(100%,980px);margin:0 auto;display:flex;flex-direction:column;gap:12px}
-.admin-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.admin-eyebrow{font-size:10px;font-weight:950;letter-spacing:1.4px;color:#0e9a63}
-.admin-head h1{margin:2px 0 3px;font-size:clamp(22px,4vw,32px);letter-spacing:-.8px}
-.admin-sub{font-size:11px;color:#66778e;font-weight:750}
-.admin-head-actions{display:flex;gap:6px;flex-wrap:wrap}
-.admin-head-actions button,.btn{border:1px solid #cbd9e5;background:linear-gradient(180deg,#fff,#edf4fa);color:#1c334d;border-radius:11px;padding:8px 12px;font-size:11px;font-weight:900;cursor:pointer;box-shadow:0 3px 8px #142b4712,inset 0 1px 0 #fff}
-.admin-head-actions button:active,.btn:active{transform:translateY(1px)}
-.btn.primary{border-color:#0b8a59;background:linear-gradient(145deg,#33d493,#0b8a59);color:#fff;box-shadow:inset 0 1px 0 #ffffff55,0 4px 0 #07633f,0 6px 12px #0b8a5933}
-.btn.danger{border-color:#d83a4f;background:linear-gradient(145deg,#ff7a88,#d9243d);color:#fff;box-shadow:inset 0 1px 0 #ffffff55,0 4px 0 #a81329,0 6px 12px #df3c4f33}
-.admin-notice{border-radius:12px;padding:10px 12px;font-size:12px;font-weight:800;background:#e9fbf1;border:1px solid #abe3c4;color:#087c4a}
-.admin-notice.error{background:#fff0f2;border-color:#efb9c1;color:#bd2d40}
-.admin-live{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px}
-.admin-stat{background:linear-gradient(160deg,#fff,#f4f9fd);border:1px solid #dce6ef;border-radius:13px;padding:9px 10px;box-shadow:inset 0 1px 0 #fff,0 4px 9px #142b470c}
-.admin-stat span{display:block;font-size:9px;font-weight:950;letter-spacing:.8px;color:#74869a;text-transform:uppercase}
-.admin-stat strong{display:block;font-size:14px;margin-top:2px;letter-spacing:-.2px;word-break:break-word}
-.admin-card{background:#fff;border:1px solid #dce6ef;border-radius:18px;padding:13px;box-shadow:0 12px 26px #142b470e,inset 0 1px 0 #fff}
-.admin-card h2{margin:0;font-size:15px;letter-spacing:-.2px}
-.admin-card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:9px}
-.admin-card p.note{margin:6px 0 0;color:#6b7d91;font-size:10px;line-height:1.45;font-weight:700}
-.admin-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(142px,1fr));gap:9px}
-.field{display:flex;flex-direction:column;gap:4px;min-width:0}
-.field label{font-size:9px;font-weight:950;letter-spacing:.65px;color:#6d8094;text-transform:uppercase}
-.field input,.field select{width:100%;border:1px solid #cbd9e5;background:#f8fbfe;border-radius:9px;padding:8px 9px;font:inherit;font-size:12px;font-weight:750;color:#10243d;outline:none}
-.field input:focus,.field select:focus{border-color:#39b47d;box-shadow:0 0 0 3px #39b47d22;background:#fff}
-.checkline{display:flex;align-items:center;gap:8px;border:1px solid #dce6ef;background:#f8fbfe;border-radius:10px;padding:8px 10px;font-size:11px;font-weight:850;color:#253b55;min-height:38px}
-.checkline input{width:17px;height:17px;accent-color:#0e9a63;flex:none}
-.seg{display:flex;gap:4px;flex-wrap:wrap}
-.seg button{border:1px solid #cbd9e5;background:#f8fbfe;border-radius:8px;padding:6px 9px;font-size:10px;font-weight:900;color:#53677d;cursor:pointer}
-.seg button.on{background:#0e9a63;border-color:#0e9a63;color:#fff;box-shadow:0 2px 0 #07633f}
-.graph-wrap{position:relative;background:linear-gradient(180deg,#f9fdff,#f2f8fc);border:1px solid #dce6ef;border-radius:13px;height:clamp(190px,30vh,300px);overflow:hidden}
-#histChart{width:100%;height:100%;display:block}
-.chart-empty{position:absolute;inset:0;display:grid;place-items:center;font-size:12px;font-weight:850;color:#8293a6;pointer-events:none}
-.chart-empty[hidden]{display:none}
-.legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:7px;font-size:10px;font-weight:800;color:#63768b}
-.legend i{display:inline-block;width:16px;height:3px;border-radius:2px;vertical-align:middle;margin-right:4px}
-.event-list{display:flex;flex-direction:column;gap:6px;max-height:280px;overflow:auto;padding-right:2px}
-.event-item{border:1px solid #e3ebf2;background:#f9fcff;border-radius:10px;padding:8px 10px;display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-.event-item b{font-size:11px;display:block}
-.event-item small{font-size:9px;color:#788a9d;font-weight:750}
-.event-item .age{font-size:9px;color:#8293a6;white-space:nowrap;font-weight:800}
-.event-item.warn{background:#fff9ed;border-color:#f0d9a8}
-.event-item.bad{background:#fff2f4;border-color:#efc5cb}
-.settings-section{border-top:1px solid #e8eef4;padding-top:11px;margin-top:11px}
-.settings-section:first-of-type{border-top:0;padding-top:0;margin-top:0}
-.settings-section h3{margin:0 0 8px;font-size:12px;letter-spacing:.4px;text-transform:uppercase;color:#2a405a}
-.oled-layout{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(190px,.9fr);gap:10px;align-items:start}
-.oled-frame{background:#08110d;border:7px solid #24352d;border-radius:16px;padding:5px;box-shadow:inset 0 0 18px #000,0 10px 20px #102b4522}
-.oled-frame canvas{width:100%;aspect-ratio:2/1;display:block;border-radius:5px;background:#050907}
-.savebar{position:sticky;bottom:8px;z-index:3;margin-top:13px;display:flex;align-items:center;gap:10px;justify-content:space-between;background:#ffffffed;backdrop-filter:blur(8px);border:1px solid #dce6ef;border-radius:14px;padding:9px;box-shadow:0 10px 24px #142b4720}
-.savebar span{font-size:10px;color:#6b7d91;font-weight:800}
-.info-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:7px;font-size:10px}
-.info-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed #e7eef5;padding:4px 0}
-.info-row span{color:#73859a;font-weight:750}
-.info-row b{text-align:right;word-break:break-word}
-@media(max-width:520px){.oled-layout{grid-template-columns:1fr}.admin-overlay{padding:10px 9px max(18px,env(safe-area-inset-bottom))}.admin-live{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-head-actions{width:100%;justify-content:flex-end}.admin-head-actions button{flex:1}}
-@media(max-height:620px){.app{gap:5px;padding-top:5px}.logo{width:48px;height:48px}.brand-title{font-size:20px}.tank{padding:7px 12px}.bar-wrap{margin:6px 0 4px}.tank-bottom{margin-top:5px}.percent{font-size:clamp(48px,10vh,72px)}.volume strong{font-size:clamp(34px,6.2vh,46px)}.motor-btn{width:clamp(76px,16vh,112px);height:clamp(76px,16vh,112px)}.motor-buttons{gap:5px}.motor-caption{font-size:12px}.side-card{gap:5px;padding:6px}.control-tile{padding:5px}.toggle{width:60px;height:35px}.toggle:after{width:27px;height:27px}.toggle.on:after{transform:translateX(23px)}.buzzer-btn{padding:9px 6px}}
-@media(orientation:landscape) and (max-height:520px){.app{width:min(100%,980px);padding:4px 12px 5px;gap:4px}header{min-height:36px}.logo{width:42px;height:42px}.brand-title{font-size:18px}.credit{font-size:8px}.tank{padding:5px 12px}.percent{font-size:42px}.volume strong{font-size:42px;letter-spacing:-2px}.volume span{font-size:10px}.controls{grid-template-columns:.95fr 1.05fr}.motor-card{padding:4px}.motor-buttons{flex-direction:row;justify-content:space-evenly;gap:5px}.motor-btn{width:min(22vh,112px);height:min(22vh,112px)}.motor-caption{font-size:10px}.side-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:5px}.control-tile{padding:4px;gap:4px}.control-name{font-size:11px}.toggle{width:50px;height:29px}.toggle:after{width:21px;height:21px}.toggle.on:after{transform:translateX(19px)}.buzzer-btn{font-size:8px;padding:7px 3px}footer{margin-bottom:5px}}
-@media(max-width:430px){.app{padding-left:8px;padding-right:8px;gap:7px}.brand{gap:8px}.brand-title{font-size:clamp(18px,5.4vw,23px)}.connection{padding:7px 9px;font-size:10px}.tank{padding:9px 11px}.percent{font-size:clamp(50px,12vw,72px)}.volume strong{font-size:clamp(34px,8vw,48px);letter-spacing:-2px}.volume span{font-size:clamp(10px,2.8vw,12px)}.controls{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:7px}.motor-card{padding:7px 5px}.side-card{padding:6px;gap:6px}.control-tile{padding:6px 3px;gap:5px}.control-name{font-size:clamp(11px,3.1vw,14px)}.control-state{font-size:9px}.timer{font-size:8px}.motor-btn{width:clamp(80px,21vw,118px);height:clamp(80px,21vw,118px)}.motor-caption{font-size:clamp(11px,3vw,14px)}.toggle{width:clamp(54px,15vw,70px);height:35px}.toggle:after{width:27px;height:27px}.toggle.on:after{transform:translateX(clamp(18px,6vw,30px))}.buzzer-btn{font-size:clamp(9px,2.6vw,11px);padding:10px 3px}.capsule{padding:6px 9px;font-size:9px}.distance{font-size:8px}footer{font-size:clamp(7px,2vw,9px);letter-spacing:.2px;margin-bottom:8px}}
+.capsule.filling.active{color:#fff;border-color:#2eb7f0;background:#1697d8}
+.capsule.overflowing.active{color:#fff;border-color:#f27182;background:#e03a52}
+.capsule.stable{color:#087c4a;border-color:#b9e6cd;background:#e9f9f0}
+.capsule.stable.offline{color:#bd2d40;border-color:#efbdc4;background:#fff0f2}
+.distance{font-size:10px;color:#6f8195;font-weight:700;text-align:right}
+.controls{flex:1;min-height:0;display:grid;grid-template-columns:1.3fr 1fr;gap:10px}
+.motor-card{padding:10px;display:flex;flex-direction:column;align-items:center}
+.motor-title{text-align:center;margin-bottom:6px}
+.motor-buttons{display:flex;flex:1;width:100%;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+.motor-unit{display:flex;flex-direction:column;align-items:center;gap:6px}
+.motor-btn{width:120px;height:120px;max-width:100%;aspect-ratio:1;border:none;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:#fff}
+.motor-btn svg{width:44%;height:44%}
+.motor-btn.start{background:#11a86a}
+.motor-btn.stop{background:#e04658}
+.motor-btn:active,.motor-btn.held{transform:scale(.97);filter:brightness(.96)}
+.motor-caption{font-size:15px;font-weight:900;letter-spacing:1px;color:#1e314a}
+.side-card{padding:8px;display:flex;flex-direction:column;gap:8px}
+.control-tile{flex:1;border:1px solid #e0e8f0;background:#f9fbfd;border-radius:16px;padding:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center}
+.control-tile.light-on{background:#fff7d8;border-color:#efd16f}
+.control-tile.bulb-on{background:#eaf7ff;border-color:#9ed4f4}
+.control-name{font-size:15px;font-weight:900}
+.control-state{font-size:11px;color:#78889b;font-weight:800}
+.timer{font-size:10px;color:#5d7088;font-weight:800;min-height:12px}
+.toggle{width:78px;height:44px;border:1px solid #b9c7d5;background:#d8e0e8;border-radius:30px;padding:4px;cursor:pointer}
+.toggle:after{content:"";display:block;width:34px;height:34px;border-radius:50%;background:#fff;transition:.18s}
+.toggle.on{background:#19b66f;border-color:#0b8a59}
+.toggle.on:after{transform:translateX(32px)}
+.buzzer-actions{display:flex;flex-direction:column;gap:6px;width:100%;align-items:center}
+.buzzer-btn{width:min(100%,180px);border:none;color:#fff;border-radius:12px;padding:10px 8px;font-size:12px;font-weight:900;cursor:pointer}
+.buzzer-btn.test{background:#16b978}
+.buzzer-btn.stop{background:#dd2f46}
+footer{text-align:center;font-size:10px;color:#4e6178;font-weight:800;padding-bottom:4px}
+@media(max-width:430px){.percent{font-size:60px}.volume strong{font-size:36px}.motor-btn{width:104px;height:104px}.controls{grid-template-columns:1.25fr 1fr}}
 </style>
 </head>
 <body>
 <main class="app">
 <header>
  <div class="brand">
-  <div class="logo" aria-hidden="true">
-   <img src="data:image/png;base64,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" width="200" height="200" alt="">
-  </div>
-  <div><div class="brand-title">Smart Water Tank</div><div class="credit">Designed by Aman Sharma</div></div>
+  <div class="logo">💧</div>
+  <div><div class="brand-title">Water Tank</div><div class="credit">ESP32_B Local Dashboard</div></div>
  </div>
- <div class="head-actions">
-  <button class="admin-open" id="adminOpen" type="button">ADMIN</button>
-  <div class="connection offline" id="connection"><i class="dot"></i><span id="connectionText">OFFLINE</span></div>
- </div>
+ <div class="connection offline" id="connection"><span class="dot"></span><span id="connectionText">OFFLINE</span></div>
 </header>
 <section class="card tank" id="tankCard">
- <div class="card-head"><span class="eyebrow">Tank overview</span><span class="live">● LIVE DATA</span></div>
- <div class="water-row"><div class="percent" id="percent">--<small>%</small></div><div class="volume"><strong id="litres">-- L</strong><span id="capacityLabel">OF 750 L</span></div></div>
+ <div class="card-head"><span class="eyebrow">Tank level</span><span class="live" id="liveTag">LIVE</span></div>
+ <div class="water-row">
+  <div class="percent" id="percent">--<small>%</small></div>
+  <div class="volume"><strong id="litres">-- L</strong><span id="capacityLabel">OF 750 L</span></div>
+ </div>
  <div class="bar-wrap"><div class="bar" id="bar"></div></div>
  <div class="scale"><span>0 L · EMPTY</span><span id="scaleFull">750 L · FULL</span></div>
  <div class="tank-bottom">
-  <div class="touch-capsules" id="touchCapsules">
+  <div class="touch-capsules">
    <span class="capsule filling hidden" id="fillCapsule">FILLING</span>
    <span class="capsule overflowing hidden" id="overflowCapsule">OVERFLOWING</span>
    <span class="capsule stable" id="stableCapsule">STABLE</span>
@@ -179,11 +105,11 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
   <div class="motor-title"><span class="eyebrow">Motor control · RF remote</span><div class="control-state" id="motorStatus">REMOTE IDLE</div></div>
   <div class="motor-buttons">
    <div class="motor-unit">
-    <button class="motor-btn start" id="motorStart" aria-label="Start motor — press and hold" aria-pressed="false"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><path d="M24 5v20"/><path d="M12.5 12.5a18 18 0 1 0 23 0"/></svg></button>
+    <button class="motor-btn start" id="motorStart" aria-pressed="false"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><path d="M24 5v20"/><path d="M12.5 12.5a18 18 0 1 0 23 0"/></svg></button>
     <div class="motor-caption">START</div>
    </div>
    <div class="motor-unit">
-    <button class="motor-btn stop" id="motorStop" aria-label="Stop motor — press and hold" aria-pressed="false"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><path d="M24 5v20"/><path d="M12.5 12.5a18 18 0 1 0 23 0"/></svg></button>
+    <button class="motor-btn stop" id="motorStop" aria-pressed="false"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><path d="M24 5v20"/><path d="M12.5 12.5a18 18 0 1 0 23 0"/></svg></button>
     <div class="motor-caption">STOP</div>
    </div>
   </div>
@@ -191,162 +117,27 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
  <section class="card side-card">
   <div class="control-tile" id="mirrorTile">
    <div class="control-name">Mirror Light</div>
-   <button class="toggle" id="relay1" aria-label="Toggle Mirror Light" aria-pressed="false"></button>
+   <button class="toggle" id="relay1" aria-pressed="false"></button>
    <div class="control-state" id="r1state">OFF</div>
    <div class="timer" id="mirrorInfo">—</div>
   </div>
   <div class="control-tile" id="bulbTile">
    <div class="control-name">Bulb</div>
-   <button class="toggle" id="relay2" aria-label="Toggle bulb" aria-pressed="false"></button>
+   <button class="toggle" id="relay2" aria-pressed="false"></button>
    <div class="control-state" id="r2state">OFF</div>
   </div>
   <div class="control-tile">
    <div class="control-name">Buzzer</div>
    <div class="buzzer-actions">
     <button class="buzzer-btn test" id="buzzerTest">TEST BUZZER (5s)</button>
-    <button class="buzzer-btn" id="buzzerStop">STOP BUZZER</button>
+    <button class="buzzer-btn stop" id="buzzerStop">STOP BUZZER</button>
    </div>
    <div class="control-state" id="buzzerState">READY</div>
   </div>
  </section>
 </section>
-<footer>SMART WATER TANK · LOCAL ESP32 DASHBOARD · DESIGNED BY AMAN SHARMA</footer>
-
-<div class="admin-overlay" id="adminOverlay" hidden>
- <div class="admin-shell">
-  <header class="admin-head">
-   <div><div class="admin-eyebrow">SMART WATER TANK · CONTROL CENTRE</div><h1>Technical Admin</h1><div class="admin-sub" id="adminSub">Settings are saved to ESP32 NVS</div></div>
-   <div class="admin-head-actions">
-    <button type="button" id="adminRefresh">Refresh</button>
-    <button type="button" class="btn primary" id="adminClose">Back to dashboard</button>
-   </div>
-  </header>
-  <div class="admin-notice" id="adminNotice" hidden></div>
-  <div class="admin-live">
-   <div class="admin-stat"><span>ESP32_A water</span><strong id="adAState">—</strong></div>
-   <div class="admin-stat"><span>ESP-NOW link</span><strong id="adLink">—</strong></div>
-   <div class="admin-stat"><span>A uptime</span><strong id="adAUptime">—</strong></div>
-   <div class="admin-stat"><span>A reset reason</span><strong id="adAReset">—</strong></div>
-   <div class="admin-stat"><span>Echoes OK / timeout</span><strong id="adEchoes">—</strong></div>
-   <div class="admin-stat"><span>A flags</span><strong id="adFlags">—</strong></div>
-   <div class="admin-stat"><span>A settings sync</span><strong id="adSync">—</strong></div>
-   <div class="admin-stat"><span>Live level</span><strong id="adLevel">—</strong></div>
-  </div>
-
-  <section class="admin-card">
-   <div class="admin-card-head"><div><h2>Water history</h2><p class="note" id="historyMeta">Loading…</p></div><div class="seg" id="rangeSeg"><button type="button" data-range="0" class="on">ALL</button><button type="button" data-range="86400">24H</button><button type="button" data-range="43200">12H</button><button type="button" data-range="21600">6H</button></div></div>
-   <div class="graph-wrap"><canvas id="histChart"></canvas><div class="chart-empty" id="chartEmpty">No history samples yet</div></div>
-   <div class="legend"><span><i style="background:#128fd1"></i>Filling / rising</span><span><i style="background:#df3c4f"></i>Draining / falling</span><span><i style="background:#9aabba"></i>Invalid sample</span></div>
-   <p class="note">The ESP32 has no real-time clock, so the graph is an approximate timeline based on the saved sampling interval. Old samples are trimmed automatically after the retention period.</p>
-  </section>
-
-  <section class="admin-card">
-   <div class="admin-card-head"><h2>Noise &amp; event log</h2><span class="admin-sub" id="eventCount">—</span></div>
-   <div class="event-list" id="eventList"><div class="admin-sub">Loading…</div></div>
-  </section>
-
-  <form id="adminForm" autocomplete="off">
-   <section class="admin-card">
-    <div class="settings-section">
-     <h3>Water sensor, calibration &amp; filtering → ESP32_A</h3>
-     <div class="admin-grid">
-      <div class="field"><label for="fullDistanceCm">Full distance (cm)</label><input id="fullDistanceCm" name="fullDistanceCm" type="number" step="0.1" min="1" max="120"></div>
-      <div class="field"><label for="emptyDistanceCm">Empty distance (cm)</label><input id="emptyDistanceCm" name="emptyDistanceCm" type="number" step="0.1" min="1" max="300"></div>
-      <div class="field"><label for="emptyDeadbandCm">Empty deadband (cm)</label><input id="emptyDeadbandCm" name="emptyDeadbandCm" type="number" step="0.1" min="0" max="20"></div>
-      <div class="field"><label for="tankCapacityL">Tank capacity (L)</label><input id="tankCapacityL" name="tankCapacityL" type="number" step="1" min="1" max="65000"></div>
-      <div class="field"><label for="sensorMinCm">Sensor min (cm)</label><input id="sensorMinCm" name="sensorMinCm" type="number" step="0.1" min="1" max="100"></div>
-      <div class="field"><label for="sensorMaxCm">Sensor max (cm)</label><input id="sensorMaxCm" name="sensorMaxCm" type="number" step="0.1" min="2" max="400"></div>
-      <div class="field"><label for="smoothAlpha">Smoothing alpha</label><input id="smoothAlpha" name="smoothAlpha" type="number" step="0.01" min="0.05" max="0.95"></div>
-      <div class="field"><label for="jumpLimitCm">Jump limit (cm)</label><input id="jumpLimitCm" name="jumpLimitCm" type="number" step="0.1" min="5" max="100"></div>
-      <div class="field"><label for="jumpConfirm">Jump confirmations</label><input id="jumpConfirm" name="jumpConfirm" type="number" step="1" min="1" max="10"></div>
-      <div class="field"><label for="stuckTimeoutMs">Stuck timeout (ms)</label><input id="stuckTimeoutMs" name="stuckTimeoutMs" type="number" step="1000" min="10000" max="86400000"></div>
-      <div class="field"><label for="measurePeriodMs">Measure period (ms)</label><input id="measurePeriodMs" name="measurePeriodMs" type="number" step="50" min="200" max="10000"></div>
-      <div class="field"><label for="sampleSpacingMs">Sample spacing (ms)</label><input id="sampleSpacingMs" name="sampleSpacingMs" type="number" step="10" min="20" max="500"></div>
-      <div class="field"><label for="samplesPerCycle">Samples / cycle</label><input id="samplesPerCycle" name="samplesPerCycle" type="number" step="1" min="3" max="9"></div>
-     </div>
-     <p class="note">Changes are sent over ESP-NOW and saved by ESP32_A. A reboot of ESP32_A is not normally required.</p>
-    </div>
-
-    <div class="settings-section">
-     <h3>Mirror person detection</h3>
-     <div class="admin-grid">
-      <label class="checkline"><input id="mirrorEnabled" name="mirrorEnabled" type="checkbox"> Auto mirror enabled</label>
-      <div class="field"><label for="mirrorOnCm">Detect ON below (cm)</label><input id="mirrorOnCm" name="mirrorOnCm" type="number" step="0.1" min="5" max="300"></div>
-      <div class="field"><label for="mirrorOffCm">Detect OFF above (cm)</label><input id="mirrorOffCm" name="mirrorOffCm" type="number" step="0.1" min="6" max="400"></div>
-      <div class="field"><label for="mirrorOnConfirmMs">ON confirm (ms)</label><input id="mirrorOnConfirmMs" name="mirrorOnConfirmMs" type="number" step="50" min="50" max="10000"></div>
-      <div class="field"><label for="mirrorMaxOnMinutes">Max auto-on (min, 0=off)</label><input id="mirrorMaxOnMinutes" name="mirrorMaxOnMinutes" type="number" step="1" min="0" max="1440"></div>
-     </div>
-     <p class="note">The mirror turns off immediately when the person moves beyond the OFF distance or the sensor loses them. Manual Mirror Light controls stay available on the dashboard.</p>
-    </div>
-
-    <div class="settings-section">
-     <h3>Buzzer</h3>
-     <div class="admin-grid">
-      <label class="checkline"><input id="buzzerEnabled" name="buzzerEnabled" type="checkbox"> Full-tank buzzer enabled</label>
-      <div class="field"><label for="buzzerFullPercent">Start threshold (%)</label><input id="buzzerFullPercent" name="buzzerFullPercent" type="number" step="0.5" min="50" max="100"></div>
-      <div class="field"><label for="buzzerRearmPercent">Re-arm below (%)</label><input id="buzzerRearmPercent" name="buzzerRearmPercent" type="number" step="0.5" min="0" max="99"></div>
-      <div class="field"><label for="buzzerConfirmReadings">Confirm readings</label><input id="buzzerConfirmReadings" name="buzzerConfirmReadings" type="number" step="1" min="1" max="20"></div>
-      <div class="field"><label for="buzzerDurationMs">Max duration (ms)</label><input id="buzzerDurationMs" name="buzzerDurationMs" type="number" step="1000" min="1000" max="300000"></div>
-      <div class="field"><label for="buzzerBeepsPerSec">Beeps per second</label><input id="buzzerBeepsPerSec" name="buzzerBeepsPerSec" type="number" step="0.1" min="0.2" max="10"></div>
-      <div class="field"><label for="buzzerBeepOnMs">Beep ON (ms)</label><input id="buzzerBeepOnMs" name="buzzerBeepOnMs" type="number" step="10" min="10" max="5000"></div>
-      <div class="field"><label for="buzzerIntensity">Intensity 0–100%</label><input id="buzzerIntensity" name="buzzerIntensity" type="number" step="1" min="0" max="100"></div>
-     </div>
-     <p class="note">Beeps per second ≈ 1000 ÷ beep period. Intensity uses PWM and is approximate on active buzzers; some modules only click instead of changing volume.</p>
-    </div>
-
-    <div class="settings-section">
-     <h3>OLED display</h3>
-     <div class="oled-layout">
-      <div class="admin-grid">
-       <label class="checkline"><input type="checkbox" data-oled-bit="1"> Show percent</label>
-       <label class="checkline"><input type="checkbox" data-oled-bit="4"> Show link state</label>
-       <label class="checkline"><input type="checkbox" data-oled-bit="8"> Show bottom litres</label>
-       <label class="checkline"><input type="checkbox" data-oled-bit="16"> Show live/stale status</label>
-       <label class="checkline"><input type="checkbox" data-oled-bit="32"> Show distance</label>
-       <div class="field"><label for="oledPercentSize">Percent scale</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option></select></div>
-       <div class="field"><label for="oledBottomSize">Bottom font size</label><select id="oledBottomSize" name="oledBottomSize"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
-       <div class="field"><label for="oledContrast">Contrast 1–255</label><input id="oledContrast" name="oledContrast" type="number" step="1" min="1" max="255"></div>
-       <label class="checkline"><input id="oledInvert" name="oledInvert" type="checkbox"> Invert display</label>
-      </div>
-      <div>
-       <div class="oled-frame"><canvas id="oledPreview" width="256" height="128"></canvas></div>
-       <p class="note">Approximate 128×64 preview. Large digits use 1 px smooth curves, not scaled block pixels.</p>
-      </div>
-     </div>
-    </div>
-
-    <div class="settings-section">
-     <h3>History storage</h3>
-     <div class="admin-grid">
-      <label class="checkline"><input id="historyEnabled" name="historyEnabled" type="checkbox"> Save history</label>
-      <div class="field"><label for="historyIntervalSec">Sample every (seconds)</label><input id="historyIntervalSec" name="historyIntervalSec" type="number" step="10" min="30" max="3600"></div>
-      <div class="field"><label for="historyRetentionDays">Keep for (days)</label><input id="historyRetentionDays" name="historyRetentionDays" type="number" step="1" min="1" max="30"></div>
-     </div>
-     <p class="note">Retention is automatic: the oldest CSV lines are removed when the configured window is exceeded. Storage is LittleFS on ESP32_B.</p>
-    </div>
-
-    <div class="savebar"><button type="submit" class="btn primary" id="saveSettings">Save all settings</button><span id="saveHint">No unsaved changes</span></div>
-   </section>
-  </form>
-
-  <section class="admin-card">
-   <div class="admin-card-head"><h2>Maintenance actions</h2></div>
-   <div class="seg">
-    <button type="button" class="btn" id="rebootA">Reboot ESP32_A</button>
-    <button type="button" class="btn danger" id="rebootB">Reboot ESP32_B</button>
-    <button type="button" class="btn danger" id="clearHistory">Clear history</button>
-    <button type="button" class="btn danger" id="clearEvents">Clear events</button>
-   </div>
-   <p class="note">Rebooting ESP32_A temporarily drops water data. Rebooting ESP32_B also drops this dashboard for a few seconds.</p>
-  </section>
-
-  <section class="admin-card">
-   <div class="admin-card-head"><h2>ESP32_A &amp; ESP32_B technical information</h2><span class="admin-sub" id="infoStamp">—</span></div>
-   <div class="info-grid" id="infoGrid"></div>
-  </section>
- </div>
-</div>
-
+<footer>SMART WATER TANK · LOCAL ESP32 DASHBOARD</footer>
+</main>
 <script>
 (function(){
 'use strict';
@@ -359,617 +150,139 @@ const relay1Btn=$('relay1'), relay2Btn=$('relay2'), mirrorTile=$('mirrorTile'), 
 const r1state=$('r1state'), r2state=$('r2state'), mirrorInfo=$('mirrorInfo'), buzzerStateEl=$('buzzerState');
 const startBtn=$('motorStart'), stopBtn=$('motorStop');
 
-const POLL_MS=500, POLL_TIMEOUT_MS=2500;
-let current={online:false,linkOnline:false,sensorValid:false,percent:null,litres:null,distance:null,filling:false,draining:false,hcsr04Valid:false,hcsr04Distance:null,personDetected:false,relay1:false,mirrorOverride:false,autoBlocked:false,relay2:false,buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,buzzerArmed:true,buzzerState:"READY",motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,capacityL:750}, reachable=false, failures=0, inFlight=false, pollTimer=null;
+const POLL_MS=700, POLL_TIMEOUT_MS=2500;
+let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,draining:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,capacityL:750};
+let reachable=false, failures=0, inFlight=false, pollTimer=null;
 let mirrorBusy=false, bulbBusy=false, buzzerBusy=false;
-
-const motor={
- start:{btn:startBtn, held:false, pointerId:null},
- stop:{btn:stopBtn, held:false, pointerId:null}
-};
+const motor={start:{btn:startBtn,held:false,pointerId:null},stop:{btn:stopBtn,held:false,pointerId:null}};
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
 function num(v){return (typeof v==='number'&&isFinite(v))?v:null;}
-function setOnline(online,linkOk){
- connection.classList.toggle('offline',!online);
- if(!online){
-  connectionText.textContent='OFFLINE';
- }else{
-  connectionText.textContent=(linkOk===false)?'B ONLINE · A LINK DOWN':'ONLINE';
- }
-}
-function renderCapsules(filling,overflowing,linkOk){
- filling=linkOk&&filling===true;
- overflowing=linkOk&&overflowing===true;
- fillCapsule.classList.toggle('hidden',!filling);
- fillCapsule.classList.toggle('active',filling);
- overflowCapsule.classList.toggle('hidden',!overflowing);
- overflowCapsule.classList.toggle('active',overflowing);
- stableCapsule.classList.toggle('hidden',filling||overflowing);
- stableCapsule.classList.toggle('offline',!linkOk);
- stableCapsule.textContent=linkOk?'STABLE':'NO SIGNAL';
-}
-function flashError(el,msg){
- if(!el) return;
- el.textContent=msg||'COMMAND FAILED';
- clearTimeout(el._errTimer);
- el._errTimer=setTimeout(()=>{ if(current) render(current, reachable); },1400);
-}
-function renderUnreachable(){
- reachable=false;
- if(current && typeof current==='object') render(current,false);
- else {
-  tankCard.classList.remove('stale');
-  percentEl.innerHTML='--<small>%</small>';
-  litresEl.textContent='-- L';
-  barEl.style.width='0%';
-  distanceEl.textContent='ESP32_B unreachable · reconnecting…';
-  renderCapsules(false,false,false);
-  r1state.textContent='OFF'; mirrorInfo.textContent='ESP32_B unreachable';
-  r2state.textContent='OFF';
-  buzzerStateEl.textContent='READY';
-  motorStatusEl.textContent='ESP32_B unreachable';
- }
- setOnline(false,false);
- connectionText.textContent='ESP32_B unreachable · reconnecting…';
-}
-function render(s,bReachable){
+
+function render(s){
  if(!s||typeof s!=='object') return;
  current=s;
- const bOk = (bReachable===undefined)?reachable:(bReachable===true);
- const capacity=num(s.capacityL);
- if(capacity!==null&&capacity>0){
-  $('capacityLabel').textContent='OF '+Math.round(capacity)+' L';
-  $('scaleFull').textContent=Math.round(capacity)+' L · FULL';
- }
- const linkOk=(bOk && s.linkOnline===true);
- const waterOnline=(bOk && s.online===true);
- setOnline(bOk, linkOk);
- const pct=num(s.percent);
- const hasPct=(pct!==null && linkOk);
- const shownPct=hasPct?clamp(pct,0,100):null;
- const stale=!waterOnline;
+ const bOk=true; // render called only when we have B response/state
+ const linkOk=(s.linkOnline===true);
+ const waterOk=(s.online===true);
+ connection.classList.toggle('offline',false);
+ connectionText.textContent=linkOk?'ONLINE':'B ONLINE · A LINK DOWN';
 
- tankCard.classList.toggle('stale',stale && linkOk);
- if(hasPct){
+ const cap=num(s.capacityL); if(cap&&cap>0){$('capacityLabel').textContent='OF '+Math.round(cap)+' L'; $('scaleFull').textContent=Math.round(cap)+' L · FULL';}
+ const pct=num(s.percent);
+ const hasWater=(linkOk && pct!==null);
+ const shownPct=hasWater?clamp(pct,0,100):null;
+ tankCard.classList.toggle('stale',!waterOk && linkOk);
+ if(hasWater){
   percentEl.innerHTML=Math.round(shownPct)+'<small>%</small>';
   const litres=num(s.litres);
-  litresEl.textContent=Math.round(litres!==null?litres:(capacity&&capacity>0?shownPct*capacity/100:shownPct*7.5))+' L';
+  litresEl.textContent=Math.round(litres!==null?litres:shownPct*(cap||750)/100)+' L';
   barEl.style.width=shownPct.toFixed(1)+'%';
+  const dist=num(s.distance);
+  distanceEl.textContent=(dist!==null?('Sensor distance: '+dist.toFixed(1)+' cm'):'Sensor distance: —')+(waterOk?'':' · STALE');
  }else{
   percentEl.innerHTML='--<small>%</small>';
   litresEl.textContent='-- L';
   barEl.style.width='0%';
+  distanceEl.textContent=linkOk?'Waiting for valid water data…':'ESP-NOW link to ESP32_A unavailable';
  }
- const dist=num(s.distance);
- if(!bOk){
-  distanceEl.textContent='ESP32_B unreachable · reconnecting…';
- }else if(linkOk && dist!==null){
-  distanceEl.textContent=(stale?'Last distance: ':'Sensor distance: ')+dist.toFixed(1)+' cm'+(stale?' · STALE':'');
- }else if(!linkOk){
-  distanceEl.textContent='ESP-NOW link to ESP32_A unavailable · water data paused';
- }else{
-  distanceEl.textContent='Sensor distance: —';
- }
- renderCapsules(s.filling,s.draining,linkOk);
 
- // Local controls (relay1/2, buzzer, RF outputs) are on ESP32_B: always show live B state when B reachable.
+ const filling=linkOk&&s.filling===true, overflowing=linkOk&&s.draining===true;
+ fillCapsule.classList.toggle('hidden',!filling); fillCapsule.classList.toggle('active',filling);
+ overflowCapsule.classList.toggle('hidden',!overflowing); overflowCapsule.classList.toggle('active',overflowing);
+ stableCapsule.classList.toggle('hidden',filling||overflowing); stableCapsule.classList.toggle('offline',!linkOk);
+ stableCapsule.textContent=linkOk?'STABLE':'NO SIGNAL';
+
+ // Local B controls always live
  const mirrorOn=(s.relay1===true);
- relay1Btn.classList.toggle('on',mirrorOn);
- relay1Btn.setAttribute('aria-pressed',mirrorOn?'true':'false');
- mirrorTile.classList.toggle('light-on',mirrorOn);
- {
-  const person=(s.personDetected===true);
-  const override=(s.mirrorOverride===true);
-  const blocked=(s.autoBlocked===true);
-  const hc=num(s.hcsr04Distance);
-  r1state.textContent=mirrorOn?'ON':'OFF';
-  let info=override?'MANUAL OVERRIDE · ':blocked?'AUTO BLOCKED · ':(person?'AUTO · PERSON · ':'AUTO · CLEAR · ');
-  info+=hc!==null?(hc/100).toFixed(1)+' m':'—';
-  if(!bOk) info='ESP32_B unreachable';
-  else if(!linkOk) info+=' · ESP-NOW A offline';
-  mirrorInfo.textContent=info;
- }
+ relay1Btn.classList.toggle('on',mirrorOn); relay1Btn.setAttribute('aria-pressed',mirrorOn?'true':'false'); mirrorTile.classList.toggle('light-on',mirrorOn);
+ r1state.textContent=mirrorOn?'ON':'OFF';
+ const hc=num(s.hcsr04Distance);
+ let info=(s.mirrorOverride===true)?'MANUAL OVERRIDE':(s.autoBlocked===true?'AUTO BLOCKED':(s.personDetected===true?'AUTO · PERSON':'AUTO · CLEAR'));
+ if(hc!==null) info+=' · '+(hc/100).toFixed(1)+' m';
+ if(!linkOk) info+=' · A LINK DOWN';
+ mirrorInfo.textContent=info;
 
  const bulbOn=(s.relay2===true);
- relay2Btn.classList.toggle('on',bulbOn);
- relay2Btn.setAttribute('aria-pressed',bulbOn?'true':'false');
- bulbTile.classList.toggle('bulb-on',bulbOn);
+ relay2Btn.classList.toggle('on',bulbOn); relay2Btn.setAttribute('aria-pressed',bulbOn?'true':'false'); bulbTile.classList.toggle('bulb-on',bulbOn);
  r2state.textContent=bulbOn?'ON':'OFF';
 
- {
-  const b=String(s.buzzerState||'READY').toUpperCase();
-  const testing=(s.buzzerTest===true)||b==='TESTING';
-  if(testing){
-   const rem=Number(s.buzzerTestRemainingMs);
-   buzzerStateEl.textContent='TESTING'+(rem>0?' · '+Math.ceil(rem/1000)+'s':' · AUTO STOP');
-  }else{
-   buzzerStateEl.textContent=(s.buzzerActive===true)?'ALERTING':b;
-  }
- }
-
- const startPressed=(s.motorStart===true), stopPressed=(s.motorStop===true);
- startBtn.setAttribute('aria-pressed',startPressed?'true':'false');
- stopBtn.setAttribute('aria-pressed',stopPressed?'true':'false');
- if(!bOk){
-  motorStatusEl.textContent='ESP32_B unreachable';
- }else if(startPressed){
-  const rs=Math.ceil((num(s.motorStartRemainingMs)||0)/1000);
-  motorStatusEl.textContent='START PRESSED'+(rs>0?' · '+rs+'s':'')+(linkOk?'':' · ESP-NOW A offline');
- }else if(stopPressed){
-  const rs=Math.ceil((num(s.motorStopRemainingMs)||0)/1000);
-  motorStatusEl.textContent='STOP PRESSED'+(rs>0?' · '+rs+'s':'')+(linkOk?'':' · ESP-NOW A offline');
+ const bstate=String(s.buzzerState||'READY').toUpperCase();
+ if(s.buzzerTest===true || bstate==='TESTING'){
+  const rem=Number(s.buzzerTestRemainingMs)||0;
+  buzzerStateEl.textContent='TESTING'+(rem>0?' · '+Math.ceil(rem/1000)+'s':'');
+ }else if(s.buzzerActive===true || bstate==='ALERTING'){
+  buzzerStateEl.textContent='ALERTING';
  }else{
-  motorStatusEl.textContent=linkOk?'REMOTE IDLE':'ESP-NOW A offline · remote motor unavailable';
+  buzzerStateEl.textContent=bstate;
+ }
+
+ const ms=!!s.motorStart, mp=!!s.motorStop;
+ startBtn.setAttribute('aria-pressed',ms?'true':'false'); stopBtn.setAttribute('aria-pressed',mp?'true':'false');
+ if(ms) motorStatusEl.textContent='START PRESSED'; else if(mp) motorStatusEl.textContent='STOP PRESSED'; else motorStatusEl.textContent=linkOk?'REMOTE IDLE':'A LINK DOWN · LOCAL RF OK';
+}
+
+function renderUnreachable(){
+ reachable=false;
+ connection.classList.add('offline');
+ connectionText.textContent='ESP32_B unreachable';
+ // keep last known local states visible but mark unreachable
+ if(current){
+  render(Object.assign({},current,{linkOnline:false,online:false}));
+  connection.classList.add('offline');
+  connectionText.textContent='ESP32_B unreachable';
  }
 }
 
-async function sendCommand(path,body,errorEl){
- const ctrl=new AbortController();
- const to=setTimeout(()=>ctrl.abort(),3500);
+async function sendCommand(path,body){
+ const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),3500);
  try{
-  const r=await fetch(path,{
-   method:'POST',cache:'no-store',
-   headers:{'Content-Type':'application/json'},
-   body:JSON.stringify(body||{}),
-   signal:ctrl.signal
-  });
+  const r=await fetch(path,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{}),signal:ctrl.signal});
   if(!r.ok) throw new Error('HTTP '+r.status);
-  const s=await r.json();
-  if(s&&s.error) throw new Error(s.error);
-  reachable=true; failures=0;
-  render(s,true);
-  return true;
- }catch(e){
-  if(errorEl) flashError(errorEl,'FAILED · RETRY');
-  return false;
- }finally{
-  clearTimeout(to);
- }
+  const s=await r.json(); if(s&&s.error) throw new Error(s.error);
+  reachable=true; failures=0; render(s); return true;
+ }catch(e){ return false; }
+ finally{ clearTimeout(to); }
 }
 
-function schedulePoll(){
- clearTimeout(pollTimer);
- if(document.hidden) return;
- const delay=reachable?POLL_MS:Math.min(800+failures*400,4000);
- pollTimer=setTimeout(pollState,delay);
-}
+function schedulePoll(){ clearTimeout(pollTimer); if(document.hidden) return; pollTimer=setTimeout(pollState, reachable?POLL_MS:Math.min(1000+failures*400,4000)); }
 async function pollState(){
- if(inFlight) return;
- inFlight=true;
- const ctrl=new AbortController();
- const to=setTimeout(()=>ctrl.abort(),POLL_TIMEOUT_MS);
+ if(inFlight) return; inFlight=true;
+ const ctrl=new AbortController(); const to=setTimeout(()=>ctrl.abort(),POLL_TIMEOUT_MS);
  try{
   const r=await fetch('/api/state',{cache:'no-store',signal:ctrl.signal});
   if(!r.ok) throw new Error('HTTP '+r.status);
-  const s=await r.json();
-  reachable=true; failures=0;
-  render(s,true);
- }catch(e){
-  failures++;
-  renderUnreachable();
- }finally{
-  clearTimeout(to);
-  inFlight=false;
-  schedulePoll();
- }
+  const s=await r.json(); reachable=true; failures=0; render(s);
+ }catch(e){ failures++; renderUnreachable(); }
+ finally{ clearTimeout(to); inFlight=false; schedulePoll(); }
 }
 
-function pressMotor(name){
- const m=motor[name];
- if(!m||m.held) return;
- m.held=true;
- m.btn.classList.add('held');
- sendCommand('/api/motor',{button:name,pressed:true},motorStatusEl);
-}
-function releaseMotor(name){
- const m=motor[name];
- if(!m||!m.held) return;
- m.held=false;
- m.pointerId=null;
- m.btn.classList.remove('held');
- sendCommand('/api/motor',{button:name,pressed:false},motorStatusEl);
-}
-function beaconRelease(name){
- const m=motor[name];
- if(!m||!m.held) return;
- m.held=false;
- m.pointerId=null;
- m.btn.classList.remove('held');
- const body=JSON.stringify({button:name,pressed:false});
- try{
-  if(navigator.sendBeacon&&typeof Blob!=='undefined'){
-   navigator.sendBeacon('/api/motor',new Blob([body],{type:'application/json'}));
-  }else{
-   fetch('/api/motor',{method:'POST',headers:{'Content-Type':'application/json'},body:body,keepalive:true});
-  }
- }catch(e){}
-}
-function releaseAllMotors(beacon){
- if(beacon){beaconRelease('start');beaconRelease('stop');}
- else{releaseMotor('start');releaseMotor('stop');}
-}
+function pressMotor(name){ const m=motor[name]; if(!m||m.held) return; m.held=true; m.btn.classList.add('held'); sendCommand('/api/motor',{button:name,pressed:true}); }
+function releaseMotor(name){ const m=motor[name]; if(!m||!m.held) return; m.held=false; m.pointerId=null; m.btn.classList.remove('held'); sendCommand('/api/motor',{button:name,pressed:false}); }
+function beaconRelease(name){ const m=motor[name]; if(!m||!m.held) return; m.held=false; m.pointerId=null; m.btn.classList.remove('held'); const body=JSON.stringify({button:name,pressed:false}); try{ if(navigator.sendBeacon) navigator.sendBeacon('/api/motor',new Blob([body],{type:'application/json'})); else fetch('/api/motor',{method:'POST',headers:{'Content-Type':'application/json'},body,keepalive:true}); }catch(e){} }
+function releaseAllMotors(beacon){ if(beacon){beaconRelease('start');beaconRelease('stop');} else {releaseMotor('start');releaseMotor('stop');} }
 function bindMomentary(name){
  const m=motor[name];
- m.btn.addEventListener('pointerdown',e=>{
-  if(e.pointerType==='mouse'&&e.button!==0) return;
-  e.preventDefault();
-  if(m.held) return;
-  m.pointerId=e.pointerId;
-  try{ if(m.btn.setPointerCapture) m.btn.setPointerCapture(e.pointerId); }catch(err){}
-  pressMotor(name);
- });
- const end=e=>{
-  if(e&&m.pointerId!==null&&e.pointerId!==m.pointerId) return;
-  try{
-   if(e&&m.btn.hasPointerCapture&&m.btn.hasPointerCapture(e.pointerId)){
-    m.btn.releasePointerCapture(e.pointerId);
-   }
-  }catch(err){}
-  releaseMotor(name);
- };
+ m.btn.addEventListener('pointerdown',e=>{ if(e.pointerType==='mouse'&&e.button!==0) return; e.preventDefault(); if(m.held) return; m.pointerId=e.pointerId; try{m.btn.setPointerCapture(e.pointerId);}catch(err){} pressMotor(name); });
+ const end=e=>{ if(e&&m.pointerId!==null&&e.pointerId!==m.pointerId) return; try{ if(e&&m.btn.releasePointerCapture) m.btn.releasePointerCapture(e.pointerId);}catch(err){} releaseMotor(name); };
  ['pointerup','pointercancel','lostpointercapture','pointerleave'].forEach(ev=>m.btn.addEventListener(ev,end));
- m.btn.addEventListener('keydown',e=>{
-  if((e.key===' '||e.key==='Enter')&&!e.repeat){e.preventDefault();pressMotor(name);}
- });
- m.btn.addEventListener('keyup',e=>{
-  if(e.key===' '||e.key==='Enter'){e.preventDefault();releaseMotor(name);}
- });
+ m.btn.addEventListener('keydown',e=>{ if((e.key===' '||e.key==='Enter')&&!e.repeat){e.preventDefault();pressMotor(name);} });
+ m.btn.addEventListener('keyup',e=>{ if(e.key===' '||e.key==='Enter'){e.preventDefault();releaseMotor(name);} });
  m.btn.addEventListener('blur',()=>releaseMotor(name));
  m.btn.addEventListener('contextmenu',e=>e.preventDefault());
 }
-bindMomentary('start');
-bindMomentary('stop');
-
+bindMomentary('start'); bindMomentary('stop');
 window.addEventListener('blur',()=>releaseAllMotors(true));
-document.addEventListener('visibilitychange',()=>{
- if(document.hidden){
-  releaseAllMotors(true);
-  clearTimeout(pollTimer);
- }else{
-  clearTimeout(pollTimer);
-  if(!inFlight) pollState(); else schedulePoll();
- }
-});
 window.addEventListener('pagehide',()=>releaseAllMotors(true));
+document.addEventListener('visibilitychange',()=>{ if(document.hidden){releaseAllMotors(true); clearTimeout(pollTimer);} else {clearTimeout(pollTimer); pollState();} });
 
-relay1Btn.addEventListener('click',async()=>{
- if(mirrorBusy) return;
- mirrorBusy=true;
- try{
-  const on=!(current&&current.relay1===true);
-  await sendCommand('/api/mirror-light',{on:on},mirrorInfo);
- }finally{mirrorBusy=false;}
-});
-relay2Btn.addEventListener('click',async()=>{
- if(bulbBusy) return;
- bulbBusy=true;
- try{
-  const on=!(current&&current.relay2===true);
-  await sendCommand('/api/bulb',{on:on},r2state);
- }finally{bulbBusy=false;}
-});
-$('buzzerTest').addEventListener('click',async()=>{
- if(buzzerBusy) return;
- buzzerBusy=true;
- try{ await sendCommand('/api/buzzer/test',{},buzzerStateEl); }
- finally{buzzerBusy=false;}
-});
-$('buzzerStop').addEventListener('click',async()=>{
- if(buzzerBusy) return;
- buzzerBusy=true;
- try{ await sendCommand('/api/buzzer/stop',{},buzzerStateEl); }
- finally{buzzerBusy=false;}
-});
+relay1Btn.addEventListener('click',async()=>{ if(mirrorBusy) return; mirrorBusy=true; try{ await sendCommand('/api/mirror-light',{on:!(current&&current.relay1===true)}); }finally{ mirrorBusy=false; } });
+relay2Btn.addEventListener('click',async()=>{ if(bulbBusy) return; bulbBusy=true; try{ await sendCommand('/api/bulb',{on:!(current&&current.relay2===true)}); }finally{ bulbBusy=false; } });
+$('buzzerTest').addEventListener('click',async()=>{ if(buzzerBusy) return; buzzerBusy=true; try{ await sendCommand('/api/buzzer/test',{}); }finally{ buzzerBusy=false; } });
+$('buzzerStop').addEventListener('click',async()=>{ if(buzzerBusy) return; buzzerBusy=true; try{ await sendCommand('/api/buzzer/stop',{}); }finally{ buzzerBusy=false; } });
 
-render(current,false);
+render(current);
 pollState();
-})();
-</script>
-<script>
-(function(){
-'use strict';
-const $=id=>document.getElementById(id);
-const overlay=$('adminOverlay');
-const adminForm=$('adminForm'), saveHint=$('saveHint');
-let adminData=null, liveState=null, history=null, events=[];
-let liveTimer=null, rangeSec=0, formDirty=false, saving=false;
-
-function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function fmtDur(ms){
- if(!isFinite(ms)||ms<0) return '—';
- const s=Math.floor(ms/1000), d=Math.floor(s/86400), h=Math.floor((s%86400)/3600), m=Math.floor((s%3600)/60), r=s%60;
- if(d) return d+'d '+h+'h';
- if(h) return h+'h '+m+'m';
- if(m) return m+'m '+r+'s';
- return r+'s';
-}
-function fmtAgo(sec){
- if(!isFinite(sec)||sec<0) return 'earlier boot';
- if(sec<60) return sec+'s ago';
- if(sec<3600) return Math.floor(sec/60)+'m ago';
- if(sec<86400) return Math.floor(sec/3600)+'h '+Math.floor((sec%3600)/60)+'m ago';
- return Math.floor(sec/86400)+'d '+Math.floor((sec%86400)/3600)+'h ago';
-}
-function resetName(n){
- const names=['UNKNOWN','POWER-ON','EXTERNAL','SOFTWARE','PANIC','INT WDT','TASK WDT','WDT','DEEP SLEEP','BROWNOUT','SDIO','USB','JTAG','EFUSE','PWR GLITCH','CPU LOCKUP','VBAT'];
- return names[n]||('CODE '+n);
-}
-function flagsText(f){
- f=Number(f)||0; const a=[];
- if(f&1)a.push('NO ECHO'); if(f&2)a.push('RANGE'); if(f&4)a.push('JUMP'); if(f&8)a.push('STUCK'); if(f&16)a.push('TIMEOUT');
- return a.length?a.join(' · '):'OK';
-}
-function notice(msg,error){
- const el=$('adminNotice'); el.textContent=msg; el.classList.toggle('error',!!error); el.hidden=false;
- clearTimeout(notice._t); notice._t=setTimeout(()=>{el.hidden=true;}, error?7000:4200);
-}
-function openOverlay(){overlay.hidden=false; overlay.scrollTop=0;}
-function closeAdmin(){overlay.hidden=true; stopLive();}
-function stopLive(){ if(liveTimer){clearInterval(liveTimer);liveTimer=null;} }
-function startLive(){
- stopLive();
- pollLive();
- liveTimer=setInterval(pollLive,2500);
-}
-async function adminApi(path,opts){
- opts=opts||{};
- const headers=Object.assign({},opts.headers||{});
- if(opts.body) headers['Content-Type']='application/json';
- const r=await fetch(path,Object.assign({},opts,{headers:headers,cache:'no-store'}));
- if(!r.ok){
-  let msg='Request failed';
-  try{const j=await r.json(); if(j&&j.error)msg=j.error;}catch(e){}
-  throw new Error(msg);
- }
- return r.json();
-}
-async function refreshAll(){
- try{
-  await Promise.all([loadSettings(),loadHistory(),loadEvents()]);
- }catch(e){ notice(e.message,true); }
-}
-async function loadSettings(){
- const d=await adminApi('/api/admin/settings');
- adminData=d;
- applySettings(d.settings||{});
- renderInfo(d.info||{},d.state||{});
- if(d.state) updateLive(d.state);
-}
-function applySettings(s){
- const nums=['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays'];
- nums.forEach(k=>{const el=$(k); if(el&&s[k]!==undefined)el.value=s[k];});
- const bps=$('buzzerBeepsPerSec'); if(bps&&s.buzzerBeepPeriodMs)bps.value=(1000/Number(s.buzzerBeepPeriodMs)).toFixed(2);
- ['mirrorEnabled','buzzerEnabled','historyEnabled'].forEach(k=>{const el=$(k); if(el)el.checked=s[k]===true;});
- const inv=$('oledInvert'); if(inv)inv.checked=s.oledInvert===true;
- const show=Number(s.oledShow)||0;
- document.querySelectorAll('[data-oled-bit]').forEach(el=>{el.checked=(show&Number(el.dataset.oledBit))!==0;});
- formDirty=false; saveHint.textContent='No unsaved changes';
- renderOled();
-}
-function numVal(id){ const v=Number($(id).value); if(!isFinite(v)) throw new Error('Invalid value in '+id); return v; }
-function collectSettings(){
- const out={};
- ['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays'].forEach(k=>{out[k]=numVal(k);});
- ['mirrorEnabled','buzzerEnabled','historyEnabled','oledInvert'].forEach(k=>{out[k]=$(k).checked;});
- let show=0; document.querySelectorAll('[data-oled-bit]').forEach(el=>{if(el.checked)show|=Number(el.dataset.oledBit);});
- out.oledShow=show;
- const bps=numVal('buzzerBeepsPerSec');
- if(bps<=0) throw new Error('Beeps per second must be greater than 0');
- out.buzzerBeepPeriodMs=Math.max(100,Math.min(5000,Math.round(1000/bps)));
- return out;
-}
-async function saveSettings(e){
- e.preventDefault();
- if(saving) return;
- saving=true; const btn=$('saveSettings'); btn.disabled=true; saveHint.textContent='Saving…';
- try{
-  const d=await adminApi('/api/admin/settings',{method:'POST',body:JSON.stringify(collectSettings())});
-  adminData=d; applySettings(d.settings||{}); renderInfo(d.info||{},d.state||{});
-  if(d.state) updateLive(d.state);
-  notice('Settings saved. ESP32_A settings are syncing automatically.');
-  loadHistory().catch(()=>{});
- }catch(err){ notice(err.message,true); }
- finally{ saving=false; btn.disabled=false; if(!formDirty)saveHint.textContent='Saved'; }
-}
-async function loadHistory(){
- history=await adminApi('/api/history');
- const pts=(history&&history.points)||[];
- $('historyMeta').textContent=pts.length?(pts.length+' shown · '+history.count+' stored · every '+history.intervalSec+'s · keep '+history.retentionDays+' days'):'No samples stored yet';
- $('chartEmpty').hidden=pts.length>0;
- drawChart();
-}
-function drawChart(){
- const c=$('histChart'); if(!c||!history) return;
- const wrap=c.parentElement, dpr=Math.min(window.devicePixelRatio||1,2);
- const w=Math.max(10,wrap.clientWidth), h=Math.max(10,wrap.clientHeight);
- if(c.width!==Math.round(w*dpr)||c.height!==Math.round(h*dpr)){c.width=Math.round(w*dpr);c.height=Math.round(h*dpr);}
- const ctx=c.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,w,h);
- const all=(history.points||[]).filter(p=>isFinite(p.p));
- let pts=all;
- if(rangeSec>0) pts=all.filter(p=>Number(p.ago)<=rangeSec);
- $('chartEmpty').hidden=pts.length>0;
- if(!pts.length) return;
- const padL=31,padR=10,padT=12,padB=22, pw=w-padL-padR, ph=h-padT-padB;
- const maxAgo=Math.max(1,rangeSec||pts[0].ago||1);
- const xFor=p=>padL+(1-Math.min(1,Number(p.ago)||0)/maxAgo)*pw;
- const yFor=p=>padT+(1-Math.max(0,Math.min(100,Number(p.p)))/100)*ph;
- ctx.strokeStyle='#dce6ef'; ctx.lineWidth=1; ctx.font='9px system-ui,sans-serif'; ctx.fillStyle='#8293a6'; ctx.textAlign='right'; ctx.textBaseline='middle';
- [0,25,50,75,100].forEach(v=>{const y=padT+(1-v/100)*ph;ctx.beginPath();ctx.moveTo(padL,y);ctx.lineTo(w-padR,y);ctx.stroke();ctx.fillText(v+'%',padL-5,y);});
- ctx.textAlign='left'; ctx.textBaseline='top';
- const oldAgo=rangeSec||pts[0].ago;
- ctx.fillText(oldAgo>86400?(oldAgo/86400).toFixed(1)+'d ago':oldAgo>3600?(oldAgo/3600).toFixed(1)+'h ago':'oldest',padL,h-16);
- ctx.textAlign='right'; ctx.fillText('now',w-padR,h-16);
- // area under valid data
- ctx.beginPath(); let started=false;
- pts.forEach(p=>{if(Number(p.p)<0)return; const x=xFor(p),y=yFor(p); if(!started){ctx.moveTo(x,padT+ph);ctx.lineTo(x,y);started=true;}else ctx.lineTo(x,y);});
- if(started){ctx.lineTo(xFor(pts[pts.length-1]),padT+ph);ctx.closePath();ctx.fillStyle='rgba(18,143,209,.08)';ctx.fill();}
- // colored segments
- for(let i=1;i<pts.length;i++){
-  const a=pts[i-1],b=pts[i];
-  if(Number(a.p)<0||Number(b.p)<0) continue;
-  const rise=Number(b.p)>=Number(a.p);
-  const equal=Math.abs(Number(b.p)-Number(a.p))<0.01;
-  ctx.strokeStyle=equal?'#9aabba':(rise?'#128fd1':'#df3c4f');
-  ctx.lineWidth=2; ctx.lineJoin='round'; ctx.lineCap='round';
-  ctx.beginPath();ctx.moveTo(xFor(a),yFor(a));ctx.lineTo(xFor(b),yFor(b));ctx.stroke();
- }
- if(pts.length===1){ctx.fillStyle='#128fd1';ctx.beginPath();ctx.arc(xFor(pts[0]),yFor(pts[0]),3,0,Math.PI*2);ctx.fill();}
-}
-function eventInfo(code){
- return {
-  1:['No echo','Ultrasonic returned fewer than 3 valid echoes','warn'],
-  2:['Echo timeout','A burst timed out waiting for the echo','warn'],
-  3:['Jump rejected','A sudden distance jump was rejected as noise','warn'],
-  4:['Stuck sensor','Raw distance did not change for the stuck timeout','bad'],
-  5:['Out of range','Distance was outside the configured sensor range','bad'],
-  6:['ESP-NOW lost','Link from ESP32_A stopped','bad'],
-  7:['ESP-NOW restored','Link from ESP32_A is back','ok'],
-  8:['Mirror limit','Automatic mirror light hit its maximum on-time','warn'],
-  9:['Mirror dropout','Person state cleared after HC-SR04 dropout','warn'],
-  10:['Reboot','A reboot was requested from admin','warn'],
-  11:['Settings','New ESP32_A settings revision saved','ok'],
-  12:['Admin access','Legacy admin access event','ok'],
-  13:['Data cleared','History and/or events were cleared','warn']
- }[Number(code)]||['Event '+code,'Technical event','warn'];
-}
-function renderEvents(){
- const box=$('eventList');
- if(!events.length){box.innerHTML='<div class="admin-sub">No events logged yet.</div>';return;}
- const nowSec=liveState&&isFinite(liveState.uptimeMs)?Math.floor(liveState.uptimeMs/1000):0;
- box.innerHTML=events.map(ev=>{
-  const info=eventInfo(ev.code), age=(nowSec&&ev.sec<=nowSec)?fmtAgo(nowSec-ev.sec):'earlier boot';
-  const detail=Number(ev.v)?('value '+Number(ev.v).toFixed(1)):'';
-  return '<div class="event-item '+(info[2]==='bad'?'bad':info[2]==='warn'?'warn':'')+'"><div><b>'+esc(info[0])+'</b><small>'+esc(info[1])+(detail?' · '+esc(detail):'')+'</small></div><span class="age">'+esc(age)+'</span></div>';
- }).join('');
-}
-async function loadEvents(){
- const d=await adminApi('/api/events');
- events=(d.events||[]).slice().reverse();
- $('eventCount').textContent=events.length+' recent';
- renderEvents();
-}
-async function pollLive(){
- try{
-  const r=await fetch('/api/state',{cache:'no-store'});
-  if(!r.ok) throw new Error('state unavailable');
-  updateLive(await r.json());
- }catch(e){}
-}
-function updateLive(s){
- if(!s)return; liveState=s;
- $('adAState').textContent=(s.online===true)?'ONLINE':(s.linkOnline===true?'STALE':'OFFLINE');
- $('adLink').textContent=(s.linkOnline===true)?'ONLINE':'OFFLINE';
- $('adAUptime').textContent=fmtDur(s.aUptimeMs);
- $('adAReset').textContent=resetName(Number(s.aResetReason));
- $('adEchoes').textContent=(s.aValidEchoes!=null?s.aValidEchoes:'—')+' / '+(s.aTimeoutEchoes!=null?s.aTimeoutEchoes:'—');
- $('adFlags').textContent=flagsText(s.aFlags);
- const aProto=Number(s.aProtocol)||0;
- $('adSync').textContent=(aProto===1)?'LEGACY A · v1':((s.settingsSynced===true)?'SYNCED':('PENDING · A has '+ (s.aSettingsRevision!=null?s.aSettingsRevision:'?')));
- const pct=Number(s.percent), litres=Number(s.litres);
- $('adLevel').textContent=(isFinite(pct)?pct.toFixed(0):'—')+'% · '+(isFinite(litres)?litres.toFixed(0):'—')+' L';
- if(events.length)renderEvents();
- renderOled();
-}
-function renderInfo(info,state){
- if(state) liveState=Object.assign({},liveState||{},state);
- const bUptime=Number(info.bUptimeMs);
- const fsTotal=Number(info.fsTotal), fsUsed=Number(info.fsUsed);
- const pctFs=fsTotal>0?Math.round(fsUsed/fsTotal*100):0;
- const rows=[
-  ['ESP32_B AP MAC',info.bMac],['ESP32_B STA MAC',info.bStaMac],['ESP32_A MAC',info.aMac],
-  ['Access point',info.ssid+' · '+info.ip],['Channel',info.channel],
-  ['B uptime',isFinite(bUptime)?fmtDur(bUptime):'—'],['B reset reason',resetName(Number(info.bResetReason))],
-  ['Free heap',isFinite(Number(info.freeHeap))?Math.round(Number(info.freeHeap)/1024)+' KB':'—'],
-  ['Flash size',isFinite(Number(info.flashSize))?Math.round(Number(info.flashSize)/1024)+' KB':'—'],
-  ['LittleFS used',isFinite(fsUsed)?Math.round(fsUsed/1024)+' / '+Math.round(fsTotal/1024)+' KB ('+pctFs+'%)':'—'],
-  ['History lines',info.historyLines],['Events stored',info.eventSeq],
-  ['A settings rev',info.aSettingsRevision],['A settings synced',info.settingsSynced?'YES':'PENDING'],
-  ['HC-SR04 trigger / echo',info.pins?info.pins.hcTrig+' / '+info.pins.hcEcho:'—'],
-  ['Relay 1 / Relay 2',info.pins?info.pins.relay1+' / '+info.pins.relay2:'—'],
-  ['Buzzer / button',info.pins?info.pins.buzzer+' / '+info.pins.button:'—'],
-  ['OLED SDA / SCL',info.pins?info.pins.oledSda+' / '+info.pins.oledScl:'—']
- ];
- $('infoGrid').innerHTML=rows.map(r=>'<div class="info-row"><span>'+esc(r[0])+'</span><b>'+esc(r[1]==null?'—':r[1])+'</b></div>').join('');
- $('infoStamp').textContent='Updated '+new Date().toLocaleTimeString();
-}
-function renderOled(){
- const c=$('oledPreview'); if(!c)return;
- const ctx=c.getContext('2d');
- const invert=$('oledInvert').checked;
- ctx.setTransform(1,0,0,1,0,0);
- ctx.fillStyle=invert?'#f2f6f3':'#050907'; ctx.fillRect(0,0,c.width,c.height);
- ctx.setTransform(2,0,0,2,0,0);
- const ink=invert?'#08110d':'#eafff3';
- let bits=0; document.querySelectorAll('[data-oled-bit]').forEach(el=>{if(el.checked)bits|=Number(el.dataset.oledBit);});
- const text=(str,x,y,size,align)=>{ctx.fillStyle=ink;ctx.font='900 '+(size*8)+'px ui-monospace,Menlo,monospace';ctx.textAlign=align||'left';ctx.textBaseline='top';ctx.fillText(String(str),x,y);};
- const pct=liveState&&isFinite(liveState.percent)?Math.round(liveState.percent):null;
- const litres=liveState&&isFinite(liveState.litres)?Math.round(liveState.litres):null;
- const dist=liveState&&isFinite(liveState.distance)?Number(liveState.distance):null;
- const link=!!(liveState&&liveState.linkOnline);
- const pctText=pct==null?'--':String(pct);
- const litreText=litres==null?'--L':litres+'L';
- if(bits&1){
-  const scale=Number($('oledPercentSize').value)||6;
-  const numberPx=scale<=2?24:(scale<=4?32:42);
-  const signPx=scale<=2?18:(scale<=4?22:30);
-  const baseline=Math.round((46-numberPx)/2+numberPx);
-  const family='Arial,Helvetica,sans-serif';
-  ctx.fillStyle=ink; ctx.textAlign='left'; ctx.textBaseline='alphabetic';
-  ctx.font='500 '+numberPx+'px '+family;
-  const numberWidth=ctx.measureText(pctText).width;
-  ctx.font='500 '+signPx+'px '+family;
-  const signWidth=ctx.measureText('%').width;
-  const x=Math.max(0,(128-numberWidth-signWidth)/2);
-  ctx.font='500 '+numberPx+'px '+family;
-  ctx.fillText(pctText,x,baseline);
-  ctx.font='500 '+signPx+'px '+family;
-  ctx.fillText('%',x+numberWidth,baseline);
- }
- if((bits&32)&&dist!=null)text(dist.toFixed(0)+'cm',0,47,1,'left');
- const bottom=Number($('oledBottomSize').value)||1;
- if(bits&4)text(link?'CONNECTED':'NO LINK',0,56,bottom,'left');
- if(bits&8)text(litreText,128,56,bottom,'right');
- if((bits&16)&&!(bits&4))text(link?'LIVE':'STALE',0,56,bottom,'left');
-}
-function bind(){
- $('adminOpen').addEventListener('click',async()=>{
-  openOverlay(); startLive(); await refreshAll();
- });
- $('adminClose').addEventListener('click',()=>{closeAdmin();});
- $('adminRefresh').addEventListener('click',()=>refreshAll());
- adminForm.addEventListener('input',()=>{formDirty=true;saveHint.textContent='Unsaved changes';renderOled();});
- adminForm.addEventListener('change',()=>{formDirty=true;saveHint.textContent='Unsaved changes';renderOled();});
- adminForm.addEventListener('submit',saveSettings);
- document.querySelectorAll('[data-oled-bit]').forEach(el=>el.addEventListener('change',renderOled));
- ['oledPercentSize','oledBottomSize','oledInvert'].forEach(id=>$(id).addEventListener('change',renderOled));
- $('rangeSeg').addEventListener('click',e=>{
-  const b=e.target.closest('button[data-range]'); if(!b)return;
-  rangeSec=Number(b.dataset.range)||0;
-  $('rangeSeg').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
-  drawChart();
- });
- $('rebootA').addEventListener('click',async()=>{
-  if(!confirm('Reboot ESP32_A now?'))return;
-  try{await adminApi('/api/admin/reboot-a',{method:'POST'});notice('Reboot command sent to ESP32_A.');}catch(e){notice(e.message,true);}
- });
- $('rebootB').addEventListener('click',async()=>{
-  if(!confirm('Reboot ESP32_B now? The dashboard will disconnect briefly.'))return;
-  try{await adminApi('/api/admin/reboot-b',{method:'POST'});}catch(e){notice(e.message,true);}
- });
- $('clearHistory').addEventListener('click',async()=>{
-  if(!confirm('Delete all stored water history?'))return;
-  try{await adminApi('/api/admin/clear-data',{method:'POST',body:JSON.stringify({history:true})});notice('History cleared.');await loadHistory();}catch(e){notice(e.message,true);}
- });
- $('clearEvents').addEventListener('click',async()=>{
-  if(!confirm('Delete all stored events?'))return;
-  try{await adminApi('/api/admin/clear-data',{method:'POST',body:JSON.stringify({events:true})});notice('Events cleared.');await loadEvents();}catch(e){notice(e.message,true);}
- });
- let rt=null;
- window.addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(drawChart,150);});
- if(window.ResizeObserver){new ResizeObserver(()=>{if(!overlay.hidden)drawChart();}).observe($('histChart').parentElement);}
-}
-bind();
 })();
 </script>
 </body>
