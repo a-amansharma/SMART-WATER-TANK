@@ -3230,6 +3230,8 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
   xQueueSend(rxQueue, &item, 0);
 }
 
+void ensureEspNowPeerB();
+
 void sendStatus() {
   StatusPacket st;
   memset(&st, 0, sizeof(st));
