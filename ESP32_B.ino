@@ -95,7 +95,7 @@ static const uint8_t AP_MAX_CLIENTS = 4;
 //   GPIO 2, GPIO 14, GPIO 23.  Assign only after reviewing boot-strap rules.
 
 // Timing / filtering.
-static const uint32_t LINK_TIMEOUT_MS        = 5000;
+static const uint32_t LINK_TIMEOUT_MS        = 8000;
 static const uint32_t OLED_REFRESH_MS        = 250;
 static const uint32_t HC_SAMPLE_PERIOD_MS    = 250;
 static const uint32_t HC_ECHO_TIMEOUT_US     = 30000;
@@ -112,7 +112,6 @@ static const uint32_t STATUS_TX_PERIOD_MS    = 1000;
 static const uint32_t MOTOR_MAX_PRESS_MS     = 4000;
 static const uint32_t BUTTON_DEBOUNCE_MS     = 50;
 static const uint32_t BUTTON_LONG_PRESS_MS   = 3000;
-static const uint32_t BUTTON_ADMIN_RESET_MS  = 10000;
 
 static const float    FULL_LEVEL_PERCENT     = 97.0f; // buzzer alert threshold
 static const uint8_t  FULL_CONFIRM_READINGS  = 2;
@@ -123,7 +122,6 @@ static const uint32_t BUZZER_BEEP_ON_MS      = 120;
 
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
 #define B_SETTINGS_VERSION 2u
-#define DEFAULT_ADMIN_PASS "14789"
 
 // History storage limits. Samples are CSV lines in LittleFS; old lines are
 // compacted automatically so the log stays bounded.
@@ -190,6 +188,25 @@ struct __attribute__((packed)) WaterPacket {
   uint8_t  resetReason;
   uint8_t  reserved;
   uint32_t settingsRevision;
+  uint16_t crc;
+};
+
+// ESP32_A protocol v1 packet (legacy A firmware without runtime settings).
+// B still accepts it so a B-only update keeps the existing tank sensor online.
+struct __attribute__((packed)) WaterPacketV1 {
+  uint32_t magic;
+  uint8_t  version;
+  uint8_t  type;
+  uint16_t flags;
+  uint32_t seq;
+  uint32_t uptimeMs;
+  float    distanceCm;
+  float    percent;
+  uint16_t litres;
+  uint8_t  valid;
+  uint8_t  filling;
+  uint8_t  draining;
+  uint8_t  reserved;
   uint16_t crc;
 };
 
@@ -296,12 +313,13 @@ struct __attribute__((packed)) AppSettings {
   uint16_t historyIntervalSec;
   uint8_t  historyRetentionDays;
   uint8_t  historyEnabled;
-  char     adminPass[8];
-  uint16_t adminSessionMinutes;
+  char     reservedAdminPass[8];  // legacy NVS slot, passcode disabled
+  uint16_t reservedAdminSession;
   uint16_t reserved5;
 };
 
 static_assert(sizeof(WaterPacket) == 39, "WaterPacket size must match ESP32_A");
+static_assert(sizeof(WaterPacketV1) == 32, "WaterPacketV1 size must match legacy ESP32_A");
 static_assert(sizeof(SettingsPacket) == 58, "SettingsPacket size must match ESP32_A");
 
 /* ==========================================================================
@@ -370,7 +388,8 @@ header{min-height:clamp(54px,8.6vh,70px);flex:none;display:flex;align-items:cent
 @keyframes bluePulse{50%{filter:brightness(1.14);box-shadow:inset 0 2px 0 #ffffff80,0 4px 0 #075f9e,0 0 23px #36c2ff,0 0 48px #1ba8ff88}}
 @keyframes redPulse{50%{filter:brightness(1.12);box-shadow:inset 0 2px 0 #ffffff80,0 4px 0 #a81329,0 0 23px #ff5772,0 0 48px #ff405f88}}
 .distance{font-size:9px;color:#6f8195;font-weight:750;text-align:right;line-height:1.2}
-.tank.stale .percent,.tank.stale .volume strong,.tank.stale .bar{opacity:.45}
+.tank.stale .percent{opacity:1;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;text-decoration-color:#8c9bad}
+.tank.stale .volume strong,.tank.stale .bar{opacity:.45}
 .controls{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:11px}
 .motor-card{padding:11px;display:flex;flex-direction:column;align-items:center;min-height:0}
 .motor-title{text-align:center;margin-bottom:3px}
@@ -402,7 +421,7 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 .admin-open{border:1px solid #9ecbb3;background:linear-gradient(180deg,#ffffff,#e7f8ee);color:#087c4a;border-radius:11px;padding:6px 11px;font-size:10px;font-weight:950;letter-spacing:.8px;box-shadow:inset 0 1px 0 #fff,0 3px 0 #b9d8c7,0 5px 9px #102b4514;cursor:pointer}
 .admin-open:active{transform:translateY(2px);box-shadow:inset 0 1px 3px #102b4520,0 1px 0 #b9d8c7}
 .admin-overlay{position:fixed;inset:0;z-index:50;background:linear-gradient(155deg,#f7fcff 0%,#eef7f2 50%,#e9f1f8 100%);overflow-y:auto;overscroll-behavior:contain;padding:14px 14px max(24px,env(safe-area-inset-bottom));display:block}
-.admin-overlay[hidden],.login-overlay[hidden],.admin-notice[hidden]{display:none!important}
+.admin-overlay[hidden],.admin-notice[hidden]{display:none!important}
 .admin-shell{width:min(100%,980px);margin:0 auto;display:flex;flex-direction:column;gap:12px}
 .admin-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .admin-eyebrow{font-size:10px;font-weight:950;letter-spacing:1.4px;color:#0e9a63}
@@ -458,15 +477,6 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 .info-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed #e7eef5;padding:4px 0}
 .info-row span{color:#73859a;font-weight:750}
 .info-row b{text-align:right;word-break:break-word}
-.login-overlay{position:fixed;inset:0;z-index:70;background:#0f1d2bd9;backdrop-filter:blur(5px);display:grid;place-items:center;padding:18px}
-.login-card{width:min(100%,360px);background:#fff;border-radius:20px;padding:20px;box-shadow:0 24px 70px #0006}
-.login-card h2{margin:0 0 4px;font-size:22px;letter-spacing:-.5px}
-.login-card p{margin:0 0 14px;color:#6b7d91;font-size:12px;font-weight:700;line-height:1.4}
-.login-card input{width:100%;border:1px solid #cbd9e5;background:#f8fbfe;border-radius:11px;padding:12px;font:inherit;font-size:20px;font-weight:900;letter-spacing:6px;text-align:center;outline:none}
-.login-card input:focus{border-color:#39b47d;box-shadow:0 0 0 3px #39b47d22}
-.login-actions{display:flex;gap:8px;margin-top:11px}
-.login-actions .btn{flex:1;padding:11px}
-.login-error{min-height:16px;color:#bd2d40;font-size:11px;font-weight:850;margin-top:7px}
 @media(max-width:520px){.oled-layout{grid-template-columns:1fr}.admin-overlay{padding:10px 9px max(18px,env(safe-area-inset-bottom))}.admin-live{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-head-actions{width:100%;justify-content:flex-end}.admin-head-actions button{flex:1}}
 @media(max-height:620px){.app{gap:5px;padding-top:5px}.logo{width:48px;height:48px}.brand-title{font-size:20px}.tank{padding:7px 12px}.bar-wrap{margin:6px 0 4px}.tank-bottom{margin-top:5px}.percent{font-size:clamp(48px,10vh,72px)}.volume strong{font-size:clamp(34px,6.2vh,46px)}.motor-btn{width:clamp(76px,16vh,112px);height:clamp(76px,16vh,112px)}.motor-buttons{gap:5px}.motor-caption{font-size:12px}.side-card{gap:5px;padding:6px}.control-tile{padding:5px}.toggle{width:60px;height:35px}.toggle:after{width:27px;height:27px}.toggle.on:after{transform:translateX(23px)}.buzzer-btn{padding:9px 6px}}
 @media(orientation:landscape) and (max-height:520px){.app{width:min(100%,980px);padding:4px 12px 5px;gap:4px}header{min-height:36px}.logo{width:42px;height:42px}.brand-title{font-size:18px}.credit{font-size:8px}.tank{padding:5px 12px}.percent{font-size:42px}.volume strong{font-size:42px;letter-spacing:-2px}.volume span{font-size:10px}.controls{grid-template-columns:.95fr 1.05fr}.motor-card{padding:4px}.motor-buttons{flex-direction:row;justify-content:space-evenly;gap:5px}.motor-btn{width:min(22vh,112px);height:min(22vh,112px)}.motor-caption{font-size:10px}.side-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:5px}.control-tile{padding:4px;gap:4px}.control-name{font-size:11px}.toggle{width:50px;height:29px}.toggle:after{width:21px;height:21px}.toggle.on:after{transform:translateX(19px)}.buzzer-btn{font-size:8px;padding:7px 3px}footer{margin-bottom:5px}}
@@ -539,10 +549,9 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 <div class="admin-overlay" id="adminOverlay" hidden>
  <div class="admin-shell">
   <header class="admin-head">
-   <div><div class="admin-eyebrow">SMART WATER TANK · CONTROL CENTRE</div><h1>Technical Admin</h1><div class="admin-sub" id="adminSub">Passcode protected · settings are saved to ESP32 NVS</div></div>
+   <div><div class="admin-eyebrow">SMART WATER TANK · CONTROL CENTRE</div><h1>Technical Admin</h1><div class="admin-sub" id="adminSub">Settings are saved to ESP32 NVS</div></div>
    <div class="admin-head-actions">
     <button type="button" id="adminRefresh">Refresh</button>
-    <button type="button" id="adminLogout">Lock</button>
     <button type="button" class="btn primary" id="adminClose">Back to dashboard</button>
    </div>
   </header>
@@ -599,11 +608,9 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
       <div class="field"><label for="mirrorOnCm">Detect ON below (cm)</label><input id="mirrorOnCm" name="mirrorOnCm" type="number" step="0.1" min="5" max="300"></div>
       <div class="field"><label for="mirrorOffCm">Detect OFF above (cm)</label><input id="mirrorOffCm" name="mirrorOffCm" type="number" step="0.1" min="6" max="400"></div>
       <div class="field"><label for="mirrorOnConfirmMs">ON confirm (ms)</label><input id="mirrorOnConfirmMs" name="mirrorOnConfirmMs" type="number" step="50" min="50" max="10000"></div>
-      <div class="field"><label for="mirrorOffConfirmMs">OFF confirm (ms)</label><input id="mirrorOffConfirmMs" name="mirrorOffConfirmMs" type="number" step="50" min="50" max="10000"></div>
-      <div class="field"><label for="mirrorInvalidHoldoffMs">Invalid holdoff (ms)</label><input id="mirrorInvalidHoldoffMs" name="mirrorInvalidHoldoffMs" type="number" step="100" min="0" max="60000"></div>
       <div class="field"><label for="mirrorMaxOnMinutes">Max auto-on (min, 0=off)</label><input id="mirrorMaxOnMinutes" name="mirrorMaxOnMinutes" type="number" step="1" min="0" max="1440"></div>
      </div>
-     <p class="note">Use OFF distance slightly higher than ON distance to prevent flicker. Manual Mirror Light controls stay available on the dashboard.</p>
+     <p class="note">The mirror turns off immediately when the person moves beyond the OFF distance or the sensor loses them. Manual Mirror Light controls stay available on the dashboard.</p>
     </div>
 
     <div class="settings-section">
@@ -626,20 +633,18 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
      <div class="oled-layout">
       <div class="admin-grid">
        <label class="checkline"><input type="checkbox" data-oled-bit="1"> Show percent</label>
-       <label class="checkline"><input type="checkbox" data-oled-bit="2"> Show litres</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="4"> Show link state</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="8"> Show bottom litres</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="16"> Show live/stale status</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="32"> Show distance</label>
-       <div class="field"><label for="oledPercentSize">Percent font size</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
-       <div class="field"><label for="oledLitresSize">Litres font size</label><select id="oledLitresSize" name="oledLitresSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
+       <div class="field"><label for="oledPercentSize">Percent font size</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option></select></div>
        <div class="field"><label for="oledBottomSize">Bottom font size</label><select id="oledBottomSize" name="oledBottomSize"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
        <div class="field"><label for="oledContrast">Contrast 1–255</label><input id="oledContrast" name="oledContrast" type="number" step="1" min="1" max="255"></div>
        <label class="checkline"><input id="oledInvert" name="oledInvert" type="checkbox"> Invert display</label>
       </div>
       <div>
        <div class="oled-frame"><canvas id="oledPreview" width="256" height="128"></canvas></div>
-       <p class="note">Approximate 128×64 preview. Default layout is percent size 5, litres size 2, and bottom text size 1.</p>
+       <p class="note">Approximate 128×64 preview. Default layout is a large percentage with bottom litres at size 1.</p>
       </div>
      </div>
     </div>
@@ -652,15 +657,6 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
       <div class="field"><label for="historyRetentionDays">Keep for (days)</label><input id="historyRetentionDays" name="historyRetentionDays" type="number" step="1" min="1" max="30"></div>
      </div>
      <p class="note">Retention is automatic: the oldest CSV lines are removed when the configured window is exceeded. Storage is LittleFS on ESP32_B.</p>
-    </div>
-
-    <div class="settings-section">
-     <h3>Admin session &amp; passcode</h3>
-     <div class="admin-grid">
-      <div class="field"><label for="adminPass">New passcode (leave blank to keep)</label><input id="adminPass" name="adminPass" type="password" minlength="4" maxlength="7" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" placeholder="4–7 characters"></div>
-      <div class="field"><label for="adminSessionMinutes">Session length (minutes)</label><input id="adminSessionMinutes" name="adminSessionMinutes" type="number" step="1" min="1" max="1440"></div>
-     </div>
-     <p class="note">The default passcode is 14789. This is local-network protection only; it is not internet-grade security.</p>
     </div>
 
     <div class="savebar"><button type="submit" class="btn primary" id="saveSettings">Save all settings</button><span id="saveHint">No unsaved changes</span></div>
@@ -685,19 +681,6 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
  </div>
 </div>
 
-<div class="login-overlay" id="loginOverlay" hidden>
- <div class="login-card">
-  <div class="admin-eyebrow">ADMIN ACCESS</div>
-  <h2>Enter passcode</h2>
-  <p>This opens technical settings, stored history and reboot controls.</p>
-  <form id="loginForm">
-   <input id="loginPass" type="password" inputmode="numeric" autocomplete="current-password" placeholder="•••••" maxlength="7" aria-label="Admin passcode">
-   <div class="login-error" id="loginError"></div>
-   <div class="login-actions"><button type="button" class="btn" id="loginCancel">Cancel</button><button type="submit" class="btn primary">Unlock</button></div>
-  </form>
-  <p class="note" style="margin:10px 2px 0">Forgot it? Hold the ESP32_B button for 10 seconds to restore the default passcode 14789.</p>
- </div>
-</div>
 <script>
 (function(){
 'use strict';
@@ -1002,10 +985,8 @@ pollState();
 (function(){
 'use strict';
 const $=id=>document.getElementById(id);
-const TOKEN_KEY='swtAdminToken';
-const overlay=$('adminOverlay'), loginOverlay=$('loginOverlay');
+const overlay=$('adminOverlay');
 const adminForm=$('adminForm'), saveHint=$('saveHint');
-let adminToken=sessionStorage.getItem(TOKEN_KEY)||'';
 let adminData=null, liveState=null, history=null, events=[];
 let liveTimer=null, rangeSec=0, formDirty=false, saving=false;
 
@@ -1040,12 +1021,6 @@ function notice(msg,error){
 }
 function openOverlay(){overlay.hidden=false; overlay.scrollTop=0;}
 function closeAdmin(){overlay.hidden=true; stopLive();}
-function clearToken(){adminToken=''; sessionStorage.removeItem(TOKEN_KEY);}
-function lockToLogin(){
- clearToken(); stopLive();
- loginOverlay.hidden=false;
- setTimeout(()=>$('loginPass').focus(),50);
-}
 function stopLive(){ if(liveTimer){clearInterval(liveTimer);liveTimer=null;} }
 function startLive(){
  stopLive();
@@ -1055,10 +1030,8 @@ function startLive(){
 async function adminApi(path,opts){
  opts=opts||{};
  const headers=Object.assign({},opts.headers||{});
- if(adminToken) headers['X-Admin-Token']=adminToken;
  if(opts.body) headers['Content-Type']='application/json';
  const r=await fetch(path,Object.assign({},opts,{headers:headers,cache:'no-store'}));
- if(r.status===401){ lockToLogin(); throw new Error('Admin login required'); }
  if(!r.ok){
   let msg='Request failed';
   try{const j=await r.json(); if(j&&j.error)msg=j.error;}catch(e){}
@@ -1066,24 +1039,10 @@ async function adminApi(path,opts){
  }
  return r.json();
 }
-async function login(pass){
- const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:pass}),cache:'no-store'});
- let j={}; try{j=await r.json();}catch(e){}
- if(!r.ok){ throw new Error(j.error||'Invalid passcode'); }
- adminToken=j.token||'';
- sessionStorage.setItem(TOKEN_KEY,adminToken);
- loginOverlay.hidden=true;
- $('loginPass').value='';
- $('loginError').textContent='';
- openOverlay();
- startLive();
- await refreshAll();
-}
 async function refreshAll(){
- if(!adminToken) return;
  try{
   await Promise.all([loadSettings(),loadHistory(),loadEvents()]);
- }catch(e){ if(e.message!=='Admin login required') notice(e.message,true); }
+ }catch(e){ notice(e.message,true); }
 }
 async function loadSettings(){
  const d=await adminApi('/api/admin/settings');
@@ -1093,29 +1052,26 @@ async function loadSettings(){
  if(d.state) updateLive(d.state);
 }
 function applySettings(s){
- const nums=['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorOffConfirmMs','mirrorInvalidHoldoffMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledLitresSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays','adminSessionMinutes'];
+ const nums=['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays'];
  nums.forEach(k=>{const el=$(k); if(el&&s[k]!==undefined)el.value=s[k];});
  const bps=$('buzzerBeepsPerSec'); if(bps&&s.buzzerBeepPeriodMs)bps.value=(1000/Number(s.buzzerBeepPeriodMs)).toFixed(2);
  ['mirrorEnabled','buzzerEnabled','historyEnabled'].forEach(k=>{const el=$(k); if(el)el.checked=s[k]===true;});
  const inv=$('oledInvert'); if(inv)inv.checked=s.oledInvert===true;
  const show=Number(s.oledShow)||0;
  document.querySelectorAll('[data-oled-bit]').forEach(el=>{el.checked=(show&Number(el.dataset.oledBit))!==0;});
- const pass=$('adminPass'); if(pass)pass.value='';
  formDirty=false; saveHint.textContent='No unsaved changes';
  renderOled();
 }
 function numVal(id){ const v=Number($(id).value); if(!isFinite(v)) throw new Error('Invalid value in '+id); return v; }
 function collectSettings(){
  const out={};
- ['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorOffConfirmMs','mirrorInvalidHoldoffMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledLitresSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays','adminSessionMinutes'].forEach(k=>{out[k]=numVal(k);});
+ ['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays'].forEach(k=>{out[k]=numVal(k);});
  ['mirrorEnabled','buzzerEnabled','historyEnabled','oledInvert'].forEach(k=>{out[k]=$(k).checked;});
  let show=0; document.querySelectorAll('[data-oled-bit]').forEach(el=>{if(el.checked)show|=Number(el.dataset.oledBit);});
  out.oledShow=show;
  const bps=numVal('buzzerBeepsPerSec');
  if(bps<=0) throw new Error('Beeps per second must be greater than 0');
  out.buzzerBeepPeriodMs=Math.max(100,Math.min(5000,Math.round(1000/bps)));
- const pass=$('adminPass').value.trim();
- if(pass) out.adminPass=pass;
  return out;
 }
 async function saveSettings(e){
@@ -1188,7 +1144,7 @@ function eventInfo(code){
   9:['Mirror dropout','Person state cleared after HC-SR04 dropout','warn'],
   10:['Reboot','A reboot was requested from admin','warn'],
   11:['Settings','New ESP32_A settings revision saved','ok'],
-  12:['Admin login','Admin passcode activity','ok'],
+  12:['Admin access','Legacy admin access event','ok'],
   13:['Data cleared','History and/or events were cleared','warn']
  }[Number(code)]||['Event '+code,'Technical event','warn'];
 }
@@ -1209,7 +1165,6 @@ async function loadEvents(){
  renderEvents();
 }
 async function pollLive(){
- if(!adminToken) return;
  try{
   const r=await fetch('/api/state',{cache:'no-store'});
   if(!r.ok) throw new Error('state unavailable');
@@ -1224,7 +1179,8 @@ function updateLive(s){
  $('adAReset').textContent=resetName(Number(s.aResetReason));
  $('adEchoes').textContent=(s.aValidEchoes!=null?s.aValidEchoes:'—')+' / '+(s.aTimeoutEchoes!=null?s.aTimeoutEchoes:'—');
  $('adFlags').textContent=flagsText(s.aFlags);
- $('adSync').textContent=(s.settingsSynced===true)?'SYNCED':('PENDING · A has '+ (s.aSettingsRevision!=null?s.aSettingsRevision:'?'));
+ const aProto=Number(s.aProtocol)||0;
+ $('adSync').textContent=(aProto===1)?'LEGACY A · v1':((s.settingsSynced===true)?'SYNCED':('PENDING · A has '+ (s.aSettingsRevision!=null?s.aSettingsRevision:'?')));
  const pct=Number(s.percent), litres=Number(s.litres);
  $('adLevel').textContent=(isFinite(pct)?pct.toFixed(0):'—')+'% · '+(isFinite(litres)?litres.toFixed(0):'—')+' L';
  if(events.length)renderEvents();
@@ -1266,11 +1222,19 @@ function renderOled(){
  const litres=liveState&&isFinite(liveState.litres)?Math.round(liveState.litres):null;
  const dist=liveState&&isFinite(liveState.distance)?Number(liveState.distance):null;
  const link=!!(liveState&&liveState.linkOnline);
- const pctText=pct==null?'--%':pct+'%';
+ const pctText=pct==null?'--':String(pct);
  const litreText=litres==null?'--L':litres+'L';
- let y=0;
- if(bits&1){const size=Number($('oledPercentSize').value)||1;text(pctText,64,0,size,'center');y=size*8+2;}
- if(bits&2){const size=Number($('oledLitresSize').value)||1;text(litreText,64,y,size,'center');}
+ if(bits&1){
+  const size=Number($('oledPercentSize').value)||6;
+  const signSize=Math.max(1,Math.floor(size/2));
+  ctx.font='900 '+(size*8)+'px ui-monospace,Menlo,monospace';
+  const numberWidth=ctx.measureText(pctText).width;
+  ctx.font='900 '+(signSize*8)+'px ui-monospace,Menlo,monospace';
+  const signWidth=ctx.measureText('%').width;
+  const x=Math.max(0,(128-numberWidth-signWidth)/2);
+  text(pctText,x,0,size,'left');
+  text('%',x+numberWidth,size*8-signSize*8,signSize,'left');
+ }
  if((bits&32)&&dist!=null)text(dist.toFixed(0)+'cm',0,47,1,'left');
  const bottom=Number($('oledBottomSize').value)||1;
  if(bits&4)text(link?'CONNECTED':'NO LINK',0,56,bottom,'left');
@@ -1279,25 +1243,15 @@ function renderOled(){
 }
 function bind(){
  $('adminOpen').addEventListener('click',async()=>{
-  if(!adminToken){ loginOverlay.hidden=false; setTimeout(()=>$('loginPass').focus(),50); return; }
   openOverlay(); startLive(); await refreshAll();
  });
  $('adminClose').addEventListener('click',()=>{closeAdmin();});
  $('adminRefresh').addEventListener('click',()=>refreshAll());
- $('adminLogout').addEventListener('click',async()=>{
-  try{if(adminToken)await adminApi('/api/admin/logout',{method:'POST'});}catch(e){}
-  clearToken(); closeAdmin(); loginOverlay.hidden=true; $('loginPass').value='';
- });
- $('loginForm').addEventListener('submit',async e=>{
-  e.preventDefault(); $('loginError').textContent='';
-  try{await login($('loginPass').value);}catch(err){$('loginError').textContent=err.message; $('loginPass').select();}
- });
- $('loginCancel').addEventListener('click',()=>{loginOverlay.hidden=true; if(!adminToken)overlay.hidden=true;});
  adminForm.addEventListener('input',()=>{formDirty=true;saveHint.textContent='Unsaved changes';renderOled();});
  adminForm.addEventListener('change',()=>{formDirty=true;saveHint.textContent='Unsaved changes';renderOled();});
  adminForm.addEventListener('submit',saveSettings);
  document.querySelectorAll('[data-oled-bit]').forEach(el=>el.addEventListener('change',renderOled));
- ['oledPercentSize','oledLitresSize','oledBottomSize','oledInvert'].forEach(id=>$(id).addEventListener('change',renderOled));
+ ['oledPercentSize','oledBottomSize','oledInvert'].forEach(id=>$(id).addEventListener('change',renderOled));
  $('rangeSeg').addEventListener('click',e=>{
   const b=e.target.closest('button[data-range]'); if(!b)return;
   rangeSec=Number(b.dataset.range)||0;
@@ -1325,7 +1279,6 @@ function bind(){
  if(window.ResizeObserver){new ResizeObserver(()=>{if(!overlay.hidden)drawChart();}).observe($('histChart').parentElement);}
 }
 bind();
-if(!adminToken){$('adminSub').textContent='Passcode protected · click ADMIN to unlock';}
 })();
 </script>
 </body>
@@ -1348,8 +1301,6 @@ uint32_t aDesiredRevision = 0;
 uint32_t aSeenRevision = 0;
 bool     haveASettingsRevision = false;
 volatile bool rebootARequested = false;
-String   adminToken;
-uint32_t adminTokenExpiresMs = 0;
 
 // --- History / event storage ---
 uint32_t historySeq = 0;
@@ -1378,6 +1329,7 @@ uint32_t lastSeq = 0;
 uint32_t lastAUptimeMs = 0;
 bool     haveSeq = false;
 uint16_t lastFlags = 0;
+uint8_t  aProtocolVersion = PROTOCOL_VERSION;
 
 // --- Buzzer ---
 bool     buzzerAlerting = false;
@@ -1437,7 +1389,6 @@ bool     buttonStableState = HIGH;
 uint32_t buttonLastChangeMs = 0;
 bool     buttonPressActive = false;
 bool     buttonLongHandled = false;
-bool     buttonAdminResetHandled = false;
 uint32_t buttonPressStartMs = 0;
 
 // --- OLED/status ---
@@ -1495,8 +1446,8 @@ void defaultSettings(AppSettings &c) {
   c.mirrorOnCm = 100.0f;
   c.mirrorOffCm = 105.0f;
   c.mirrorOnConfirmMs = 400;
-  c.mirrorOffConfirmMs = 800;
-  c.mirrorInvalidHoldoffMs = 2000;
+  c.mirrorOffConfirmMs = 0;
+  c.mirrorInvalidHoldoffMs = 0;
   c.mirrorMaxOnMinutes = 0;
 
   c.buzzerEnabled = 1;
@@ -1508,8 +1459,8 @@ void defaultSettings(AppSettings &c) {
   c.buzzerBeepPeriodMs = BUZZER_BEEP_PERIOD_MS;
   c.buzzerBeepOnMs = BUZZER_BEEP_ON_MS;
 
-  c.oledShow = OLED_SHOW_PERCENT | OLED_SHOW_LITRES | OLED_SHOW_LINK | OLED_SHOW_BOTTOM_L;
-  c.oledPercentSize = 5;
+  c.oledShow = OLED_SHOW_PERCENT | OLED_SHOW_LINK | OLED_SHOW_BOTTOM_L;
+  c.oledPercentSize = 6;
   c.oledLitresSize = 2;
   c.oledBottomSize = 1;
   c.oledContrast = 255;
@@ -1518,8 +1469,6 @@ void defaultSettings(AppSettings &c) {
   c.historyIntervalSec = 300;
   c.historyRetentionDays = 4;
   c.historyEnabled = 1;
-  strlcpy(c.adminPass, DEFAULT_ADMIN_PASS, sizeof(c.adminPass));
-  c.adminSessionMinutes = 30;
 }
 
 void clampSettings(AppSettings &c) {
@@ -1554,8 +1503,8 @@ void clampSettings(AppSettings &c) {
   c.mirrorOnCm = constrain(c.mirrorOnCm, 5.0f, 300.0f);
   c.mirrorOffCm = constrain(c.mirrorOffCm, c.mirrorOnCm + 1.0f, 400.0f);
   c.mirrorOnConfirmMs = constrain(c.mirrorOnConfirmMs, 50, 10000);
-  c.mirrorOffConfirmMs = constrain(c.mirrorOffConfirmMs, 50, 10000);
-  c.mirrorInvalidHoldoffMs = constrain(c.mirrorInvalidHoldoffMs, 0, 60000);
+  c.mirrorOffConfirmMs = 0;
+  c.mirrorInvalidHoldoffMs = 0;
   c.mirrorMaxOnMinutes = constrain(c.mirrorMaxOnMinutes, 0, 1440);
 
   c.buzzerEnabled = c.buzzerEnabled ? 1 : 0;
@@ -1567,7 +1516,7 @@ void clampSettings(AppSettings &c) {
   c.buzzerBeepPeriodMs = constrain(c.buzzerBeepPeriodMs, 100, 5000);
   c.buzzerBeepOnMs = constrain(c.buzzerBeepOnMs, 10, c.buzzerBeepPeriodMs);
 
-  c.oledShow = c.oledShow & 0x3F;
+  c.oledShow = (c.oledShow & 0x3F) & ~OLED_SHOW_LITRES;
   c.oledPercentSize = constrain(c.oledPercentSize, 1, 6);
   c.oledLitresSize = constrain(c.oledLitresSize, 1, 6);
   c.oledBottomSize = constrain(c.oledBottomSize, 1, 4);
@@ -1578,10 +1527,6 @@ void clampSettings(AppSettings &c) {
   c.historyRetentionDays = constrain(c.historyRetentionDays, 1, 30);
   c.historyEnabled = c.historyEnabled ? 1 : 0;
 
-  c.adminPass[sizeof(c.adminPass) - 1] = '\0';
-  size_t passLen = strlen(c.adminPass);
-  if (passLen < 4 || passLen > 7) strlcpy(c.adminPass, DEFAULT_ADMIN_PASS, sizeof(c.adminPass));
-  c.adminSessionMinutes = constrain(c.adminSessionMinutes, 1, 1440);
   if (c.aRevision == 0) c.aRevision = 1;
   if (c.revision == 0) c.revision = 1;
 }
@@ -1672,6 +1617,7 @@ bool pushSettingsToA() {
 }
 
 void serviceSettingsSync() {
+  if (aProtocolVersion < 2) return;
   if (haveASettingsRevision && aSeenRevision == aDesiredRevision) return;
   uint32_t waitMs = computeLinkOnline() ? 2000UL : 8000UL;
   if ((uint32_t)(millis() - lastSettingsPushMs) < waitMs) return;
@@ -1682,7 +1628,7 @@ void sendCommandToA(uint8_t command, bool pressed) {
   CommandPacket cmd;
   memset(&cmd, 0, sizeof(cmd));
   cmd.magic = PKT_MAGIC;
-  cmd.version = PROTOCOL_VERSION;
+  cmd.version = aProtocolVersion;
   cmd.type = PKT_COMMAND;
   cmd.command = command;
   cmd.pressed = pressed ? 1 : 0;
@@ -1927,15 +1873,7 @@ String buildEventsJson() {
 }
 
 bool verifyAdmin() {
-  if (adminToken.length() == 0) return false;
-  if ((int32_t)(millis() - adminTokenExpiresMs) >= 0) {
-    adminToken = "";
-    return false;
-  }
-  String supplied = server.header("X-Admin-Token");
-  if (supplied.length() == 0) return false;
-  if (supplied != adminToken) return false;
-  adminTokenExpiresMs = millis() + (uint32_t)settings.adminSessionMinutes * 60000UL;
+  // Local dashboard: no passcode / session gate.
   return true;
 }
 
@@ -2297,21 +2235,19 @@ void updateAutoRelay1() {
       }
     } else if (hcDistanceCm > settings.mirrorOffCm) {
       hcNearSinceMs = 0;
-      if (hcFarSinceMs == 0) hcFarSinceMs = now;
-      if (personDetected &&
-          (uint32_t)(now - hcFarSinceMs) >= settings.mirrorOffConfirmMs) {
+      hcFarSinceMs = now;
+      if (personDetected) {
         personDetected = false;
-        DBG("[B] Person confirmed clear (%.1f cm)\n", hcDistanceCm);
+        DBG("[B] Person clear - mirror off immediately (%.1f cm)\n", hcDistanceCm);
       }
     }
   } else {
     hcNearSinceMs = 0;
     hcFarSinceMs = 0;
-    if (personDetected &&
-        (uint32_t)(now - lastValidHcMs) > settings.mirrorInvalidHoldoffMs) {
+    if (personDetected) {
       personDetected = false;
       logEvent(9, hcDistanceCm);
-      DBG("[B] Person cleared after sensor dropout\n");
+      DBG("[B] Person cleared immediately after sensor dropout\n");
     }
   }
 
@@ -2480,7 +2416,6 @@ void serviceBuzzerButton() {
     if (pressed) {
       buttonPressActive = true;
       buttonLongHandled = false;
-      buttonAdminResetHandled = false;
       buttonPressStartMs = millis();
     } else if (buttonPressActive) {
       buttonPressActive = false;
@@ -2495,18 +2430,6 @@ void serviceBuzzerButton() {
     if (buzzerAlerting) manualStopBuzzer();
   }
 
-  // Physical lockout recovery: hold the existing B button for 10 seconds.
-  // The 3-second mirror-override action above still happens first.
-  if (buttonPressActive && !buttonAdminResetHandled &&
-      (uint32_t)(millis() - buttonPressStartMs) >= BUTTON_ADMIN_RESET_MS) {
-    buttonAdminResetHandled = true;
-    if (strcmp(settings.adminPass, DEFAULT_ADMIN_PASS) != 0) {
-      strlcpy(settings.adminPass, DEFAULT_ADMIN_PASS, sizeof(settings.adminPass));
-      saveSettings();
-      logEvent(12, 2);
-      Serial.println("[B] Admin passcode reset to 14789 by 10-second button hold");
-    }
-  }
 }
 
 /* ==========================================================================
@@ -2564,32 +2487,27 @@ void drawOled() {
   display.setTextWrap(false);
 
   char pct[10];
-  if (haveValidWater) snprintf(pct, sizeof(pct), "%d%%", (int)lroundf(lastValidPercent));
-  else                snprintf(pct, sizeof(pct), "--%%");
+  if (haveValidWater) snprintf(pct, sizeof(pct), "%d", (int)lroundf(lastValidPercent));
+  else                snprintf(pct, sizeof(pct), "--");
 
-  int y = 0;
   if (show & OLED_SHOW_PERCENT) {
     uint8_t size = settings.oledPercentSize;
-    display.setTextSize(size);
-    int16_t x = (OLED_WIDTH - (int16_t)strlen(pct) * 6 * size) / 2;
+    uint8_t signSize = size > 1 ? size / 2 : 1;
+    int16_t numberWidth = (int16_t)strlen(pct) * 6 * size;
+    int16_t signWidth = 6 * signSize;
+    int16_t x = (OLED_WIDTH - numberWidth - signWidth) / 2;
     if (x < 0) x = 0;
+    display.setTextSize(size);
     display.setCursor(x, 0);
     display.print(pct);
-    y = size * 8 + 2;
+    display.setTextSize(signSize);
+    display.setCursor(x + numberWidth, size * 8 - signSize * 8);
+    display.print("%");
   }
 
   char litres[10];
   if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
   else                snprintf(litres, sizeof(litres), "--L");
-
-  if (show & OLED_SHOW_LITRES) {
-    uint8_t size = settings.oledLitresSize;
-    display.setTextSize(size);
-    int16_t x = (OLED_WIDTH - (int16_t)strlen(litres) * 6 * size) / 2;
-    if (x < 0) x = 0;
-    display.setCursor(x, y);
-    display.print(litres);
-  }
 
   if ((show & OLED_SHOW_DISTANCE) && haveValidWater) {
     char dist[16];
@@ -2675,6 +2593,7 @@ String buildStateJson() {
   j += ",\"aTimeoutEchoes\":"; j += String((unsigned)lastATimeoutEchoes);
   j += ",\"aResetReason\":";  j += String((unsigned)lastAResetReason);
   j += ",\"aUptimeMs\":";     j += String((unsigned long)lastAUptimeMs);
+  j += ",\"aProtocol\":";    j += String((unsigned)aProtocolVersion);
   j += ",\"aSettingsRevision\":"; j += String((unsigned long)aSeenRevision);
   j += ",\"settingsRevision\":"; j += String((unsigned long)settings.aRevision);
   j += ",\"settingsSynced\":"; j += (haveASettingsRevision && aSeenRevision == aDesiredRevision) ? "true" : "false";
@@ -2977,8 +2896,7 @@ String buildAdminJson() {
   j += ",\"historyIntervalSec\":"; j += String((unsigned)settings.historyIntervalSec);
   j += ",\"historyRetentionDays\":"; j += String((unsigned)settings.historyRetentionDays);
   j += ",\"historyEnabled\":"; j += settings.historyEnabled ? "true" : "false";
-  j += ",\"adminSessionMinutes\":"; j += String((unsigned)settings.adminSessionMinutes);
-  j += ",\"passcodeSet\":true}";
+  j += "}";
 
   j += ",\"info\":{";
   j += "\"bMac\":\"" + macString(apMac) + "\"";
@@ -3023,44 +2941,6 @@ void sendAdminJson() {
   server.send(200, "application/json", buildAdminJson());
 }
 
-void handleAdminLogin() {
-  if (server.method() != HTTP_POST) {
-    server.sendHeader("Allow", "POST");
-    sendApiError(405, "use POST");
-    return;
-  }
-  String body = server.arg("plain");
-  String pass;
-  if (body.length() > 256 || !jsonStringField(body, "passcode", pass)) {
-    sendApiError(400, "passcode required");
-    return;
-  }
-  if (pass != String(settings.adminPass)) {
-    logEvent(12, 0);
-    sendApiError(401, "invalid passcode");
-    return;
-  }
-  char tok[20];
-  snprintf(tok, sizeof(tok), "%08lx%08lx",
-           (unsigned long)esp_random(), (unsigned long)esp_random());
-  adminToken = tok;
-  adminTokenExpiresMs = millis() +
-      (uint32_t)settings.adminSessionMinutes * 60000UL;
-  logEvent(12, 1);
-  String j = "{\"ok\":true,\"token\":\"" + adminToken + "\",\"sessionMinutes\":";
-  j += String((unsigned)settings.adminSessionMinutes);
-  j += "}";
-  server.sendHeader("Cache-Control", "no-store");
-  server.send(200, "application/json", j);
-}
-
-void handleAdminLogout() {
-  if (!verifyAdmin()) { sendApiError(401, "admin login required"); return; }
-  adminToken = "";
-  adminTokenExpiresMs = 0;
-  server.send(200, "application/json", "{\"ok\":true}");
-}
-
 void handleAdminSettings() {
   if (!verifyAdmin()) { sendApiError(401, "admin login required"); return; }
   if (server.method() == HTTP_GET) {
@@ -3079,7 +2959,6 @@ void handleAdminSettings() {
   float f = 0.0f;
   long n = 0;
   bool b = false;
-  String str;
 
   if (jsonFloatField(body, "fullDistanceCm", f)) settings.fullDistanceCm = f;
   if (jsonFloatField(body, "emptyDistanceCm", f)) settings.emptyDistanceCm = f;
@@ -3122,19 +3001,11 @@ void handleAdminSettings() {
   if (jsonIntField(body, "historyIntervalSec", n)) settings.historyIntervalSec = (uint16_t)constrain(n, (long)HISTORY_MIN_INTERVAL_SEC, (long)HISTORY_MAX_INTERVAL_SEC);
   if (jsonIntField(body, "historyRetentionDays", n)) settings.historyRetentionDays = (uint8_t)constrain(n, 1L, 30L);
   if (jsonBoolField(body, "historyEnabled", b)) settings.historyEnabled = b ? 1 : 0;
-  if (jsonIntField(body, "adminSessionMinutes", n)) settings.adminSessionMinutes = (uint16_t)constrain(n, 1L, 1440L);
-  if (jsonStringField(body, "adminPass", str)) {
-    if (str.length() < 4 || str.length() > 7) {
-      sendApiError(400, "admin passcode must be 4-7 characters");
-      return;
-    }
-    strlcpy(settings.adminPass, str.c_str(), sizeof(settings.adminPass));
-  }
 
   clampSettings(settings);
   commitSettings(old);
   if (settings.aRevision != old.aRevision) {
-    pushSettingsToA();
+    if (aProtocolVersion >= 2) pushSettingsToA();
     logEvent(11, (float)settings.aRevision);
   }
   sendAdminJson();
@@ -3229,7 +3100,7 @@ void sendStatus() {
   StatusPacket st;
   memset(&st, 0, sizeof(st));
   st.magic = PKT_MAGIC;
-  st.version = PROTOCOL_VERSION;
+  st.version = aProtocolVersion;
   st.type = PKT_STATUS;
   st.seq = ++statusSeq;
   st.uptimeMs = millis();
@@ -3258,9 +3129,11 @@ void handleCommandPacket(const RxItem &item) {
 
   CommandPacket cmd;
   memcpy(&cmd, item.data, sizeof(cmd));
-  if (cmd.magic != PKT_MAGIC || cmd.version != PROTOCOL_VERSION ||
+  if (cmd.magic != PKT_MAGIC ||
+      (cmd.version != 1 && cmd.version != PROTOCOL_VERSION) ||
       cmd.type != PKT_COMMAND) return;
   if (cmd.crc != crc16((const uint8_t *)&cmd, offsetof(CommandPacket, crc))) return;
+  aProtocolVersion = cmd.version;
 
   bool pressed = (cmd.pressed != 0);
   if (cmd.command == CMD_MOTOR_START) {
@@ -3281,51 +3154,109 @@ void handleCommandPacket(const RxItem &item) {
 }
 
 void handleWaterPacket(const RxItem &item) {
-  if (item.len != (int)sizeof(WaterPacket)) return;
+  uint8_t  version = 0;
+  uint16_t flags = 0;
+  uint32_t seq = 0;
+  uint32_t uptimeMs = 0;
+  uint32_t settingsRevision = 0;
+  float    distanceCm = 0.0f;
+  float    percent = 0.0f;
+  uint16_t litres = 0;
+  uint8_t  valid = 0;
+  uint8_t  filling = 0;
+  uint8_t  draining = 0;
+  uint8_t  validEchoes = 0;
+  uint8_t  timeoutEchoes = 0;
+  uint8_t  resetReason = 0;
 
-  WaterPacket pkt;
-  memcpy(&pkt, item.data, sizeof(pkt));
-  if (pkt.magic != PKT_MAGIC || pkt.version != PROTOCOL_VERSION ||
-      pkt.type != PKT_DATA) return;
-  if (pkt.crc != crc16((const uint8_t *)&pkt, offsetof(WaterPacket, crc))) return;
+  if (item.len == (int)sizeof(WaterPacket)) {
+    WaterPacket pkt;
+    memcpy(&pkt, item.data, sizeof(pkt));
+    if (pkt.magic != PKT_MAGIC || pkt.version != PROTOCOL_VERSION ||
+        pkt.type != PKT_DATA) return;
+    if (pkt.crc != crc16((const uint8_t *)&pkt, offsetof(WaterPacket, crc))) return;
+
+    version = pkt.version;
+    flags = pkt.flags;
+    seq = pkt.seq;
+    uptimeMs = pkt.uptimeMs;
+    distanceCm = pkt.distanceCm;
+    percent = pkt.percent;
+    litres = pkt.litres;
+    valid = pkt.valid;
+    filling = pkt.filling;
+    draining = pkt.draining;
+    validEchoes = pkt.validEchoes;
+    timeoutEchoes = pkt.timeoutEchoes;
+    resetReason = pkt.resetReason;
+    settingsRevision = pkt.settingsRevision;
+  } else if (item.len == (int)sizeof(WaterPacketV1)) {
+    WaterPacketV1 pkt;
+    memcpy(&pkt, item.data, sizeof(pkt));
+    if (pkt.magic != PKT_MAGIC || pkt.version != 1 ||
+        pkt.type != PKT_DATA) return;
+    if (pkt.crc != crc16((const uint8_t *)&pkt, offsetof(WaterPacketV1, crc))) return;
+
+    version = pkt.version;
+    flags = pkt.flags;
+    seq = pkt.seq;
+    uptimeMs = pkt.uptimeMs;
+    distanceCm = pkt.distanceCm;
+    percent = pkt.percent;
+    litres = pkt.litres;
+    valid = pkt.valid;
+    filling = pkt.filling;
+    draining = pkt.draining;
+  } else {
+    return;
+  }
 
   uint32_t now = millis();
+  aProtocolVersion = version;
 
   // Duplicate / out-of-order / restart handling.
   bool accept = true;
   if (haveSeq) {
-    int32_t diff = (int32_t)(pkt.seq - lastSeq);
-    bool restarted = (pkt.uptimeMs + 1000UL < lastAUptimeMs);
+    int32_t diff = (int32_t)(seq - lastSeq);
+    bool restarted = (uptimeMs + 1000UL < lastAUptimeMs);
     if (diff == 0) accept = false;
     else if (diff < 0 && !restarted) accept = false;
   }
   if (!accept) return;
 
   uint16_t oldFlags = lastFlags;
-  lastSeq = pkt.seq;
-  lastAUptimeMs = pkt.uptimeMs;
+  lastSeq = seq;
+  lastAUptimeMs = uptimeMs;
   haveSeq = true;
   lastAnyRxMs = now;
-  lastFlags = pkt.flags;
-  fillingActive = (pkt.filling != 0);
-  drainingActive = (pkt.draining != 0);
-  lastAValidEchoes = pkt.validEchoes;
-  lastATimeoutEchoes = pkt.timeoutEchoes;
-  lastAResetReason = pkt.resetReason;
-  aSeenRevision = pkt.settingsRevision;
-  haveASettingsRevision = true;
-  if (aSeenRevision != aDesiredRevision) lastSettingsPushMs = 0;
+  lastFlags = flags;
+  fillingActive = (filling != 0);
+  drainingActive = (draining != 0);
 
-  uint16_t raised = pkt.flags & (uint16_t)~oldFlags;
-  if (raised & FLAG_NO_ECHO) logEvent(1, pkt.distanceCm);
-  if (raised & FLAG_TIMEOUT) logEvent(2, (float)pkt.timeoutEchoes);
-  if (raised & FLAG_JUMP) logEvent(3, pkt.distanceCm);
-  if (raised & FLAG_STUCK) logEvent(4, pkt.distanceCm);
-  if (raised & FLAG_RANGE) logEvent(5, pkt.distanceCm);
+  if (version >= 2) {
+    lastAValidEchoes = validEchoes;
+    lastATimeoutEchoes = timeoutEchoes;
+    lastAResetReason = resetReason;
+    aSeenRevision = settingsRevision;
+    haveASettingsRevision = true;
+    if (aSeenRevision != aDesiredRevision) lastSettingsPushMs = 0;
+  } else {
+    lastAValidEchoes = 0;
+    lastATimeoutEchoes = 0;
+    lastAResetReason = 0;
+    haveASettingsRevision = false;
+  }
 
-  float p = pkt.percent;
-  float d = pkt.distanceCm;
-  lastPacketValid = (pkt.valid != 0) && isfinite(p) && isfinite(d);
+  uint16_t raised = flags & (uint16_t)~oldFlags;
+  if (raised & FLAG_NO_ECHO) logEvent(1, distanceCm);
+  if (raised & FLAG_TIMEOUT) logEvent(2, (float)timeoutEchoes);
+  if (raised & FLAG_JUMP) logEvent(3, distanceCm);
+  if (raised & FLAG_STUCK) logEvent(4, distanceCm);
+  if (raised & FLAG_RANGE) logEvent(5, distanceCm);
+
+  float p = percent;
+  float d = distanceCm;
+  lastPacketValid = (valid != 0) && isfinite(p) && isfinite(d);
   if (!lastPacketValid) fullConfirmCount = 0;
 
   if (lastPacketValid) {
@@ -3335,7 +3266,7 @@ void handleWaterPacket(const RxItem &item) {
 
     lastValidPercent = p;
     lastValidDistanceCm = d;
-    lastValidLitres = pkt.litres;
+    lastValidLitres = litres;
     long capLitres = lroundf(settings.tankCapacityL);
     if (lastValidLitres > capLitres) lastValidLitres = (uint16_t)capLitres;
     lastValidRxMs = now;
@@ -3344,13 +3275,13 @@ void handleWaterPacket(const RxItem &item) {
     updateBuzzerFromWater(p, true);
   }
 
-  lastAckSeq = pkt.seq;
+  lastAckSeq = seq;
   sendStatus();
 
-  DBG("[B] RX seq=%lu valid=%u d=%.1fcm p=%.1f%% L=%u fill=%u drain=%u flags=0x%04X\n",
-      (unsigned long)pkt.seq, (unsigned)pkt.valid,
-      pkt.distanceCm, pkt.percent, (unsigned)pkt.litres,
-      (unsigned)pkt.filling, (unsigned)pkt.draining, (unsigned)pkt.flags);
+  DBG("[B] RX v%u seq=%lu valid=%u d=%.1fcm p=%.1f%% L=%u fill=%u drain=%u flags=0x%04X\n",
+      (unsigned)version, (unsigned long)seq, (unsigned)valid,
+      distanceCm, percent, (unsigned)litres,
+      (unsigned)filling, (unsigned)draining, (unsigned)flags);
 }
 
 void serviceEspNowQueue() {
@@ -3449,8 +3380,6 @@ void setup() {
   server.on("/api/bulb", HTTP_ANY, handleBulb);
   server.on("/api/buzzer/stop", HTTP_ANY, handleBuzzerStop);
   server.on("/api/motor", HTTP_ANY, handleMotor);
-  server.on("/api/admin/login", HTTP_ANY, handleAdminLogin);
-  server.on("/api/admin/logout", HTTP_ANY, handleAdminLogout);
   server.on("/api/admin/settings", HTTP_ANY, handleAdminSettings);
   server.on("/api/admin/reboot-a", HTTP_ANY, handleAdminRebootA);
   server.on("/api/admin/reboot-b", HTTP_ANY, handleAdminRebootB);

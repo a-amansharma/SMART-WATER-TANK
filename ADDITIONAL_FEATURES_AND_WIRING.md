@@ -195,14 +195,13 @@ README and your board pinout:
 
 Open `http://192.168.4.1/` and press **ADMIN** above the connection capsule.
 
-- Default passcode: **14789**. Change it in the Admin page; it is stored in ESP32_B NVS.
-- Lockout recovery: hold the ESP32_B GPIO 4 button for 10 seconds. The 3-second mirror
-  override action also runs first. The passcode then returns to `14789`.
-- The login session is held in browser `sessionStorage` and expires after 30 minutes.
-  Admin API calls send the token as `X-Admin-Token`.
+- No passcode and no login step: pressing **ADMIN** opens the page directly. Protection
+  is limited to the local ESP32_B Wi-Fi access point.
 - ESP32_B is the settings source of truth. Water/measurement settings are forwarded to
-  ESP32_A and persisted in both boards' NVS. ESP32_B keeps retrying until ESP32_A reports
-  the same settings revision.
+  ESP32_A and persisted in both boards' NVS when ESP32_A runs protocol v2.
+- ESP32_B also accepts legacy protocol-v1 water and command packets from an older
+  ESP32_A, so updating only ESP32_B keeps the roof sensor online. Runtime settings sync
+  is skipped while the detected A firmware is v1.
 - History uses `/history.csv` and events use `/events.csv` in ESP32_B LittleFS. Defaults
   are one sample every 5 minutes with 4 days retained. Older lines are discarded.
 - There is no RTC. History/event times are approximate ages derived from the configured
@@ -213,8 +212,6 @@ Open `http://192.168.4.1/` and press **ADMIN** above the connection capsule.
 Admin endpoints:
 
 ```text
-POST /api/admin/login       {"passcode":"..."} -> {"ok":true,"token":"..."}
-POST /api/admin/logout
 GET  /api/admin/settings
 POST /api/admin/settings
 POST /api/admin/reboot-a
@@ -224,7 +221,8 @@ GET  /api/history
 GET  /api/events
 ```
 
-`/api/state` stays public; the admin endpoints above require `X-Admin-Token` except login.
+`/api/state` and the admin endpoints are accessible without a passcode on the local
+ESP32_B access point.
 Buzzer intensity is PWM duty on an active buzzer and may only click or have little volume
 change. Treat it as an optional tuning aid, not a guaranteed volume control.
 
@@ -248,8 +246,8 @@ change. Treat it as an optional tuning aid, not a guaranteed volume control.
    and the relay stays off until the person-detection area becomes clear.
 10. Verify the buzzer sounds at 97% and stops at 40 s or after acknowledgement, and
     re-arms only below 93%.
-11. Confirm the OLED shows a large percentage, litres below it, and
-    `CONNECTED`/`NOT CONNECTED` plus litres on the bottom row.
+11. Confirm the OLED shows a large percentage and
+    `CONNECTED`/`NO LINK` plus litres on the bottom row.
 12. Confirm the dashboard and embedded HTML are still byte-identical after any edits.
 13. Open Admin, change a harmless value such as OLED contrast, save, reload, and confirm
     it persists. Then restore the desired value.

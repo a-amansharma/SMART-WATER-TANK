@@ -48,7 +48,8 @@ header{min-height:clamp(54px,8.6vh,70px);flex:none;display:flex;align-items:cent
 @keyframes bluePulse{50%{filter:brightness(1.14);box-shadow:inset 0 2px 0 #ffffff80,0 4px 0 #075f9e,0 0 23px #36c2ff,0 0 48px #1ba8ff88}}
 @keyframes redPulse{50%{filter:brightness(1.12);box-shadow:inset 0 2px 0 #ffffff80,0 4px 0 #a81329,0 0 23px #ff5772,0 0 48px #ff405f88}}
 .distance{font-size:9px;color:#6f8195;font-weight:750;text-align:right;line-height:1.2}
-.tank.stale .percent,.tank.stale .volume strong,.tank.stale .bar{opacity:.45}
+.tank.stale .percent{opacity:1;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:4px;text-decoration-color:#8c9bad}
+.tank.stale .volume strong,.tank.stale .bar{opacity:.45}
 .controls{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(0,1fr);gap:11px}
 .motor-card{padding:11px;display:flex;flex-direction:column;align-items:center;min-height:0}
 .motor-title{text-align:center;margin-bottom:3px}
@@ -80,7 +81,7 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 .admin-open{border:1px solid #9ecbb3;background:linear-gradient(180deg,#ffffff,#e7f8ee);color:#087c4a;border-radius:11px;padding:6px 11px;font-size:10px;font-weight:950;letter-spacing:.8px;box-shadow:inset 0 1px 0 #fff,0 3px 0 #b9d8c7,0 5px 9px #102b4514;cursor:pointer}
 .admin-open:active{transform:translateY(2px);box-shadow:inset 0 1px 3px #102b4520,0 1px 0 #b9d8c7}
 .admin-overlay{position:fixed;inset:0;z-index:50;background:linear-gradient(155deg,#f7fcff 0%,#eef7f2 50%,#e9f1f8 100%);overflow-y:auto;overscroll-behavior:contain;padding:14px 14px max(24px,env(safe-area-inset-bottom));display:block}
-.admin-overlay[hidden],.login-overlay[hidden],.admin-notice[hidden]{display:none!important}
+.admin-overlay[hidden],.admin-notice[hidden]{display:none!important}
 .admin-shell{width:min(100%,980px);margin:0 auto;display:flex;flex-direction:column;gap:12px}
 .admin-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .admin-eyebrow{font-size:10px;font-weight:950;letter-spacing:1.4px;color:#0e9a63}
@@ -136,15 +137,6 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 .info-row{display:flex;justify-content:space-between;gap:8px;border-bottom:1px dashed #e7eef5;padding:4px 0}
 .info-row span{color:#73859a;font-weight:750}
 .info-row b{text-align:right;word-break:break-word}
-.login-overlay{position:fixed;inset:0;z-index:70;background:#0f1d2bd9;backdrop-filter:blur(5px);display:grid;place-items:center;padding:18px}
-.login-card{width:min(100%,360px);background:#fff;border-radius:20px;padding:20px;box-shadow:0 24px 70px #0006}
-.login-card h2{margin:0 0 4px;font-size:22px;letter-spacing:-.5px}
-.login-card p{margin:0 0 14px;color:#6b7d91;font-size:12px;font-weight:700;line-height:1.4}
-.login-card input{width:100%;border:1px solid #cbd9e5;background:#f8fbfe;border-radius:11px;padding:12px;font:inherit;font-size:20px;font-weight:900;letter-spacing:6px;text-align:center;outline:none}
-.login-card input:focus{border-color:#39b47d;box-shadow:0 0 0 3px #39b47d22}
-.login-actions{display:flex;gap:8px;margin-top:11px}
-.login-actions .btn{flex:1;padding:11px}
-.login-error{min-height:16px;color:#bd2d40;font-size:11px;font-weight:850;margin-top:7px}
 @media(max-width:520px){.oled-layout{grid-template-columns:1fr}.admin-overlay{padding:10px 9px max(18px,env(safe-area-inset-bottom))}.admin-live{grid-template-columns:repeat(2,minmax(0,1fr))}.admin-head-actions{width:100%;justify-content:flex-end}.admin-head-actions button{flex:1}}
 @media(max-height:620px){.app{gap:5px;padding-top:5px}.logo{width:48px;height:48px}.brand-title{font-size:20px}.tank{padding:7px 12px}.bar-wrap{margin:6px 0 4px}.tank-bottom{margin-top:5px}.percent{font-size:clamp(48px,10vh,72px)}.volume strong{font-size:clamp(34px,6.2vh,46px)}.motor-btn{width:clamp(76px,16vh,112px);height:clamp(76px,16vh,112px)}.motor-buttons{gap:5px}.motor-caption{font-size:12px}.side-card{gap:5px;padding:6px}.control-tile{padding:5px}.toggle{width:60px;height:35px}.toggle:after{width:27px;height:27px}.toggle.on:after{transform:translateX(23px)}.buzzer-btn{padding:9px 6px}}
 @media(orientation:landscape) and (max-height:520px){.app{width:min(100%,980px);padding:4px 12px 5px;gap:4px}header{min-height:36px}.logo{width:42px;height:42px}.brand-title{font-size:18px}.credit{font-size:8px}.tank{padding:5px 12px}.percent{font-size:42px}.volume strong{font-size:42px;letter-spacing:-2px}.volume span{font-size:10px}.controls{grid-template-columns:.95fr 1.05fr}.motor-card{padding:4px}.motor-buttons{flex-direction:row;justify-content:space-evenly;gap:5px}.motor-btn{width:min(22vh,112px);height:min(22vh,112px)}.motor-caption{font-size:10px}.side-card{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;padding:5px}.control-tile{padding:4px;gap:4px}.control-name{font-size:11px}.toggle{width:50px;height:29px}.toggle:after{width:21px;height:21px}.toggle.on:after{transform:translateX(19px)}.buzzer-btn{font-size:8px;padding:7px 3px}footer{margin-bottom:5px}}
@@ -217,10 +209,9 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
 <div class="admin-overlay" id="adminOverlay" hidden>
  <div class="admin-shell">
   <header class="admin-head">
-   <div><div class="admin-eyebrow">SMART WATER TANK · CONTROL CENTRE</div><h1>Technical Admin</h1><div class="admin-sub" id="adminSub">Passcode protected · settings are saved to ESP32 NVS</div></div>
+   <div><div class="admin-eyebrow">SMART WATER TANK · CONTROL CENTRE</div><h1>Technical Admin</h1><div class="admin-sub" id="adminSub">Settings are saved to ESP32 NVS</div></div>
    <div class="admin-head-actions">
     <button type="button" id="adminRefresh">Refresh</button>
-    <button type="button" id="adminLogout">Lock</button>
     <button type="button" class="btn primary" id="adminClose">Back to dashboard</button>
    </div>
   </header>
@@ -277,11 +268,9 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
       <div class="field"><label for="mirrorOnCm">Detect ON below (cm)</label><input id="mirrorOnCm" name="mirrorOnCm" type="number" step="0.1" min="5" max="300"></div>
       <div class="field"><label for="mirrorOffCm">Detect OFF above (cm)</label><input id="mirrorOffCm" name="mirrorOffCm" type="number" step="0.1" min="6" max="400"></div>
       <div class="field"><label for="mirrorOnConfirmMs">ON confirm (ms)</label><input id="mirrorOnConfirmMs" name="mirrorOnConfirmMs" type="number" step="50" min="50" max="10000"></div>
-      <div class="field"><label for="mirrorOffConfirmMs">OFF confirm (ms)</label><input id="mirrorOffConfirmMs" name="mirrorOffConfirmMs" type="number" step="50" min="50" max="10000"></div>
-      <div class="field"><label for="mirrorInvalidHoldoffMs">Invalid holdoff (ms)</label><input id="mirrorInvalidHoldoffMs" name="mirrorInvalidHoldoffMs" type="number" step="100" min="0" max="60000"></div>
       <div class="field"><label for="mirrorMaxOnMinutes">Max auto-on (min, 0=off)</label><input id="mirrorMaxOnMinutes" name="mirrorMaxOnMinutes" type="number" step="1" min="0" max="1440"></div>
      </div>
-     <p class="note">Use OFF distance slightly higher than ON distance to prevent flicker. Manual Mirror Light controls stay available on the dashboard.</p>
+     <p class="note">The mirror turns off immediately when the person moves beyond the OFF distance or the sensor loses them. Manual Mirror Light controls stay available on the dashboard.</p>
     </div>
 
     <div class="settings-section">
@@ -304,20 +293,18 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
      <div class="oled-layout">
       <div class="admin-grid">
        <label class="checkline"><input type="checkbox" data-oled-bit="1"> Show percent</label>
-       <label class="checkline"><input type="checkbox" data-oled-bit="2"> Show litres</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="4"> Show link state</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="8"> Show bottom litres</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="16"> Show live/stale status</label>
        <label class="checkline"><input type="checkbox" data-oled-bit="32"> Show distance</label>
-       <div class="field"><label for="oledPercentSize">Percent font size</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
-       <div class="field"><label for="oledLitresSize">Litres font size</label><select id="oledLitresSize" name="oledLitresSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select></div>
+       <div class="field"><label for="oledPercentSize">Percent font size</label><select id="oledPercentSize" name="oledPercentSize"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option selected>6</option></select></div>
        <div class="field"><label for="oledBottomSize">Bottom font size</label><select id="oledBottomSize" name="oledBottomSize"><option>1</option><option>2</option><option>3</option><option>4</option></select></div>
        <div class="field"><label for="oledContrast">Contrast 1–255</label><input id="oledContrast" name="oledContrast" type="number" step="1" min="1" max="255"></div>
        <label class="checkline"><input id="oledInvert" name="oledInvert" type="checkbox"> Invert display</label>
       </div>
       <div>
        <div class="oled-frame"><canvas id="oledPreview" width="256" height="128"></canvas></div>
-       <p class="note">Approximate 128×64 preview. Default layout is percent size 5, litres size 2, and bottom text size 1.</p>
+       <p class="note">Approximate 128×64 preview. Default layout is a large percentage with bottom litres at size 1.</p>
       </div>
      </div>
     </div>
@@ -330,15 +317,6 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
       <div class="field"><label for="historyRetentionDays">Keep for (days)</label><input id="historyRetentionDays" name="historyRetentionDays" type="number" step="1" min="1" max="30"></div>
      </div>
      <p class="note">Retention is automatic: the oldest CSV lines are removed when the configured window is exceeded. Storage is LittleFS on ESP32_B.</p>
-    </div>
-
-    <div class="settings-section">
-     <h3>Admin session &amp; passcode</h3>
-     <div class="admin-grid">
-      <div class="field"><label for="adminPass">New passcode (leave blank to keep)</label><input id="adminPass" name="adminPass" type="password" minlength="4" maxlength="7" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" placeholder="4–7 characters"></div>
-      <div class="field"><label for="adminSessionMinutes">Session length (minutes)</label><input id="adminSessionMinutes" name="adminSessionMinutes" type="number" step="1" min="1" max="1440"></div>
-     </div>
-     <p class="note">The default passcode is 14789. This is local-network protection only; it is not internet-grade security.</p>
     </div>
 
     <div class="savebar"><button type="submit" class="btn primary" id="saveSettings">Save all settings</button><span id="saveHint">No unsaved changes</span></div>
@@ -363,19 +341,6 @@ footer{flex:none;text-align:center;font-size:clamp(9px,1.55vh,11px);line-height:
  </div>
 </div>
 
-<div class="login-overlay" id="loginOverlay" hidden>
- <div class="login-card">
-  <div class="admin-eyebrow">ADMIN ACCESS</div>
-  <h2>Enter passcode</h2>
-  <p>This opens technical settings, stored history and reboot controls.</p>
-  <form id="loginForm">
-   <input id="loginPass" type="password" inputmode="numeric" autocomplete="current-password" placeholder="•••••" maxlength="7" aria-label="Admin passcode">
-   <div class="login-error" id="loginError"></div>
-   <div class="login-actions"><button type="button" class="btn" id="loginCancel">Cancel</button><button type="submit" class="btn primary">Unlock</button></div>
-  </form>
-  <p class="note" style="margin:10px 2px 0">Forgot it? Hold the ESP32_B button for 10 seconds to restore the default passcode 14789.</p>
- </div>
-</div>
 <script>
 (function(){
 'use strict';
@@ -680,10 +645,8 @@ pollState();
 (function(){
 'use strict';
 const $=id=>document.getElementById(id);
-const TOKEN_KEY='swtAdminToken';
-const overlay=$('adminOverlay'), loginOverlay=$('loginOverlay');
+const overlay=$('adminOverlay');
 const adminForm=$('adminForm'), saveHint=$('saveHint');
-let adminToken=sessionStorage.getItem(TOKEN_KEY)||'';
 let adminData=null, liveState=null, history=null, events=[];
 let liveTimer=null, rangeSec=0, formDirty=false, saving=false;
 
@@ -718,12 +681,6 @@ function notice(msg,error){
 }
 function openOverlay(){overlay.hidden=false; overlay.scrollTop=0;}
 function closeAdmin(){overlay.hidden=true; stopLive();}
-function clearToken(){adminToken=''; sessionStorage.removeItem(TOKEN_KEY);}
-function lockToLogin(){
- clearToken(); stopLive();
- loginOverlay.hidden=false;
- setTimeout(()=>$('loginPass').focus(),50);
-}
 function stopLive(){ if(liveTimer){clearInterval(liveTimer);liveTimer=null;} }
 function startLive(){
  stopLive();
@@ -733,10 +690,8 @@ function startLive(){
 async function adminApi(path,opts){
  opts=opts||{};
  const headers=Object.assign({},opts.headers||{});
- if(adminToken) headers['X-Admin-Token']=adminToken;
  if(opts.body) headers['Content-Type']='application/json';
  const r=await fetch(path,Object.assign({},opts,{headers:headers,cache:'no-store'}));
- if(r.status===401){ lockToLogin(); throw new Error('Admin login required'); }
  if(!r.ok){
   let msg='Request failed';
   try{const j=await r.json(); if(j&&j.error)msg=j.error;}catch(e){}
@@ -744,24 +699,10 @@ async function adminApi(path,opts){
  }
  return r.json();
 }
-async function login(pass){
- const r=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passcode:pass}),cache:'no-store'});
- let j={}; try{j=await r.json();}catch(e){}
- if(!r.ok){ throw new Error(j.error||'Invalid passcode'); }
- adminToken=j.token||'';
- sessionStorage.setItem(TOKEN_KEY,adminToken);
- loginOverlay.hidden=true;
- $('loginPass').value='';
- $('loginError').textContent='';
- openOverlay();
- startLive();
- await refreshAll();
-}
 async function refreshAll(){
- if(!adminToken) return;
  try{
   await Promise.all([loadSettings(),loadHistory(),loadEvents()]);
- }catch(e){ if(e.message!=='Admin login required') notice(e.message,true); }
+ }catch(e){ notice(e.message,true); }
 }
 async function loadSettings(){
  const d=await adminApi('/api/admin/settings');
@@ -771,29 +712,26 @@ async function loadSettings(){
  if(d.state) updateLive(d.state);
 }
 function applySettings(s){
- const nums=['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorOffConfirmMs','mirrorInvalidHoldoffMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledLitresSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays','adminSessionMinutes'];
+ const nums=['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays'];
  nums.forEach(k=>{const el=$(k); if(el&&s[k]!==undefined)el.value=s[k];});
  const bps=$('buzzerBeepsPerSec'); if(bps&&s.buzzerBeepPeriodMs)bps.value=(1000/Number(s.buzzerBeepPeriodMs)).toFixed(2);
  ['mirrorEnabled','buzzerEnabled','historyEnabled'].forEach(k=>{const el=$(k); if(el)el.checked=s[k]===true;});
  const inv=$('oledInvert'); if(inv)inv.checked=s.oledInvert===true;
  const show=Number(s.oledShow)||0;
  document.querySelectorAll('[data-oled-bit]').forEach(el=>{el.checked=(show&Number(el.dataset.oledBit))!==0;});
- const pass=$('adminPass'); if(pass)pass.value='';
  formDirty=false; saveHint.textContent='No unsaved changes';
  renderOled();
 }
 function numVal(id){ const v=Number($(id).value); if(!isFinite(v)) throw new Error('Invalid value in '+id); return v; }
 function collectSettings(){
  const out={};
- ['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorOffConfirmMs','mirrorInvalidHoldoffMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledLitresSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays','adminSessionMinutes'].forEach(k=>{out[k]=numVal(k);});
+ ['fullDistanceCm','emptyDistanceCm','emptyDeadbandCm','tankCapacityL','sensorMinCm','sensorMaxCm','smoothAlpha','jumpLimitCm','jumpConfirm','stuckTimeoutMs','measurePeriodMs','sampleSpacingMs','samplesPerCycle','mirrorOnCm','mirrorOffCm','mirrorOnConfirmMs','mirrorMaxOnMinutes','buzzerFullPercent','buzzerRearmPercent','buzzerConfirmReadings','buzzerDurationMs','buzzerBeepOnMs','buzzerIntensity','oledPercentSize','oledBottomSize','oledContrast','historyIntervalSec','historyRetentionDays'].forEach(k=>{out[k]=numVal(k);});
  ['mirrorEnabled','buzzerEnabled','historyEnabled','oledInvert'].forEach(k=>{out[k]=$(k).checked;});
  let show=0; document.querySelectorAll('[data-oled-bit]').forEach(el=>{if(el.checked)show|=Number(el.dataset.oledBit);});
  out.oledShow=show;
  const bps=numVal('buzzerBeepsPerSec');
  if(bps<=0) throw new Error('Beeps per second must be greater than 0');
  out.buzzerBeepPeriodMs=Math.max(100,Math.min(5000,Math.round(1000/bps)));
- const pass=$('adminPass').value.trim();
- if(pass) out.adminPass=pass;
  return out;
 }
 async function saveSettings(e){
@@ -866,7 +804,7 @@ function eventInfo(code){
   9:['Mirror dropout','Person state cleared after HC-SR04 dropout','warn'],
   10:['Reboot','A reboot was requested from admin','warn'],
   11:['Settings','New ESP32_A settings revision saved','ok'],
-  12:['Admin login','Admin passcode activity','ok'],
+  12:['Admin access','Legacy admin access event','ok'],
   13:['Data cleared','History and/or events were cleared','warn']
  }[Number(code)]||['Event '+code,'Technical event','warn'];
 }
@@ -887,7 +825,6 @@ async function loadEvents(){
  renderEvents();
 }
 async function pollLive(){
- if(!adminToken) return;
  try{
   const r=await fetch('/api/state',{cache:'no-store'});
   if(!r.ok) throw new Error('state unavailable');
@@ -902,7 +839,8 @@ function updateLive(s){
  $('adAReset').textContent=resetName(Number(s.aResetReason));
  $('adEchoes').textContent=(s.aValidEchoes!=null?s.aValidEchoes:'—')+' / '+(s.aTimeoutEchoes!=null?s.aTimeoutEchoes:'—');
  $('adFlags').textContent=flagsText(s.aFlags);
- $('adSync').textContent=(s.settingsSynced===true)?'SYNCED':('PENDING · A has '+ (s.aSettingsRevision!=null?s.aSettingsRevision:'?'));
+ const aProto=Number(s.aProtocol)||0;
+ $('adSync').textContent=(aProto===1)?'LEGACY A · v1':((s.settingsSynced===true)?'SYNCED':('PENDING · A has '+ (s.aSettingsRevision!=null?s.aSettingsRevision:'?')));
  const pct=Number(s.percent), litres=Number(s.litres);
  $('adLevel').textContent=(isFinite(pct)?pct.toFixed(0):'—')+'% · '+(isFinite(litres)?litres.toFixed(0):'—')+' L';
  if(events.length)renderEvents();
@@ -944,11 +882,19 @@ function renderOled(){
  const litres=liveState&&isFinite(liveState.litres)?Math.round(liveState.litres):null;
  const dist=liveState&&isFinite(liveState.distance)?Number(liveState.distance):null;
  const link=!!(liveState&&liveState.linkOnline);
- const pctText=pct==null?'--%':pct+'%';
+ const pctText=pct==null?'--':String(pct);
  const litreText=litres==null?'--L':litres+'L';
- let y=0;
- if(bits&1){const size=Number($('oledPercentSize').value)||1;text(pctText,64,0,size,'center');y=size*8+2;}
- if(bits&2){const size=Number($('oledLitresSize').value)||1;text(litreText,64,y,size,'center');}
+ if(bits&1){
+  const size=Number($('oledPercentSize').value)||6;
+  const signSize=Math.max(1,Math.floor(size/2));
+  ctx.font='900 '+(size*8)+'px ui-monospace,Menlo,monospace';
+  const numberWidth=ctx.measureText(pctText).width;
+  ctx.font='900 '+(signSize*8)+'px ui-monospace,Menlo,monospace';
+  const signWidth=ctx.measureText('%').width;
+  const x=Math.max(0,(128-numberWidth-signWidth)/2);
+  text(pctText,x,0,size,'left');
+  text('%',x+numberWidth,size*8-signSize*8,signSize,'left');
+ }
  if((bits&32)&&dist!=null)text(dist.toFixed(0)+'cm',0,47,1,'left');
  const bottom=Number($('oledBottomSize').value)||1;
  if(bits&4)text(link?'CONNECTED':'NO LINK',0,56,bottom,'left');
@@ -957,25 +903,15 @@ function renderOled(){
 }
 function bind(){
  $('adminOpen').addEventListener('click',async()=>{
-  if(!adminToken){ loginOverlay.hidden=false; setTimeout(()=>$('loginPass').focus(),50); return; }
   openOverlay(); startLive(); await refreshAll();
  });
  $('adminClose').addEventListener('click',()=>{closeAdmin();});
  $('adminRefresh').addEventListener('click',()=>refreshAll());
- $('adminLogout').addEventListener('click',async()=>{
-  try{if(adminToken)await adminApi('/api/admin/logout',{method:'POST'});}catch(e){}
-  clearToken(); closeAdmin(); loginOverlay.hidden=true; $('loginPass').value='';
- });
- $('loginForm').addEventListener('submit',async e=>{
-  e.preventDefault(); $('loginError').textContent='';
-  try{await login($('loginPass').value);}catch(err){$('loginError').textContent=err.message; $('loginPass').select();}
- });
- $('loginCancel').addEventListener('click',()=>{loginOverlay.hidden=true; if(!adminToken)overlay.hidden=true;});
  adminForm.addEventListener('input',()=>{formDirty=true;saveHint.textContent='Unsaved changes';renderOled();});
  adminForm.addEventListener('change',()=>{formDirty=true;saveHint.textContent='Unsaved changes';renderOled();});
  adminForm.addEventListener('submit',saveSettings);
  document.querySelectorAll('[data-oled-bit]').forEach(el=>el.addEventListener('change',renderOled));
- ['oledPercentSize','oledLitresSize','oledBottomSize','oledInvert'].forEach(id=>$(id).addEventListener('change',renderOled));
+ ['oledPercentSize','oledBottomSize','oledInvert'].forEach(id=>$(id).addEventListener('change',renderOled));
  $('rangeSeg').addEventListener('click',e=>{
   const b=e.target.closest('button[data-range]'); if(!b)return;
   rangeSec=Number(b.dataset.range)||0;
@@ -1003,7 +939,6 @@ function bind(){
  if(window.ResizeObserver){new ResizeObserver(()=>{if(!overlay.hidden)drawChart();}).observe($('histChart').parentElement);}
 }
 bind();
-if(!adminToken){$('adminSub').textContent='Passcode protected · click ADMIN to unlock';}
 })();
 </script>
 </body>

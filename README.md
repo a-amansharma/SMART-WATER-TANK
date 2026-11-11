@@ -6,7 +6,7 @@ A two-board ESP32 water-tank monitor and controller.
 - **ESP32_B** is indoors. It runs the OLED, relays, buzzer, motor buttons, Wi-Fi access point, and phone dashboard.
 - The two boards talk wirelessly with **ESP-NOW**. No router or internet is needed.
 - The phone dashboard is served by ESP32_B at **http://192.168.4.1/**.
-- The dashboard includes a passcode-protected **Admin** control centre (default passcode **14789**) for calibration, filtering, mirror, buzzer, OLED, history, diagnostics, and reboot controls.
+- The dashboard includes an open **Admin** control centre for calibration, filtering, mirror, buzzer, OLED, history, diagnostics, and reboot controls. No passcode is required on the local access point.
 
 This folder contains these files:
 
@@ -264,15 +264,13 @@ The firmware tries address `0x3C` first and then `0x3D`.
 
 The default OLED shows:
 
-- A very large water percentage (font size 5).
-- Water volume in integer litres below the percentage (font size 2).
+- A very large water percentage (font size 6) with a smaller `%` sign.
 - Bottom-left link status: `CONNECTED` or `NO LINK` (font size 1).
 - Bottom-right integer litres (font size 1).
 
-The Admin page can show/hide percent, litres, link status, bottom litres, live/stale
-status, and distance. It can also change the three font sizes, contrast, and inversion.
-The live preview on the Admin page approximates the 128×64 OLED. Defaults preserve the
-original layout.
+The Admin page can show/hide percent, link status, bottom litres, live/stale status,
+and distance. It can also change the percentage and bottom font sizes, contrast, and
+inversion. The live preview approximates the 128×64 OLED.
 
 ---
 
@@ -360,20 +358,21 @@ filtering only if the installation is noisy.
 
 ### Link status
 
-- ESP32_B has a 5-second ESP-NOW link timeout and a separate valid-water timeout.
+- ESP32_B has an 8-second ESP-NOW link timeout and a separate valid-water timeout.
 - Touch states remain usable while the ESP-NOW link is online even if the water reading is invalid.
 - If the link is lost, the buzzer is stopped and both touch indicators turn off.
-- The OLED shows `CONNECTED` while ESP-NOW packets are arriving and `NOT CONNECTED` after the link is lost.
+- The OLED shows `CONNECTED` while ESP-NOW packets are arriving and `NO LINK` after the link is lost.
+- ESP32_B accepts both current protocol v2 packets and legacy v1 packets from an older ESP32_A, so a B-only update keeps the roof sensor online.
 
 ### Mirror Light
 
 - The HC-SR04 on ESP32_B looks for a person.
 - Person closer than 100 cm for about 0.4 seconds: Mirror Light ON.
-- Person farther than 105 cm for about 0.8 seconds: Mirror Light OFF.
-- The gap between 100 and 105 cm and the confirmation times reject brief false triggers.
-- If the person sensor reading is invalid, the light holds briefly and then turns OFF after 2 seconds.
-- ON/OFF distances, both confirmation times, invalid holdoff, and an optional maximum
-  auto-on time are editable in Admin. Auto detection can also be disabled.
+- Person farther than 105 cm: Mirror Light OFF immediately.
+- The gap between 100 and 105 cm rejects brief false triggers.
+- If the person sensor reading becomes invalid, the light turns OFF immediately.
+- ON/OFF distances, the ON confirmation time, and an optional maximum auto-on time are
+  editable in Admin. Auto detection can also be disabled.
 - The phone can switch the Mirror Light ON or OFF at any time.
 - Holding the GPIO 4 button for 3 seconds toggles manual override ON/OFF.
 - Phone **OFF** immediately exits manual override and keeps the relay off until the
@@ -424,7 +423,7 @@ ESP32_A prints the received B status to the serial monitor. ESP32_A saves a vali
 SettingsPacket to NVS, resets its measurement state, and reports the new revision in its
 next WaterPacket. ESP32_B keeps retrying until the revisions match.
 
-Protocol version is **2**. Both boards must be reflashed together.
+Current protocol version is **2**. ESP32_B also accepts legacy v1 WaterPacket and CommandPacket frames from an older ESP32_A, so a B-only update is supported. Runtime settings sync to ESP32_A requires v2 on both boards.
 
 ---
 
@@ -463,8 +462,8 @@ Protocol version is **2**. Both boards must be reflashed together.
 | `writeIndicatorPin()` | Applies the indicator output polarity. |
 | `setBuzzerOutput()` | Turns the active buzzer on/off, or generates a tone for a passive buzzer. |
 | `initSafeOutputs()` | Forces relays, RF outputs, indicators, and buzzer OFF at boot. |
-| `computeLinkOnline()` | Checks for any valid ESP-NOW packet newer than 5 seconds. |
-| `computeOnline()` | Checks for a valid water packet newer than 5 seconds. |
+| `computeLinkOnline()` | Checks for any valid ESP-NOW packet newer than 8 seconds. |
+| `computeOnline()` | Checks for a valid water packet newer than 8 seconds. |
 | `buzzerStateName()` | Returns ALERTING, SILENCED, or READY. |
 | `stopBuzzerForLinkLoss()` | Stops the buzzer if the water link is lost. |
 | `manualStopBuzzer()` | Stops the buzzer from a button or the dashboard. |
@@ -480,7 +479,7 @@ Protocol version is **2**. Both boards must be reflashed together.
 | `pushHcSample()` | Adds an HC-SR04 sample to the filter ring. |
 | `startHcSample()` | Sends one HC-SR04 trigger pulse. |
 | `serviceHcSensor()` | Runs the non-blocking person-sensor sampling. |
-| `updateAutoRelay1()` | Confirms person ON/OFF, respects manual override, and blocks auto until clear after phone OFF. |
+| `updateAutoRelay1()` | Confirms person ON, turns OFF immediately on clear, respects manual override, and blocks auto until clear after phone OFF. |
 | `releaseMotorOutput()` | Releases one RF output. |
 | `pressMotor()` | Presses one RF output and releases the other. |
 | `serviceMotorSafety()` | Releases a press after 4 seconds and prevents both outputs being held. |
@@ -489,7 +488,7 @@ Protocol version is **2**. Both boards must be reflashed together.
 | `serviceLink()` | Detects link/water online changes and updates indicators. |
 | `serviceBuzzerButton()` | Debounces short press and detects the 3-second long press. |
 | `initOled()` | Starts I2C, finds the OLED, sets maximum brightness, and clears it. |
-| `drawOled()` | Draws large percentage, litres, link status, and bottom litres. |
+| `drawOled()` | Draws the large percentage, link status, and bottom litres. |
 | `buildStateJson()` | Builds the `/api/state` JSON response. |
 | `sendJsonState()` | Sends the current state to the dashboard. |
 | `sendApiError()` | Sends a JSON error response. |
@@ -519,33 +518,32 @@ Protocol version is **2**. Both boards must be reflashed together.
 | Polling | Reads `/api/state` every 500 ms. |
 | Timeout | Gives up after 2.5 seconds and backs off to 5 seconds. |
 | Water display | Shows percentage, integer litres, bar, distance, and FILLING/OVERFLOWING/STABLE touch capsules. |
-| Stale data | Keeps the last values but marks them stale. |
-| Mirror Light | Toggle follows the actual Relay 1 state and shows person/manual mode. |
+| Stale data | Keeps the last water percentage and draws a thin underline while link/data is stale. |
+| Mirror Light | Toggle follows the actual Relay 1 state and shows person/manual mode; auto-off is immediate. |
 | Bulb | Toggle follows Relay 2. |
 | Motor | Press and hold sends pressed; release sends released. |
 | Safety | Releases held motor buttons when the page loses focus or closes. |
 | Buzzer | STOP BUZZER sends the stop command. |
-| Admin | Top-right ADMIN button opens a passcode prompt; default passcode `14789`. |
+| Admin | Top-right ADMIN button opens the Admin page directly; no passcode. |
 
 ### Admin control centre
 
 The Admin page is part of the same `index.html` and is served at `http://192.168.4.1/`.
 It is a full-screen overlay; the original dashboard controls remain unchanged behind it.
 
-- **Passcode:** default `14789`, changeable in Admin (4–7 characters). If locked out,
-  hold the ESP32_B GPIO 4 button for 10 seconds to restore the default passcode.
+- **Access:** no passcode. Any phone on the local ESP32_B access point can open Admin.
 - **Live diagnostics:** ESP32_A online/link state, uptime, reset reason, valid/timeout
   echo counts, flags, settings-sync state, current level, ESP-NOW link.
 - **History graph:** stored water samples with rising/filling and falling/draining
   colours, range buttons, and automatic old-sample trimming.
 - **Noise/event log:** no-echo, timeout, jump, stuck, out-of-range, link loss/restore,
-  mirror dropouts, reboot, settings, and admin events.
+  mirror dropouts, reboot, and settings events.
 - **Water settings:** full/empty/deadband, capacity, sensor limits, smoothing, jump
   limit/confirmations, stuck timeout, measure period, sample spacing, samples/cycle.
-- **Mirror settings:** enable, ON/OFF distances, confirm times, invalid holdoff, max auto-on.
+- **Mirror settings:** enable, ON/OFF distances, ON confirm time, max auto-on. OFF is immediate.
 - **Buzzer settings:** enable, start/re-arm thresholds, confirmations, duration, beeps
   per second, beep ON time, intensity.
-- **OLED settings:** show/hide fields, font sizes, contrast, inversion, live 128×64 preview.
+- **OLED settings:** show/hide fields, percentage/bottom font sizes, contrast, inversion, live 128×64 preview.
 - **History settings:** enable, sample interval, retention days, clear history/events.
 - **Maintenance:** reboot ESP32_A, reboot ESP32_B, clear history, clear events.
 - **Technical information:** MACs, IP, channel, uptime, reset reasons, free heap, flash,
@@ -698,12 +696,12 @@ The dashboard polls state every 500 ms. Command requests time out after 3 second
 
 1. Power ESP32_B with no mains load connected. Confirm relays are OFF at boot.
 2. Connect to the `Smart Water Tank` Wi-Fi and open `http://192.168.4.1/`.
-3. Confirm the OLED shows `NOT CONNECTED` before ESP32_A starts.
+3. Confirm the OLED shows `NO LINK` before ESP32_A starts.
 4. Power ESP32_A and confirm the OLED changes to `CONNECTED`.
 5. Move the water sensor and watch the percentage change.
 6. Short ESP32_A GPIO 4 / GPIO 15 to GND in turn and confirm the blue/red LEDs and dashboard capsules change immediately.
 7. Hold a hand within 100 cm of the HC-SR04. Mirror Light should turn ON.
-8. Remove your hand beyond 105 cm. Mirror Light should turn OFF.
+8. Remove your hand beyond 105 cm. Mirror Light should turn OFF immediately.
 9. Use the phone Mirror Light toggle while no person is detected. It should stay ON or OFF with no timer.
 10. Test the Bulb toggle.
 11. Test the buzzer at full water, then press the physical button and the dashboard button.
@@ -774,7 +772,7 @@ Checked with Arduino-ESP32 core 3.3.11:
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 899,236 bytes (68 %) | 46,304 bytes (14 %) |
-| ESP32_B | 1,155,599 bytes (88 %) | 49,940 bytes (15 %) |
+| ESP32_B | 1,147,855 bytes (87 %) | 49,924 bytes (15 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
