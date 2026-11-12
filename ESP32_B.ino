@@ -535,11 +535,12 @@ function render(s){
   distanceEl.textContent=linkOk?'Waiting for valid water data…':'ESP-NOW link to ESP32_A unavailable';
  }
 
- const filling=linkOk&&s.filling===true, overflowing=linkOk&&s.draining===true;
+ const filling=(s.filling===true), overflowing=(s.draining===true);
  fillCapsule.classList.toggle('hidden',!filling); fillCapsule.classList.toggle('active',filling);
  overflowCapsule.classList.toggle('hidden',!overflowing); overflowCapsule.classList.toggle('active',overflowing);
- stableCapsule.classList.toggle('hidden',filling||overflowing); stableCapsule.classList.toggle('offline',!linkOk);
- stableCapsule.textContent=linkOk?'STABLE':'NO SIGNAL';
+ stableCapsule.classList.toggle('hidden',filling||overflowing);
+ stableCapsule.classList.toggle('offline',!linkOk);
+ stableCapsule.textContent=linkOk?'STABLE':'NO A LINK';
 
  // Local B controls always live
  const mirrorOn=(s.relay1===true);
@@ -1995,8 +1996,8 @@ String buildStateJson() {
   if (haveValidWater) j += String((unsigned)lastValidLitres);
   else                j += "null";
   j += ",\"distance\":";     j += jsonFloatOrNull(haveValidWater, lastValidDistanceCm, 1);
-  j += ",\"filling\":";      j += (linkNow && fillingActive) ? "true" : "false";
-  j += ",\"draining\":";     j += (linkNow && drainingActive) ? "true" : "false";
+  j += ",\"filling\":";      j += fillingActive ? "true" : "false";
+  j += ",\"draining\":";     j += drainingActive ? "true" : "false";
   j += ",\"linkAgeMs\":";
   if (lastAnyRxMs != 0) j += String((uint32_t)(millis() - lastAnyRxMs));
   else                  j += "-1";
