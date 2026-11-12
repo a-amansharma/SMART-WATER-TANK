@@ -783,7 +783,7 @@ void defaultSettings(AppSettings &c) {
   c.version = B_SETTINGS_VERSION;
   c.revision = 1;
   c.aRevision = 1;
-  c.fullDistanceCm = 10.0f;
+  c.fullDistanceCm = 21.0f;
   c.emptyDistanceCm = 76.0f;
   c.emptyDeadbandCm = 2.0f;
   c.tankCapacityL = 750.0f;
@@ -827,7 +827,7 @@ void defaultSettings(AppSettings &c) {
 }
 
 void clampSettings(AppSettings &c) {
-  if (!isfinite(c.fullDistanceCm)) c.fullDistanceCm = 10.0f;
+  if (!isfinite(c.fullDistanceCm)) c.fullDistanceCm = 21.0f;
   if (!isfinite(c.emptyDistanceCm)) c.emptyDistanceCm = 76.0f;
   if (!isfinite(c.emptyDeadbandCm)) c.emptyDeadbandCm = 2.0f;
   if (!isfinite(c.tankCapacityL)) c.tankCapacityL = 750.0f;

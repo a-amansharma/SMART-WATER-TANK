@@ -97,7 +97,7 @@ static const uint8_t OTA_AP_MAX_CLIENTS = 2;
 
 // Calibration defaults. These are runtime settings saved in NVS and can be
 // updated from the ESP32_B admin page without recompiling ESP32_A.
-#define DEF_FULL_DISTANCE_CM   10.0f
+#define DEF_FULL_DISTANCE_CM   21.0f   // calibrated: tank overflows near 84% with 10cm, adjust to reach 100%
 #define DEF_EMPTY_DISTANCE_CM  76.0f
 #define DEF_EMPTY_DEADBAND_CM   2.0f
 #define DEF_SENSOR_MIN_CM       2.0f
