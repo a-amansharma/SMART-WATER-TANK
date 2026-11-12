@@ -118,9 +118,9 @@ static const uint32_t MOTOR_MAX_PRESS_MS     = 4000;
 static const uint32_t BUTTON_DEBOUNCE_MS     = 50;
 static const uint32_t BUTTON_LONG_PRESS_MS   = 3000;
 
-static const float    FULL_LEVEL_PERCENT     = 97.0f; // buzzer alert threshold
+static const float    FULL_LEVEL_PERCENT     = 95.0f; // buzzer alert threshold
 static const uint8_t  FULL_CONFIRM_READINGS  = 2;
-static const float    REARM_PERCENT          = 93.0f;
+static const float    REARM_PERCENT          = 92.0f;
 static const uint32_t BUZZER_ALERT_MAX_MS    = 40000;
 static const uint32_t BUZZER_TEST_MS         = 5000;
 static const uint32_t BUZZER_BEEP_PERIOD_MS  = 200;  // 5 beeps per second
@@ -837,8 +837,8 @@ void clampSettings(AppSettings &c) {
   if (!isfinite(c.jumpLimitCm)) c.jumpLimitCm = 30.0f;
   if (!isfinite(c.mirrorOnCm)) c.mirrorOnCm = 100.0f;
   if (!isfinite(c.mirrorOffCm)) c.mirrorOffCm = 105.0f;
-  if (!isfinite(c.buzzerFullPercent)) c.buzzerFullPercent = 97.0f;
-  if (!isfinite(c.buzzerRearmPercent)) c.buzzerRearmPercent = 93.0f;
+  if (!isfinite(c.buzzerFullPercent)) c.buzzerFullPercent = 95.0f;
+  if (!isfinite(c.buzzerRearmPercent)) c.buzzerRearmPercent = 92.0f;
 
   c.fullDistanceCm = constrain(c.fullDistanceCm, 1.0f, 120.0f);
   c.sensorMinCm = constrain(c.sensorMinCm, 1.0f, 100.0f);
