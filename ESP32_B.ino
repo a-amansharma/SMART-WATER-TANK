@@ -11,8 +11,8 @@
     * receive water level, touch states and START/STOP commands from ESP32_A
     * send sensor/status information back to ESP32_A
     * 750 L tank percentage/volume model, full-tank buzzer
-    * topmost (GPIO 4) probe -> buzzer 5x/sec + RED LED blink, overflow
-      (GPIO 15) probe -> BLUE LED, and dashboard capsules
+    * topmost (GPIO 4) probe -> BLUE LED, overflow (GPIO 15) probe -> RED LED
+      (both steady, 2 s deadband), and dashboard capsules
     * HC-SR04 person detection -> Relay 1 automatic mirror light
     * phone Mirror Light control, 3 s button manual override, Relay 2, RF
     * 0.96" I2C OLED, Wi-Fi AP "Smart Water Tank", local dashboard
@@ -91,8 +91,8 @@ static const char OTA_PASSWORD[] = "dks12345";  // >>> CHANGE before deployment
 #define PIN_BTN_BUZZER_STOP 4    // other side of button to GND; INPUT_PULLUP
 #define BUTTON_ACTIVE_LOW   true
 
-#define PIN_IND_BLUE       16   // OVERFLOW (GPIO 15) indicator (NPN/MOSFET driver)
-#define PIN_IND_RED        17   // TOPMOST level (GPIO 4) indicator
+#define PIN_IND_BLUE       16   // TOPMOST (GPIO 4) indicator (NPN/MOSFET driver)
+#define PIN_IND_RED        17   // OVERFLOW (GPIO 15) indicator
 #define IND_ACTIVE_HIGH    true
 
 #define PIN_RF_START       18   // to isolated remote-button switching circuit
@@ -144,7 +144,7 @@ static const uint32_t BUZZER_BEEP_PERIOD_MS  = 200;  // 5 beeps per second
 static const uint32_t BUZZER_BEEP_ON_MS      = 80;
 
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
-#define B_SETTINGS_VERSION 4u          // bumped: refreshes stale calibration/filter values
+#define B_SETTINGS_VERSION 5u          // bumped: refreshes stale calibration/filter values
 
 // History storage limits. Samples are CSV lines in LittleFS; old lines are
 // compacted automatically so the log stays bounded.
@@ -403,8 +403,8 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .touch-capsules{display:flex;gap:6px;flex-wrap:wrap}
 .capsule{font-size:10px;font-weight:900;letter-spacing:.6px;border-radius:999px;padding:6px 10px;border:1px solid #dbe3eb;background:#f3f7fa;color:#65768a}
 .capsule.hidden{display:none}
-.capsule.filling.active{color:#fff;border-color:#f27182;background:#e03a52}
-.capsule.overflowing.active{color:#fff;border-color:#2eb7f0;background:#1697d8}
+.capsule.filling.active{color:#fff;border-color:#2eb7f0;background:#1697d8}
+.capsule.overflowing.active{color:#fff;border-color:#f27182;background:#e03a52}
 .capsule.stable{color:#087c4a;border-color:#b9e6cd;background:#e9f9f0}
 .capsule.stable.offline{color:#bd2d40;border-color:#efbdc4;background:#fff0f2}
 .distance{font-size:10px;color:#6f8195;font-weight:700;text-align:right}
@@ -723,9 +723,6 @@ bool     buzzerTesting = false;
 bool     buzzerArmed = true;
 uint32_t buzzerStartMs = 0;
 uint32_t buzzerTestStartMs = 0;
-uint32_t buzzerProbeStartMs = 0;      // topmost-probe beep phase reference
-bool     probeBuzzerMuted = false;    // topmost beep silenced until probe clears
-bool     buzzerOutputOn = false;      // last level written (RED LED blink sync)
 uint8_t  fullConfirmCount = 0;
 
 // --- HC-SR04 / Relay 1 ---
@@ -830,8 +827,8 @@ void defaultSettings(AppSettings &c) {
   c.version = B_SETTINGS_VERSION;
   c.revision = 1;
   c.aRevision = 1;
-  c.fullDistanceCm = 25.0f;
-  c.emptyDistanceCm = 84.0f;
+  c.fullDistanceCm = 18.0f;
+  c.emptyDistanceCm = 85.0f;
   c.emptyDeadbandCm = 0.0f;
   c.tankCapacityL = 750.0f;
   c.sensorMinCm = 2.0f;
@@ -874,8 +871,8 @@ void defaultSettings(AppSettings &c) {
 }
 
 void clampSettings(AppSettings &c) {
-  if (!isfinite(c.fullDistanceCm)) c.fullDistanceCm = 25.0f;
-  if (!isfinite(c.emptyDistanceCm)) c.emptyDistanceCm = 84.0f;
+  if (!isfinite(c.fullDistanceCm)) c.fullDistanceCm = 18.0f;
+  if (!isfinite(c.emptyDistanceCm)) c.emptyDistanceCm = 85.0f;
   if (!isfinite(c.emptyDeadbandCm)) c.emptyDeadbandCm = 0.0f;
   if (!isfinite(c.tankCapacityL)) c.tankCapacityL = 750.0f;
   if (!isfinite(c.sensorMinCm)) c.sensorMinCm = 2.0f;
@@ -898,8 +895,8 @@ void clampSettings(AppSettings &c) {
     c.emptyDistanceCm = t;
   }
   if (c.emptyDistanceCm - c.fullDistanceCm < 5.0f) {
-    c.fullDistanceCm = 25.0f;
-    c.emptyDistanceCm = 84.0f;
+    c.fullDistanceCm = 18.0f;
+    c.emptyDistanceCm = 85.0f;
   }
   c.emptyDeadbandCm = constrain(c.emptyDeadbandCm, 0.0f, 20.0f);
   c.sensorMinCm = constrain(c.sensorMinCm, 1.0f, 100.0f);
@@ -962,9 +959,9 @@ bool loadSettings() {
     migrated = true;
   } else if (fabsf(settings.fullDistanceCm - 29.0f) < 0.2f &&
              fabsf(settings.emptyDistanceCm - 76.0f) < 0.2f) {
-    // Migrate old calibration to corrected tank model (25 cm full / 84 cm empty).
-    settings.fullDistanceCm = 25.0f;
-    settings.emptyDistanceCm = 84.0f;
+    // Migrate old calibration to corrected tank model (18 cm full / 85 cm empty).
+    settings.fullDistanceCm = 18.0f;
+    settings.emptyDistanceCm = 85.0f;
     settings.emptyDeadbandCm = 0.0f;
     settings.sensorMaxCm = 200.0f;
     settings.smoothAlpha = 0.50f;
@@ -1337,7 +1334,6 @@ void writeIndicatorPin(uint8_t pin, bool on) {
 void setBuzzerOutput(bool on) {
   // Active buzzer (e.g. TMB12A05): GPIO13 -> 1k -> NPN base, emitter GND,
   // collector -> buzzer(-), buzzer(+) -> +5V. HIGH on GPIO turns NPN on => beep.
-  buzzerOutputOn = on;   // tracked so the RED LED can blink in sync
   pinMode(PIN_BUZZER, OUTPUT);
   noTone(PIN_BUZZER);
   if (!BUZZER_IS_ACTIVE) {
@@ -1408,8 +1404,6 @@ bool computeOnline() {
 const char *buzzerStateName() {
   if (buzzerTesting)  return "TESTING";
   if (buzzerAlerting) return "ALERTING";
-  if (computeLinkOnline() && fillingActive &&
-      settings.buzzerEnabled && !probeBuzzerMuted) return "ALERTING";
   if (!buzzerArmed)   return "SILENCED";
   return "READY";
 }
@@ -1425,14 +1419,12 @@ void stopBuzzerForLinkLoss() {
 }
 
 void manualStopBuzzer() {
-  bool wasActive = buzzerAlerting || buzzerTesting ||
-                   (computeLinkOnline() && fillingActive);
+  bool wasActive = buzzerAlerting || buzzerTesting;
   buzzerTesting = false;
   if (buzzerAlerting) {
     buzzerAlerting = false;
-    buzzerArmed = false;      // remains disarmed until level < 92 %
+    buzzerArmed = false;      // re-arms only after the level falls below 92 %
   }
-  if (fillingActive) probeBuzzerMuted = true;  // topmost beep stays silent
   setBuzzerOutput(false);
   if (wasActive) DBGLN("[B] Buzzer stopped by user");
 }
@@ -1502,29 +1494,22 @@ void serviceBuzzer() {
     return;
   }
 
-  // Topmost-probe alert: beep continuously while the GPIO 4 probe is in water
-  // (unless the buzzer is disabled in settings or silenced with the button).
-  bool probeAlert = computeLinkOnline() && fillingActive &&
-                    settings.buzzerEnabled && !probeBuzzerMuted;
-
-  // The level-based full-tank alert has a maximum duration.
-  if (buzzerAlerting &&
-      (uint32_t)(millis() - buzzerStartMs) >= settings.buzzerDurationMs) {
-    buzzerAlerting = false;
-    buzzerArmed = false;
-    DBG("[B] Buzzer alert timed out after %lu s\n",
-        (unsigned long)(settings.buzzerDurationMs / 1000UL));
-  }
-
-  if (!buzzerAlerting && !probeAlert) {
+  if (!buzzerAlerting) {
     setBuzzerOutput(false);
     return;
   }
 
-  // Beep 5x/sec (period 200 ms, on 80 ms). The level alert uses its own start
-  // time; the probe alert uses the moment the probe first went active.
-  uint32_t refMs = buzzerAlerting ? buzzerStartMs : buzzerProbeStartMs;
-  uint32_t phase = (uint32_t)(millis() - refMs) % settings.buzzerBeepPeriodMs;
+  uint32_t elapsed = millis() - buzzerStartMs;
+  if (elapsed >= settings.buzzerDurationMs) {
+    buzzerAlerting = false;
+    buzzerArmed = false;
+    setBuzzerOutput(false);
+    DBG("[B] Buzzer alert timed out after %lu s\n",
+        (unsigned long)(settings.buzzerDurationMs / 1000UL));
+    return;
+  }
+
+  uint32_t phase = elapsed % settings.buzzerBeepPeriodMs;
   setBuzzerOutput(phase < settings.buzzerBeepOnMs);
 }
 
@@ -1897,21 +1882,11 @@ uint32_t motorRemainingMs(bool startChannel) {
    ========================================================================== */
 
 void updateIndicators(bool linkOnlineNow) {
-  // GPIO 4 topmost probe  -> RED LED  (blinks in sync with the buzzer, 5x/sec)
-  // GPIO 15 overflow probe -> BLUE LED (solid; A adds the extra 2 s glow)
-  bool topProbe = linkOnlineNow && fillingActive;
-  bool overflow = linkOnlineNow && drainingActive;
-
-  bool red  = indRedTestOn  || topProbe;
-  bool blue = indBlueTestOn || overflow;
-
-  // While the topmost probe drives the buzzer, follow the exact beep phase so
-  // the RED LED blinks with it. If the buzzer is disabled or was silenced, the
-  // RED LED stays solid to still show the probe is submerged.
-  if (!indRedTestOn && topProbe && settings.buzzerEnabled && !probeBuzzerMuted) {
-    red = buzzerOutputOn;
-  }
-
+  // GPIO 4 topmost probe  -> BLUE LED (steady)
+  // GPIO 15 overflow probe -> RED LED  (steady)
+  // Both LEDs follow A's 2 s deadband; no LED ever blinks.
+  bool blue = indBlueTestOn || (linkOnlineNow && fillingActive);
+  bool red  = indRedTestOn  || (linkOnlineNow && drainingActive);
   if (blue != prevBlue) {
     writeIndicatorPin(PIN_IND_BLUE, blue);
     prevBlue = blue;
@@ -1937,7 +1912,6 @@ void serviceLink() {
   if (prevLinkOnline && !linkNow) {
     fillingActive = false;
     drainingActive = false;
-    probeBuzzerMuted = false;
     // Do not force the pins off here: updateIndicators() still applies any
     // active LED test override from the dashboard.
     logEvent(6, 0);
@@ -2188,10 +2162,7 @@ String buildStateJson() {
   j += ",\"indBlueTest\":";  j += indBlueTestOn ? "true" : "false";
   j += ",\"indRedTest\":";   j += indRedTestOn ? "true" : "false";
 
-  j += ",\"buzzerActive\":";
-  j += (buzzerAlerting || buzzerTesting ||
-        (computeLinkOnline() && fillingActive &&
-         settings.buzzerEnabled && !probeBuzzerMuted)) ? "true" : "false";
+  j += ",\"buzzerActive\":"; j += (buzzerAlerting || buzzerTesting) ? "true" : "false";
   j += ",\"buzzerTest\":";   j += buzzerTesting ? "true" : "false";
   j += ",\"buzzerTestRemainingMs\":";
   j += buzzerTesting ? String((unsigned long)(BUZZER_TEST_MS - (millis() - buzzerTestStartMs))) : "0";
@@ -2910,18 +2881,15 @@ void handleWaterPacket(const RxItem &item) {
   fillingActive = (filling != 0);
   drainingActive = (draining != 0);
 
-  // GPIO 4 topmost probe rising edge: start the beep phase and un-mute. The
-  // alert beeps 5x/sec with the RED LED until the probe leaves the water.
+  // GPIO 4 topmost probe -> BLUE LED; GPIO 15 overflow probe -> RED LED. Both
+  // LEDs are steady and follow the 2 s deadband applied on ESP32_A.
   if (fillingActive && !prevFilling) {
-    buzzerProbeStartMs = millis();
-    probeBuzzerMuted = false;
-    DBGLN("[B] TOPMOST probe: water at top level -> buzzer + RED LED");
+    DBGLN("[B] TOPMOST probe: water at top level -> BLUE LED");
   } else if (!fillingActive && prevFilling) {
-    probeBuzzerMuted = false;
     DBGLN("[B] TOPMOST probe clear");
   }
   if (drainingActive && !prevDraining) {
-    DBGLN("[B] OVERFLOW probe: water overflowing -> BLUE LED");
+    DBGLN("[B] OVERFLOW probe: water overflowing -> RED LED");
   }
 
   if (version >= 2) {

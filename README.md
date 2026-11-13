@@ -24,8 +24,8 @@ The dashboard HTML is embedded inside `ESP32_B.ino`. There is no separate
 `index.html`.
 
 > **Cleanup note:** this README replaces the old separate wiring/OTA documents.
-> It also corrects several stale values: the current firmware uses 25 cm full /
-> 84 cm empty calibration, a 15 s link timeout, 95 % buzzer-on / 92 % re-arm,
+> It also corrects several stale values: the current firmware uses 18 cm full /
+> 85 cm empty calibration, a 15 s link timeout, 95 % buzzer-on / 92 % re-arm,
 > and a 700 ms dashboard poll. See [Changes made](#14-changes-made-in-this-cleanup).
 
 ---
@@ -79,8 +79,8 @@ Never feed a 5 V signal directly into an ESP32 GPIO. Both ECHO lines need the
 | **A** | Ultrasonic sensor | ECHO | Divider output → GPIO 18 | **5 V signal — divider required.** |
 | **A** | Echo divider | R1 1 kΩ | Sensor ECHO → GPIO 18 | Series resistor. |
 | **A** | Echo divider | R2 2 kΩ | GPIO 18 → GND | Lower resistor. |
-| **A** | Topmost probe (GPIO 4) | Probe / switch | GPIO 4 ↔ GND | Active LOW, internal pull-up. Tank-full alert: buzzer + RED LED. |
-| **A** | Overflow probe (GPIO 15) | Probe / switch | GPIO 15 ↔ GND | Active LOW, internal pull-up. BLUE LED + 2 s glow. GPIO 15 is a boot-strap pin; keep it HIGH at reset. |
+| **A** | Topmost probe (GPIO 4) | Probe / switch | GPIO 4 ↔ GND | Active LOW, internal pull-up. Tank-full indicator: BLUE LED (2 s deadband). |
+| **A** | Overflow probe (GPIO 15) | Probe / switch | GPIO 15 ↔ GND | Active LOW, internal pull-up. Overflow indicator: RED LED (2 s deadband). GPIO 15 is a boot-strap pin; keep it HIGH at reset. |
 | **A** | START button | Button | GPIO to assign | Optional. Firmware default is `-1` (disabled). |
 | **A** | STOP button | Button | GPIO to assign | Optional. Firmware default is `-1` (disabled). |
 | **B** | OLED SSD1306 | VCC | 3.3 V | Check your module; most 4-pin I2C modules are 3.3 V. |
@@ -128,11 +128,12 @@ ESP32_A GPIO 15 ---- OVERFLOW probe / switch ------------- GND
 - Open circuit = inactive (internal pull-up holds GPIO HIGH).
 - Closed circuit to GND = active (GPIO reads LOW). Both probes are submerged
   sensors, so a submerged probe reads LOW.
-- **GPIO 4 (topmost):** when water reaches the topmost level, ESP32_B beeps the
-  buzzer 5×/sec and blinks the RED LED in sync. There is no hold, so the alert
-  stops the moment the probe leaves the water.
+- **GPIO 4 (topmost):** when water reaches the topmost level, ESP32_B lights the
+  **BLUE LED**. The LED stays lit for **2 s** after the probe releases (deadband),
+  so brief flicker/bounce is ignored, then it turns off smoothly.
 - **GPIO 15 (overflow):** when water reaches the overflow probe, ESP32_B lights
-  the BLUE LED and keeps it on for an extra 2 s after the probe releases.
+  the **RED LED**, with the same **2 s** deadband.
+- **No LED ever blinks** — both indicators are steady.
 - For long probe leads, add a 10 kΩ pull-up from the GPIO to 3.3 V and a
   100 nF capacitor from GPIO to GND close to the ESP32.
 - Keep probe wiring away from mains wiring.
@@ -218,8 +219,8 @@ Remote button pad B ---- PC817 pin 3 (emitter)
 |---|---:|---|
 | Ultrasonic TRIG | 5 | Output. |
 | Ultrasonic ECHO | 18 | Input, must be divided to ≤ 3.3 V. |
-| Topmost level probe | 4 | Active LOW, `INPUT_PULLUP`. Buzzer + RED LED when submerged. |
-| Overflow probe | 15 | Active LOW, `INPUT_PULLUP`; boot-strap pin. BLUE LED + 2 s glow. |
+| Topmost level probe | 4 | Active LOW, `INPUT_PULLUP`. BLUE LED (2 s deadband). |
+| Overflow probe | 15 | Active LOW, `INPUT_PULLUP`; boot-strap pin. RED LED (2 s deadband). |
 | START button | -1 | Disabled. Assign a safe GPIO if needed. |
 | STOP button | -1 | Disabled. Assign a safe GPIO if needed. |
 
@@ -235,8 +236,8 @@ Remote button pad B ---- PC817 pin 3 (emitter)
 | Relay 2 (Bulb) | 33 | Active LOW by default. |
 | Buzzer NPN base | 13 | Active HIGH. |
 | Buzzer-stop / override button | 4 | Active LOW, `INPUT_PULLUP`. |
-| Blue overflow indicator | 16 | Active HIGH. |
-| Red topmost-level indicator | 17 | Active HIGH. |
+| Blue topmost-level indicator | 16 | Active HIGH. |
+| Red overflow indicator | 17 | Active HIGH. |
 | RF remote START | 18 | Active HIGH. |
 | RF remote STOP | 19 | Active HIGH. |
 | Reserved | 2, 14, 23 | Not initialized by the firmware. |
@@ -264,8 +265,8 @@ Defaults are stored in NVS and can be changed at runtime from the Admin API
 
 | Setting | Default |
 |---|---:|
-| Full distance (100 %) | 25.0 cm |
-| Empty distance (0 %) | 84.0 cm |
+| Full distance (100 %) | 18.0 cm |
+| Empty distance (0 %) | 85.0 cm |
 | Empty deadband | 0.0 cm |
 | Sensor range | 2.0 – 200.0 cm |
 | Tank capacity | 750 L |
@@ -282,18 +283,18 @@ Percentage formula (the only one in the firmware):
 
 ```text
 percent = ((emptyDistance - measuredDistance) / (emptyDistance - fullDistance)) × 100
-       = ((84 - measuredDistance) / 59) × 100
+       = ((85 - measuredDistance) / 67) × 100
 ```
 
 Result is clamped to 0–100 %. Reference points:
 
 | Tank | Distance | Percent |
 |---|---:|---:|
-| Empty | 84.0 cm | 0 % |
-| 25 % | 69.25 cm | 25 % |
-| Half | 54.5 cm | 50 % |
-| 75 % | 39.75 cm | 75 % |
-| Full | 25.0 cm (or less) | 100 % |
+| Empty | 85.0 cm | 0 % |
+| 25 % | 68.25 cm | 25 % |
+| Half | 51.5 cm | 50 % |
+| 75 % | 34.75 cm | 75 % |
+| Full | 18.0 cm (or less) | 100 % |
 
 The sensor faces down, so **water rising means distance falling and percentage
 rising**. ESP32_A computes this value once per reading; the OLED and the web
@@ -316,14 +317,14 @@ needed so a real empty reading is not discarded.
 ### Important: ultrasonic blind zone
 
 The JSN-SR04T / AJ-SR04M waterproof probe cannot measure closer than about
-**20–25 cm**. The 25 cm full point sits right at the edge of that blind zone, so
-the sensor can read a little short or drift when the tank is nearly full. That is
-why the physical **GPIO 4 topmost probe** is the reliable "tank is full"
-indicator: when water reaches it, ESP32_B beeps the buzzer 5×/sec and blinks the
-RED LED, independently of the ultrasonic reading.
+**20–25 cm**. The 18 cm full point is **inside** that blind zone, so the sensor
+may not read the last part of the tank reliably. That is why the physical
+**GPIO 4 topmost probe** is the dependable "tank is full" indicator: when water
+reaches it, ESP32_B lights the **BLUE LED** (steady, with a 2 s deadband),
+independently of the ultrasonic reading.
 
-If you want the percentage itself to reach 100 % comfortably, the reliable fix is
-mechanical and does **not** change any wiring:
+If you want the percentage itself to reach 100 % reliably, the fix is mechanical
+and does **not** change any wiring:
 
 1. Raise the sensor (or use a short standpipe) so the full water surface stays
    clearly beyond the blind zone, then measure the new full/empty distances and
@@ -355,10 +356,8 @@ inside this blind zone.
    ESP32_A, using the calibration above.
 8. ESP32_A sends a `WaterPacket` about every 0.8 s and immediately when a probe
    changes. The OLED and dashboard use the received `percent` unchanged.
-9. A probe must be stable for 50 ms. The **overflow** probe (GPIO 15) keeps its
-   state for 2 s after release so short contact bounces do not flicker the
-   dashboard. The **topmost** probe (GPIO 4) has no hold — its full alert stops
-   immediately when it leaves the water.
+9. A probe must be stable for 50 ms. **Both** probes keep their state for 2 s
+   after release, so short contact bounces and flicker do not toggle the LEDs.
 
 ESP32_B keeps the last valid water value, marks it stale if new valid data stops,
 and shows `NO LINK` when no packet at all has arrived for 15 seconds. With
@@ -404,19 +403,15 @@ with the shared calibration, which catches an old or reversed calibration on A.
 
 ### Buzzer
 
-- **Topmost-probe alert (GPIO 4):** while the topmost probe is submerged, the
-  buzzer beeps 5×/sec and the RED LED blinks in sync with it. This runs
-  continuously (no time limit) and stops the moment the probe leaves the water.
-  It is silenced by the buzzer-disabled setting or by STOP BUZZER, and re-arms
-  when the probe clears.
-- **Level-based full alert:** starts at **95 %** for 2 consecutive valid
-  readings and beeps 5×/sec for up to **40 seconds**.
-- Short press on GPIO 4 (ESP32_B button) stops it.
+- **Level-based full alert:** starts when the level reaches **95 %** for 2
+  consecutive valid readings and beeps 5×/sec for up to **40 seconds**.
+- Short press on the ESP32_B GPIO 4 button stops it; it stays silent until the
+  level falls below **92 %**, then re-arms automatically.
 - A 3-second long press also stops an active alert while toggling mirror override.
 - The dashboard TEST BUZZER button runs the same pattern for **5 seconds**.
 - STOP BUZZER ends an alert or test immediately.
-- The level alert re-arms only after the level falls below **92 %**.
-- The level alert stops automatically when water data becomes invalid.
+- The alert stops automatically when water data becomes invalid.
+- The probes only drive the indicator LEDs; they do not trigger the buzzer.
 
 `buzzerIntensity` is stored in settings but is not applied by this build; the
 output is plain on/off. Treat it as reserved.
@@ -435,8 +430,8 @@ output is plain on/off. Treat it as reserved.
 
 | Input state | ESP32_B indicator | Dashboard capsule |
 |---|---|---|
-| Topmost probe active (GPIO 4) | Red LED, blinking 5×/sec with the buzzer | Red `TOP LEVEL` |
-| Overflow probe active (GPIO 15) | Blue LED ON (+ 2 s glow) | Blue `OVERFLOWING` |
+| Topmost probe active (GPIO 4) | Blue LED ON (steady, 2 s deadband) | Blue `TOP LEVEL` |
+| Overflow probe active (GPIO 15) | Red LED ON (steady, 2 s deadband) | Red `OVERFLOWING` |
 | Neither probe active | Both LEDs OFF | `STABLE` |
 | ESP-NOW link lost | Both LEDs OFF | `NO A LINK` |
 
@@ -578,7 +573,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,182,362 bytes (90 %) | 55,992 bytes (17 %) |
+| ESP32_B | 1,182,074 bytes (90 %) | 55,984 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -632,7 +627,7 @@ curl -X POST http://192.168.4.1/api/mirror-light \
 
 curl -X POST http://192.168.4.1/api/admin/settings \
   -H 'Content-Type: application/json' \
-  -d '{"tankCapacityL":750,"fullDistanceCm":25,"emptyDistanceCm":84}'
+  -d '{"tankCapacityL":750,"fullDistanceCm":18,"emptyDistanceCm":85}'
 ```
 
 Settings are saved to NVS on ESP32_B. Water settings are forwarded to ESP32_A
@@ -661,10 +656,10 @@ sampling interval, not wall-clock time.
 3. Confirm the OLED shows `NO LINK` before ESP32_A starts.
 4. Power ESP32_A and confirm the OLED changes to `CONNECTED`.
 5. Move the water sensor and watch the percentage change.
-6. Short ESP32_A GPIO 4 to GND: the buzzer should beep 5×/sec and the RED LED
-   should blink with it; the dashboard shows a red `TOP LEVEL` capsule. Short
-   GPIO 15 to GND: the BLUE LED lights and the dashboard shows blue
-   `OVERFLOWING`, staying on for 2 s after you release the probe.
+6. Short ESP32_A GPIO 4 to GND: the BLUE LED lights and the dashboard shows a
+   blue `TOP LEVEL` capsule. Short GPIO 15 to GND: the RED LED lights and the
+   dashboard shows red `OVERFLOWING`. In both cases the LED stays on for 2 s
+   after you release the probe, and nothing blinks.
 7. With no probe active, tap **BLUE LED** then **RED LED** under the Motor
    control buttons. Each LED should light and stay lit until tapped again.
 8. Hold a hand within 100 cm of the HC-SR04. Mirror Light should turn ON.
@@ -699,25 +694,22 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: calibration + topmost/overflow probe rework
+### Latest: calibration + probe/LED rework
 
-- **Recalibrated the tank:** full = **25 cm**, empty = **84 cm** (was 10 / 100).
-  With the tank empty the sensor's ~84 cm reading now shows **0 %** instead of
-  the old ~18 %. Bumped the settings version on **both** boards so any stored
-  10/100 calibration is discarded on first boot.
-- **Reworked the ESP32_A probes:** GPIO 4 is now the **topmost level** probe and
-  GPIO 15 stays the **overflow** probe.
-- **ESP32_A GPIO 4:** when water reaches the topmost probe, ESP32_B beeps the
-  buzzer **5×/sec** and blinks the **RED LED** in sync with the buzzer. No hold —
-  it stops as soon as the probe leaves the water.
-- **ESP32_A GPIO 15:** overflow lights the **BLUE LED** and keeps it on for an
-  extra **2 s** after release.
-- Swapped the ESP32_B indicator roles accordingly (blue = overflow, red =
-  topmost) and relabelled the dashboard capsule to red `TOP LEVEL` (the blue
-  `OVERFLOWING` capsule is unchanged). The ESP-NOW field names `filling`/
-  `draining` are kept for protocol compatibility.
-- Added a probe-driven buzzer path that runs independently of the 40 s level
-  alert; STOP BUZZER silences it until the probe clears.
+- **Recalibrated the tank:** full = **18 cm**, empty = **85 cm** (was 25 / 84).
+  With the tank empty the sensor's ~85 cm reading shows **0 %**. Bumped the
+  settings version on **both** boards so any stored calibration is discarded on
+  first boot.
+- **ESP32_A probes:** GPIO 4 is the **topmost level** probe and GPIO 15 the
+  **overflow** probe; both now use a **2 s deadband** after release.
+- **Indicators:** GPIO 4 → **BLUE LED**, GPIO 15 → **RED LED**. Both are
+  **steady — no LED blinks.** Dashboard capsules: blue `TOP LEVEL`, red
+  `OVERFLOWING`. The ESP-NOW field names `filling`/`draining` are kept for
+  protocol compatibility.
+- **Buzzer:** level-based at **95 %**, re-arm at **92 %**. One press of the
+  physical button stops an active alert until the level falls below 92 %. The
+  probes no longer drive the buzzer, so there is no blinking and no probe beep.
+- Bumped the settings version on both boards (A → 4, B → 5).
 
 ### Earlier cleanup
 
@@ -727,7 +719,7 @@ sampling interval, not wall-clock time.
   README.
 - Removed `WIRELESS_UPLOAD_ESP32_A.md` and `WIRELESS_UPLOAD_ESP32_B.md`; OTA
   setup is now in [Network, MAC addresses, and OTA](#7-network-mac-addresses-and-ota).
-- Corrected the README to match the current firmware: 25/84 cm calibration,
+- Corrected the README to match the current firmware: 18/85 cm calibration,
   2–200 cm sensor range, 15 s link timeout, 95/92 % buzzer thresholds, 700 ms
   dashboard polling, and 3.5 s command timeout.
 - Fixed the ESP32_A ↔ ESP32_B peer address documentation: both boards use their

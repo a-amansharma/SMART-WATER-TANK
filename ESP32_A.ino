@@ -92,31 +92,31 @@ static const uint8_t OTA_AP_MAX_CLIENTS = 2;
 // WATER LEVEL PROBES, wired GPIO -> probe -> GND. Internal pull-ups are
 // enabled; a probe submerged in water reads LOW.
 //   GPIO 4  = TOPMOST level probe. Water reaching it means the tank is full:
-//             ESP32_B beeps the buzzer 5x/sec and blinks the RED LED in sync
-//             with the buzzer. No hold - the alert stops the moment the probe
-//             leaves the water.
+//             ESP32_B lights the BLUE LED.
 //   GPIO 15 = OVERFLOW probe. Water above this is overflowing: ESP32_B lights
-//             the BLUE LED and keeps it on for an extra 2 s after release.
-#define PIN_TOUCH_FILLING   4    // topmost level probe (full alert)
+//             the RED LED.
+// Both probes use the same 2 s deadband: the LED stays lit for 2 s after the
+// probe releases so brief flicker/bounce is ignored, then turns off smoothly.
+// No LED blinks - the indicators are steady.
+#define PIN_TOUCH_FILLING   4    // topmost level probe (full)
 #define PIN_TOUCH_DRAINING  15   // overflow probe
 #define TOUCH_ACTIVE_LOW    true
 #define TOUCH_DEBOUNCE_MS   50
-#define TOUCH_HOLD_MS     2000   // overflow probe: extra 2 s glow after release
-#define TOUCH_TOP_HOLD_MS    0   // topmost probe: alert only while submerged
+#define TOUCH_HOLD_MS     2000   // 2 s deadband after release (both probes)
 
 // Calibration defaults. These are runtime settings saved in NVS and can be
 // updated from the ESP32_B admin page without recompiling ESP32_A.
 //
 // TANK MODEL (sensor faces DOWN, measures sensor face -> water surface):
-//   distance 84 cm = 0 %   (empty)   <- measured with the tank empty
-//   distance 54.5 cm = 50 %
-//   distance 25 cm = 100 % (full)
+//   distance 85 cm = 0 %   (empty)   <- measured with the tank empty
+//   distance 51.5 cm = 50 %
+//   distance 18 cm = 100 % (full)
 //
 // ESP32_A is the ONLY place where distance is converted to percentage. The
 // resulting percent travels in WaterPacket and is displayed unchanged by the
 // OLED and the web dashboard. Do not re-map it on ESP32_B.
-#define DEF_FULL_DISTANCE_CM   25.0f
-#define DEF_EMPTY_DISTANCE_CM  84.0f
+#define DEF_FULL_DISTANCE_CM   18.0f
+#define DEF_EMPTY_DISTANCE_CM  85.0f
 #define DEF_EMPTY_DEADBAND_CM   0.0f
 #define DEF_SENSOR_MIN_CM       2.0f
 #define DEF_SENSOR_MAX_CM     200.0f
@@ -137,7 +137,7 @@ static const uint8_t OTA_AP_MAX_CLIENTS = 2;
 #define MAX_SAMPLES_PER_CYCLE     9u
 #define LEVEL_WINDOW              5u   // rolling median depth (burst medians)
 #define SETTINGS_MAGIC 0x41535432UL   // "AST2"
-#define SETTINGS_VERSION 3u          // bumped: invalidates stale 10/100 calibration
+#define SETTINGS_VERSION 4u          // bumped: invalidates stale 25/84 calibration
 
 // Physical sensor limits and shared constants.
 static const uint32_t ECHO_TIMEOUT_US    = 60000;// 60 ms no-echo timeout
@@ -343,7 +343,7 @@ struct TouchInput {
   uint32_t holdMs;      // extra ON time after release (0 = none)
 };
 TouchInput touchInputs[2] = {
-  {PIN_TOUCH_FILLING,  "TOPMOST",  true, HIGH, 0, false, 0, TOUCH_TOP_HOLD_MS},
+  {PIN_TOUCH_FILLING,  "TOPMOST",  true, HIGH, 0, false, 0, TOUCH_HOLD_MS},
   {PIN_TOUCH_DRAINING, "OVERFLOW", true, HIGH, 0, false, 0, TOUCH_HOLD_MS}
 };
 // Packet field `filling` = topmost probe, `draining` = overflow probe. The
@@ -653,9 +653,9 @@ float levelWindowMedian() {
 //
 //   percent = ((empty - distance) / (empty - full)) * 100
 //
-// With the tank calibration empty = 84 cm and full = 25 cm:
-//   distance 84 cm -> 0 %, 69.25 cm -> 25 %, 54.5 cm -> 50 %,
-//   39.75 cm -> 75 %, 25 cm (or less) -> 100 %.
+// With the tank calibration empty = 85 cm and full = 18 cm:
+//   distance 85 cm -> 0 %, 68.25 cm -> 25 %, 51.5 cm -> 50 %,
+//   34.75 cm -> 75 %, 18 cm (or less) -> 100 %.
 //
 // Distance is what the downward-facing sensor returns (sensor face to water
 // surface), so water rising means distance FALLING and percent RISING.
