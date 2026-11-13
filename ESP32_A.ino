@@ -6,8 +6,9 @@
   Arduino core : esp32:esp32 3.3.11 (tested build target; 3.x ESP-NOW API)
   Sensor       : JSN-SR04T / AJ-SR04M waterproof ultrasonic distance sensor
   Job          : measure distance -> validate/filter -> send water data over
-                 ESP-NOW to ESP32_B; read FILLING/DRAINING touch probes and
-                 two optional motor push buttons; receive B status.
+                 ESP-NOW to ESP32_B; read the TOPMOST (GPIO 4) and OVERFLOW
+                 (GPIO 15) water probes and two optional motor push buttons;
+                 receive B status.
 
   IMPORTANT HARDWARE NOTES (read README.md before wiring):
   * GPIO logic is 3.3 V.  The JSN-SR04T/AJ-SR04M Echo output is commonly 5 V.
@@ -88,32 +89,55 @@ static const uint8_t OTA_AP_MAX_CLIENTS = 2;
 #define BUTTON_ACTIVE_LOW   true
 #define BUTTON_DEBOUNCE_MS  40
 
-// FILLING / DRAINING touch or contact probes, wired GPIO -> probe -> GND.
-// Internal pull-ups are enabled; a probe closure reads LOW.
-#define PIN_TOUCH_FILLING   4
-#define PIN_TOUCH_DRAINING  15
+// WATER LEVEL PROBES, wired GPIO -> probe -> GND. Internal pull-ups are
+// enabled; a probe submerged in water reads LOW.
+//   GPIO 4  = TOPMOST level probe. Water reaching it means the tank is full:
+//             ESP32_B beeps the buzzer 5x/sec and blinks the RED LED in sync
+//             with the buzzer. No hold - the alert stops the moment the probe
+//             leaves the water.
+//   GPIO 15 = OVERFLOW probe. Water above this is overflowing: ESP32_B lights
+//             the BLUE LED and keeps it on for an extra 2 s after release.
+#define PIN_TOUCH_FILLING   4    // topmost level probe (full alert)
+#define PIN_TOUCH_DRAINING  15   // overflow probe
 #define TOUCH_ACTIVE_LOW    true
 #define TOUCH_DEBOUNCE_MS   50
+#define TOUCH_HOLD_MS     2000   // overflow probe: extra 2 s glow after release
+#define TOUCH_TOP_HOLD_MS    0   // topmost probe: alert only while submerged
 
 // Calibration defaults. These are runtime settings saved in NVS and can be
 // updated from the ESP32_B admin page without recompiling ESP32_A.
-#define DEF_FULL_DISTANCE_CM   29.0f   // calibrated: overflow observed near 85%; keep empty/deadband same
-#define DEF_EMPTY_DISTANCE_CM  76.0f
-#define DEF_EMPTY_DEADBAND_CM   2.0f
+//
+// TANK MODEL (sensor faces DOWN, measures sensor face -> water surface):
+//   distance 84 cm = 0 %   (empty)   <- measured with the tank empty
+//   distance 54.5 cm = 50 %
+//   distance 25 cm = 100 % (full)
+//
+// ESP32_A is the ONLY place where distance is converted to percentage. The
+// resulting percent travels in WaterPacket and is displayed unchanged by the
+// OLED and the web dashboard. Do not re-map it on ESP32_B.
+#define DEF_FULL_DISTANCE_CM   25.0f
+#define DEF_EMPTY_DISTANCE_CM  84.0f
+#define DEF_EMPTY_DEADBAND_CM   0.0f
 #define DEF_SENSOR_MIN_CM       2.0f
-#define DEF_SENSOR_MAX_CM     150.0f
+#define DEF_SENSOR_MAX_CM     200.0f
 #define DEF_TANK_CAPACITY_L   750.0f
-#define DEF_MEASURE_PERIOD_MS  1000u
+#define DEF_MEASURE_PERIOD_MS   500u
 #define DEF_SAMPLES_PER_CYCLE     5u
 #define DEF_SAMPLE_SPACING_MS    60u
-#define DEF_LEVEL_SMOOTH_ALPHA  0.35f
-#define DEF_JUMP_LIMIT_CM       30.0f
-#define DEF_JUMP_CONFIRM          3u
-#define DEF_STUCK_TIMEOUT_MS 600000u
+// Level filter: rolling median of the last LEVEL_WINDOW bursts, then an EMA.
+// Both stages are direction-agnostic: they smooth rising AND falling levels.
+#define DEF_LEVEL_SMOOTH_ALPHA  0.50f
+// A real tank level cannot move 15 cm between readings (~0.8 s); anything
+// larger is an echo artefact. A genuine sustained change is still accepted
+// after two consecutive readings (works for filling AND draining).
+#define DEF_JUMP_LIMIT_CM       15.0f
+#define DEF_JUMP_CONFIRM          2u
+#define DEF_STUCK_TIMEOUT_MS 86400000u
 
 #define MAX_SAMPLES_PER_CYCLE     9u
+#define LEVEL_WINDOW              5u   // rolling median depth (burst medians)
 #define SETTINGS_MAGIC 0x41535432UL   // "AST2"
-#define SETTINGS_VERSION 1u
+#define SETTINGS_VERSION 3u          // bumped: invalidates stale 10/100 calibration
 
 // Physical sensor limits and shared constants.
 static const uint32_t ECHO_TIMEOUT_US    = 60000;// 60 ms no-echo timeout
@@ -314,11 +338,16 @@ struct TouchInput {
   bool     stable;
   bool     lastReading;
   uint32_t changedMs;
+  bool     held;
+  uint32_t releaseMs;
+  uint32_t holdMs;      // extra ON time after release (0 = none)
 };
 TouchInput touchInputs[2] = {
-  {PIN_TOUCH_FILLING,  "FILLING",  true, HIGH, 0},
-  {PIN_TOUCH_DRAINING, "DRAINING", true, HIGH, 0}
+  {PIN_TOUCH_FILLING,  "TOPMOST",  true, HIGH, 0, false, 0, TOUCH_TOP_HOLD_MS},
+  {PIN_TOUCH_DRAINING, "OVERFLOW", true, HIGH, 0, false, 0, TOUCH_HOLD_MS}
 };
+// Packet field `filling` = topmost probe, `draining` = overflow probe. The
+// names are kept on the wire for protocol/dashboard compatibility.
 bool     fillingActive  = false;
 bool     drainingActive = false;
 
@@ -335,6 +364,11 @@ uint8_t  samplesTaken = 0;
 uint8_t  validCount = 0;
 uint32_t timeoutCount = 0;
 float    sampleBuf[MAX_SAMPLES_PER_CYCLE];
+
+// Rolling window of burst medians (direction-agnostic spike rejection).
+float    levelWindow[LEVEL_WINDOW];
+uint8_t  levelWindowCount = 0;
+uint8_t  levelWindowPos = 0;
 
 // Filtering state.
 bool     haveAccepted = false;
@@ -356,6 +390,9 @@ uint16_t lastReportFlags = 0;
 
 // ESP-NOW state.
 bool     espNowReady = false;
+portMUX_TYPE settingsMux = portMUX_INITIALIZER_UNLOCKED;
+volatile bool settingsPacketPending = false;
+SettingsPacket pendingSettingsPacket;
 
 /* ==========================================================================
    CRC16-CCITT
@@ -407,17 +444,33 @@ void clampASettings(ASettings &c) {
   if (!isfinite(c.smoothAlpha)) c.smoothAlpha = DEF_LEVEL_SMOOTH_ALPHA;
   if (!isfinite(c.jumpLimitCm)) c.jumpLimitCm = DEF_JUMP_LIMIT_CM;
 
-  c.fullDistanceCm = constrain(c.fullDistanceCm, 1.0f, 120.0f);
+  c.fullDistanceCm = constrain(c.fullDistanceCm, 1.0f, 200.0f);
+  c.emptyDistanceCm = constrain(c.emptyDistanceCm, 1.0f, 400.0f);
+
+  // This tank always has "full" closer to the sensor than "empty".
+  // Reject a reversed or overlapping calibration instead of silently
+  // inverting the level (a reversed pair is what makes percentage fall
+  // while the tank fills).
+  if (c.emptyDistanceCm < c.fullDistanceCm) {
+    float t = c.fullDistanceCm;
+    c.fullDistanceCm = c.emptyDistanceCm;
+    c.emptyDistanceCm = t;
+  }
+  if (c.emptyDistanceCm - c.fullDistanceCm < 5.0f) {
+    c.fullDistanceCm = DEF_FULL_DISTANCE_CM;
+    c.emptyDistanceCm = DEF_EMPTY_DISTANCE_CM;
+  }
+  c.emptyDeadbandCm = constrain(c.emptyDeadbandCm, 0.0f, 20.0f);
   c.sensorMinCm = constrain(c.sensorMinCm, 1.0f, 100.0f);
   c.sensorMaxCm = constrain(c.sensorMaxCm, c.sensorMinCm + 5.0f, 400.0f);
-  c.emptyDistanceCm = constrain(c.emptyDistanceCm, c.fullDistanceCm + 3.0f, 300.0f);
-  c.emptyDeadbandCm = constrain(c.emptyDeadbandCm, 0.0f, 20.0f);
-  if (c.emptyDistanceCm - c.emptyDeadbandCm <= c.fullDistanceCm + 1.0f) {
-    c.emptyDeadbandCm = 0.0f;
+  // The empty calibration must be measurable, otherwise a real empty tank
+  // would be rejected as "out of range".
+  if (c.sensorMaxCm < c.emptyDistanceCm + 5.0f) {
+    c.sensorMaxCm = constrain(c.emptyDistanceCm + 50.0f, c.sensorMinCm + 5.0f, 400.0f);
   }
   c.tankCapacityL = constrain(c.tankCapacityL, 1.0f, 65000.0f);
-  c.smoothAlpha = constrain(c.smoothAlpha, 0.05f, 0.95f);
-  c.jumpLimitCm = constrain(c.jumpLimitCm, 5.0f, 100.0f);
+  c.smoothAlpha = constrain(c.smoothAlpha, 0.05f, 1.00f);
+  c.jumpLimitCm = constrain(c.jumpLimitCm, 5.0f, 200.0f);
   c.jumpConfirm = constrain(c.jumpConfirm, 1, 10);
   c.samplesPerCycle = constrain(c.samplesPerCycle, 3, MAX_SAMPLES_PER_CYCLE);
   c.measurePeriodMs = constrain(c.measurePeriodMs, 200, 10000);
@@ -430,8 +483,23 @@ bool loadASettings() {
   size_t got = prefsA.getBytesLength("cfg");
   if (got == sizeof(cfg)) {
     prefsA.getBytes("cfg", &cfg, sizeof(cfg));
-    if (cfg.magic != SETTINGS_MAGIC || cfg.version != SETTINGS_VERSION) {
-      defaultASettings(cfg);
+    bool migrate = (cfg.magic != SETTINGS_MAGIC || cfg.version != SETTINGS_VERSION);
+    // Migrate very old calibration (29/76) to the corrected tank model.
+    if (!migrate && fabsf(cfg.fullDistanceCm - 29.0f) < 0.2f &&
+        fabsf(cfg.emptyDistanceCm - 76.0f) < 0.2f) {
+      cfg.fullDistanceCm = DEF_FULL_DISTANCE_CM;
+      cfg.emptyDistanceCm = DEF_EMPTY_DISTANCE_CM;
+      cfg.emptyDeadbandCm = DEF_EMPTY_DEADBAND_CM;
+      cfg.sensorMaxCm = DEF_SENSOR_MAX_CM;
+      cfg.smoothAlpha = DEF_LEVEL_SMOOTH_ALPHA;
+      cfg.jumpLimitCm = DEF_JUMP_LIMIT_CM;
+      cfg.jumpConfirm = DEF_JUMP_CONFIRM;
+      cfg.measurePeriodMs = DEF_MEASURE_PERIOD_MS;
+      cfg.stuckTimeoutMs = DEF_STUCK_TIMEOUT_MS;
+      migrate = true;
+    }
+    if (migrate) {
+      if (cfg.magic != SETTINGS_MAGIC || cfg.version != SETTINGS_VERSION) defaultASettings(cfg);
       prefsA.putBytes("cfg", &cfg, sizeof(cfg));
     }
   } else {
@@ -460,6 +528,8 @@ void resetMeasurementState() {
   haveRaw = false;
   jumpCount = 0;
   stuckSinceMs = 0;
+  levelWindowCount = 0;
+  levelWindowPos = 0;
   nextActionMs = millis() + 50;
 }
 
@@ -519,6 +589,18 @@ bool applySettingsPacket(const uint8_t *data, int len) {
   return true;
 }
 
+// Apply settings from the main loop, not from the Wi-Fi callback. NVS writes and
+// measurement-state resets are too slow/unsafe inside the ESP-NOW receive callback.
+void serviceSettingsPacket() {
+  if (!settingsPacketPending) return;
+  SettingsPacket pkt;
+  portENTER_CRITICAL(&settingsMux);
+  memcpy(&pkt, &pendingSettingsPacket, sizeof(pkt));
+  settingsPacketPending = false;
+  portEXIT_CRITICAL(&settingsMux);
+  applySettingsPacket((const uint8_t *)&pkt, sizeof(pkt));
+}
+
 /* ==========================================================================
    ULTRASONIC SENSOR
    ========================================================================== */
@@ -551,11 +633,46 @@ float medianOf(float *values, uint8_t count) {
   return (values[count / 2 - 1] + values[count / 2]) * 0.5f;
 }
 
-float percentFromDistance(float distanceCm) {
-  if (distanceCm >= cfg.emptyDistanceCm - cfg.emptyDeadbandCm) return 0.0f;
+// Add one burst median to the rolling window.
+void pushLevelSample(float cm) {
+  levelWindow[levelWindowPos] = cm;
+  levelWindowPos = (levelWindowPos + 1) % LEVEL_WINDOW;
+  if (levelWindowCount < LEVEL_WINDOW) levelWindowCount++;
+}
 
-  float p = (cfg.emptyDistanceCm - distanceCm) /
-            (cfg.emptyDistanceCm - cfg.fullDistanceCm) * 100.0f;
+// Median of the rolling window. Operates on a copy because medianOf() sorts.
+// A median rejects isolated spikes without caring which direction they went.
+float levelWindowMedian() {
+  if (levelWindowCount == 0) return 0.0f;
+  float tmp[LEVEL_WINDOW];
+  memcpy(tmp, levelWindow, (size_t)levelWindowCount * sizeof(float));
+  return medianOf(tmp, levelWindowCount);
+}
+
+// THE single distance -> percentage conversion for the whole system.
+//
+//   percent = ((empty - distance) / (empty - full)) * 100
+//
+// With the tank calibration empty = 84 cm and full = 25 cm:
+//   distance 84 cm -> 0 %, 69.25 cm -> 25 %, 54.5 cm -> 50 %,
+//   39.75 cm -> 75 %, 25 cm (or less) -> 100 %.
+//
+// Distance is what the downward-facing sensor returns (sensor face to water
+// surface), so water rising means distance FALLING and percent RISING.
+// Result is always clamped to 0..100.
+float percentFromDistance(float distanceCm) {
+  if (!isfinite(distanceCm)) return 0.0f;
+
+  float span = cfg.emptyDistanceCm - cfg.fullDistanceCm;  // enforced > 0
+  if (span < 1.0f) return 0.0f;
+
+  // Optional empty deadband: readings a little past the empty point read 0 %.
+  if (cfg.emptyDeadbandCm > 0.0f &&
+      distanceCm >= cfg.emptyDistanceCm - cfg.emptyDeadbandCm) {
+    return 0.0f;
+  }
+
+  float p = (cfg.emptyDistanceCm - distanceCm) * 100.0f / span;
   if (p < 0.0f)   p = 0.0f;
   if (p > 100.0f) p = 100.0f;
   return p;
@@ -586,8 +703,8 @@ void queueWaterPacket(bool valid, float distanceCm, float percent,
   pendingPacket.percent = percent;
   pendingPacket.litres = litresFromPercent(percent);
   pendingPacket.valid = valid ? 1 : 0;
-  pendingPacket.filling = fillingActive ? 1 : 0;
-  pendingPacket.draining = drainingActive ? 1 : 0;
+  pendingPacket.filling = fillingActive ? 1 : 0;    // topmost level probe
+  pendingPacket.draining = drainingActive ? 1 : 0;  // overflow probe
   pendingPacket.validEchoes = lastValidEchoes;
   pendingPacket.timeoutEchoes = lastTimeoutEchoes;
   pendingPacket.resetReason = bootResetReason;
@@ -638,59 +755,69 @@ void startSample() {
 
 void finalizeBurst() {
   bool valid = true;
+  bool confirmedJump = false;
   uint16_t flags = 0;
-  float median = 0.0f;
+  float burstMedian = 0.0f;
 
   if (validCount < 3) {
     valid = false;
     flags |= FLAG_NO_ECHO;
     if (timeoutCount > 0) flags |= FLAG_TIMEOUT;
   } else {
-    median = medianOf(sampleBuf, validCount);
-
-    if (median < cfg.sensorMinCm || median > cfg.sensorMaxCm) {
+    // Stage 1: median of this burst. Removes individual bad echoes.
+    burstMedian = medianOf(sampleBuf, validCount);
+    if (burstMedian < cfg.sensorMinCm || burstMedian > cfg.sensorMaxCm) {
       valid = false;
       flags |= FLAG_RANGE;
     }
+  }
 
-    // Reject single/few sudden jumps; accept only if the new value repeats.
-    if (valid && haveAccepted &&
-        fabsf(median - lastAcceptedCm) > cfg.jumpLimitCm) {
-      jumpCount++;
-      if (jumpCount < cfg.jumpConfirm) {
-        valid = false;
-        flags |= FLAG_JUMP;
-      } else {
-        jumpCount = 0;
-      }
-    } else if (valid) {
+  // Stage 2: spike gate. Symmetric in both directions: a jump up OR down is
+  // delayed, and a real change is accepted once it repeats jumpConfirm times.
+  // (The old code cleared jumpCount on every rejected reading, so a genuine
+  // change could be rejected forever.)
+  float jumpReference = haveRaw ? lastRawCm : filteredCm;
+  if (valid && haveAccepted && cfg.jumpLimitCm < 200.0f &&
+      fabsf(burstMedian - jumpReference) > cfg.jumpLimitCm) {
+    if (jumpCount < 255) jumpCount++;
+    if (jumpCount < cfg.jumpConfirm) {
+      valid = false;
+      flags |= FLAG_JUMP;
+    } else {
+      // Sustained change confirmed: drop the old window and snap to the new
+      // level immediately (the change already repeated twice).
       jumpCount = 0;
+      levelWindowCount = 0;
+      levelWindowPos = 0;
+      confirmedJump = true;
     }
+  } else if (valid) {
+    jumpCount = 0;
+  }
 
-    // Stuck-sensor detection: bit-identical raw distance for a very long time.
-    if (valid) {
-      if (haveRaw && fabsf(median - lastRawCm) < STUCK_EPS_CM) {
-        if (stuckSinceMs == 0) {
-          stuckSinceMs = millis();
-        } else if ((uint32_t)(millis() - stuckSinceMs) >= cfg.stuckTimeoutMs) {
-          valid = false;
-          flags |= FLAG_STUCK;
-        }
-      } else {
-        stuckSinceMs = 0;
-      }
+  // Optional stuck-sensor rejection. Default timeout is 24 h, effectively off.
+  if (valid && haveRaw && fabsf(burstMedian - lastRawCm) < STUCK_EPS_CM) {
+    if (stuckSinceMs == 0) stuckSinceMs = millis();
+    else if ((uint32_t)(millis() - stuckSinceMs) >= cfg.stuckTimeoutMs) {
+      valid = false;
+      flags |= FLAG_STUCK;
     }
+  } else if (valid) {
+    stuckSinceMs = 0;
   }
 
   float reportCm = haveAccepted ? lastAcceptedCm : 0.0f;
   float reportPercent = haveAccepted ? lastPercent : 0.0f;
 
   if (valid) {
-    if (!haveAccepted) filteredCm = median;
-    else filteredCm = filteredCm * (1.0f - cfg.smoothAlpha) +
-                      median * cfg.smoothAlpha;
+    // Stage 3: median of the last few burst medians removes slow multi-second
+    // spikes; stage 4: EMA smooths the remaining noise.
+    pushLevelSample(burstMedian);
+    float rollMedian = levelWindowMedian();
+    if (!haveAccepted || confirmedJump || cfg.smoothAlpha >= 0.999f) filteredCm = rollMedian;
+    else filteredCm += (rollMedian - filteredCm) * cfg.smoothAlpha;
 
-    lastRawCm = median;
+    lastRawCm = burstMedian;
     haveRaw = true;
     lastAcceptedCm = filteredCm;
     lastPercent = percentFromDistance(filteredCm);
@@ -704,8 +831,9 @@ void finalizeBurst() {
   lastTimeoutEchoes = timeoutCount > 255 ? 255 : (uint8_t)timeoutCount;
   queueWaterPacket(valid, reportCm, reportPercent, flags);
 
-  DBG("[A] measurement: valid=%u samples=%u timeouts=%lu\n",
-      (unsigned)valid, (unsigned)validCount, (unsigned long)timeoutCount);
+  DBG("[A] measurement: valid=%u samples=%u timeouts=%lu raw=%.1f d=%.1f p=%.1f flags=0x%04X\n",
+      (unsigned)valid, (unsigned)validCount, (unsigned long)timeoutCount,
+      burstMedian, reportCm, reportPercent, flags);
 }
 
 void serviceMeasurement() {
@@ -799,10 +927,10 @@ void serviceSendRetry() {
    ========================================================================== */
 
 void sendCommandBurstNow() {
+  suppressSendCbUntilMs = millis() + 400;   // keep water retry state separate
   esp_err_t err = esp_now_send(ESP32_B_MAC,
                                (const uint8_t *)&commandBurstPacket,
                                sizeof(commandBurstPacket));
-  suppressSendCbUntilMs = millis() + 400;   // keep water retry state separate
   commandBurstNextMs = millis() + 80;
   if (commandBurstRemaining > 0) commandBurstRemaining--;
   if (commandBurstRemaining == 0) commandBurstActive = false;
@@ -878,35 +1006,56 @@ void setupTouchInputs() {
     touchInputs[i].lastReading = digitalRead(touchInputs[i].pin);
     touchInputs[i].stable = touchInputs[i].lastReading;
     touchInputs[i].changedMs = millis();
+    touchInputs[i].held = false;
+    touchInputs[i].releaseMs = 0;
   }
   fillingActive = touchReadingActive(touchInputs[0].stable);
   drainingActive = touchReadingActive(touchInputs[1].stable);
 }
 
 void serviceTouchInputs() {
+  uint32_t now = millis();
   for (uint8_t i = 0; i < 2; i++) {
     TouchInput &t = touchInputs[i];
     int reading = digitalRead(t.pin);
 
     if (reading != t.lastReading) {
       t.lastReading = reading;
-      t.changedMs = millis();
+      t.changedMs = now;
     }
 
-    if ((uint32_t)(millis() - t.changedMs) >= TOUCH_DEBOUNCE_MS &&
+    if ((uint32_t)(now - t.changedMs) >= TOUCH_DEBOUNCE_MS &&
         reading != t.stable) {
       t.stable = reading;
       bool active = touchReadingActive(reading);
-      bool wasActive = (i == 0) ? fillingActive : drainingActive;
-
-      if (active != wasActive) {
-        if (i == 0) fillingActive = active;
-        else        drainingActive = active;
-
-        DBG("[A] %s touch %s\n", t.name, active ? "ACTIVE" : "released");
-        queueWaterPacket(lastReportValid, lastReportCm, lastReportPercent,
-                         lastReportFlags);
+      if (active) {
+        // Probe submerged: show/keep state immediately and cancel pending release.
+        t.held = false;
+      } else {
+        // Probe opened: keep state ON for t.holdMs (0 = stop immediately).
+        t.held = true;
+        t.releaseMs = now;
       }
+    }
+
+    bool probeActive = touchReadingActive(t.stable);
+    bool outputActive = probeActive ||
+        (t.holdMs > 0 && t.held && (uint32_t)(now - t.releaseMs) < t.holdMs);
+    if (!probeActive && t.held &&
+        (t.holdMs == 0 || (uint32_t)(now - t.releaseMs) >= t.holdMs)) {
+      t.held = false;
+      outputActive = false;
+    }
+
+    bool wasActive = (i == 0) ? fillingActive : drainingActive;
+    if (outputActive != wasActive) {
+      if (i == 0) fillingActive = outputActive;
+      else        drainingActive = outputActive;
+
+      DBG("[A] %s %s\n", t.name, outputActive ? "ACTIVE" : "released(held)");
+      // Send immediate update so B/dashboard reflects stable held state in real time.
+      queueWaterPacket(lastReportValid, lastReportCm, lastReportPercent,
+                       lastReportFlags);
     }
   }
 }
@@ -943,7 +1092,11 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
   }
 
   if (len == (int)sizeof(SettingsPacket)) {
-    applySettingsPacket(data, len);
+    // Copy only. The main loop applies it in serviceSettingsPacket().
+    portENTER_CRITICAL(&settingsMux);
+    memcpy(&pendingSettingsPacket, data, sizeof(pendingSettingsPacket));
+    settingsPacketPending = true;
+    portEXIT_CRITICAL(&settingsMux);
     return;
   }
 
@@ -1073,10 +1226,10 @@ void setup() {
 
   uint8_t mac[6];
   WiFi.softAPmacAddress(mac);
-  Serial.printf("ESP32_A AP MAC (OTA): %02X:%02X:%02X:%02X:%02X:%02X\n",
+  Serial.printf("ESP32_A AP MAC (use in ESP32_B as ESP32_A_MAC): %02X:%02X:%02X:%02X:%02X:%02X\n",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   WiFi.macAddress(mac);
-  Serial.printf("ESP32_A STA MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+  Serial.printf("ESP32_A STA MAC (diagnostic only): %02X:%02X:%02X:%02X:%02X:%02X\n",
                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   Serial.printf("OTA AP SSID: %s  IP: %s\n", OTA_AP_SSID, WiFi.softAPIP().toString().c_str());
   Serial.printf("OTA hostname: %s  OTA/WiFi password: %s\n", OTA_HOSTNAME, OTA_PASSWORD);
@@ -1086,11 +1239,19 @@ void setup() {
   Serial.printf("Channel: %d (must match ESP32_B AP channel)\n", WIFI_CHANNEL);
   Serial.printf("START button GPIO: %d, STOP button GPIO: %d (-1 = disabled)\n",
                 PIN_BTN_START, PIN_BTN_STOP);
-  Serial.printf("Touch probes: FILLING GPIO %d, DRAINING GPIO %d (active LOW)\n",
+  Serial.printf("Water probes: TOPMOST GPIO %d, OVERFLOW GPIO %d (active LOW)\n",
                 PIN_TOUCH_FILLING, PIN_TOUCH_DRAINING);
-  Serial.printf("Calibration: full %.1f cm, empty %.1f cm, deadband %.1f cm, capacity %.0f L\n",
+  Serial.printf("Calibration: full %.1f cm = 100%%, empty %.1f cm = 0%%, deadband %.1f cm, capacity %.0f L\n",
                 cfg.fullDistanceCm, cfg.emptyDistanceCm, cfg.emptyDeadbandCm,
                 cfg.tankCapacityL);
+  Serial.printf("Level filter: window %u, alpha %.2f, jump %.0f cm x%u, period %ums\n",
+                (unsigned)LEVEL_WINDOW, cfg.smoothAlpha, cfg.jumpLimitCm,
+                (unsigned)cfg.jumpConfirm, cfg.measurePeriodMs);
+  if (cfg.fullDistanceCm < 25.0f) {
+    Serial.printf("NOTE: full calibration %.1f cm is inside the JSN-SR04T/AJ-SR04M "
+                  "blind zone (~20-25 cm). The sensor may not read the last part of "
+                  "the tank; see README section 4.\n", cfg.fullDistanceCm);
+  }
 #if DEBUG_SERIAL
   Serial.println("Diagnostics: ENABLED");
 #else
@@ -1103,6 +1264,7 @@ void setup() {
 
 void loop() {
   ArduinoOTA.handle();
+  serviceSettingsPacket();
   serviceMeasurement();
   serviceSendRetry();
   serviceCommandBurst();

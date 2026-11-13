@@ -1,247 +1,146 @@
 # Smart Water Tank
 
-A two-board ESP32 water-tank monitor and controller.
+Two ESP32 boards monitor a 750 L water tank and control the pump motor, mirror
+light, bulb, buzzer, and indicators.
 
-- **ESP32_A** sits on the roof, measures the water level, and sends the reading to ESP32_B.
-- **ESP32_B** is indoors. It runs the OLED, relays, buzzer, motor buttons, Wi-Fi access point, and phone dashboard.
-- The two boards talk wirelessly with **ESP-NOW**. No router or internet is needed.
+- **ESP32_A** is the rooftop sensor unit. It measures water level and reads the
+  topmost (GPIO 4) and overflow (GPIO 15) water probes.
+- **ESP32_B** is the indoor controller. It runs the OLED, relays, buzzer, motor
+  remote outputs, Wi-Fi access point, and phone dashboard.
+- The two boards talk wirelessly using **ESP-NOW**. No router or internet is
+  required.
 - The phone dashboard is served by ESP32_B at **http://192.168.4.1/**.
-- The dashboard includes an open **Admin** control centre for calibration, filtering, mirror, buzzer, OLED, history, diagnostics, and reboot controls. No passcode is required on the local access point.
 
-This folder contains these files:
+This folder intentionally contains only three files:
 
 ```text
 Smart Water Tank/
-  ESP32_A.ino
-  ESP32_B.ino
-  index.html
-  README.md
-  ADDITIONAL_FEATURES_AND_WIRING.md
+  ESP32_A.ino    rooftop sensor firmware
+  ESP32_B.ino    indoor controller firmware + embedded dashboard
+  README.md      this document (all wiring and setup)
 ```
 
-> The probe, long-press button, buzzer-threshold, and OLED additions are documented in
-> [`ADDITIONAL_FEATURES_AND_WIRING.md`](ADDITIONAL_FEATURES_AND_WIRING.md). Where this
-> file and that document differ, the additional document and the current firmware are
-> authoritative.
+The dashboard HTML is embedded inside `ESP32_B.ino`. There is no separate
+`index.html`.
+
+> **Cleanup note:** this README replaces the old separate wiring/OTA documents.
+> It also corrects several stale values: the current firmware uses 25 cm full /
+> 84 cm empty calibration, a 15 s link timeout, 95 % buzzer-on / 92 % re-arm,
+> and a 700 ms dashboard poll. See [Changes made](#14-changes-made-in-this-cleanup).
 
 ---
 
-## 1. What each board does
+## 1. Quick wiring summary
 
-### ESP32_A - rooftop sensor
-
-- Measures distance to the water with a JSN-SR04T or AJ-SR04M ultrasonic sensor.
-- Takes 5 samples and uses the median to reject bad echoes.
-- Rejects timeouts, impossible distances, sudden jumps, and a stuck sensor.
-- Converts distance to water percentage and litres.
-- Sends water data to ESP32_B once per second and immediately on touch-state change.
-- Reads FILLING and DRAINING probes on GPIO 4 and GPIO 15.
-- Receives status back from ESP32_B.
-- Supports two optional START/STOP push buttons for the motor.
-- Has no relay, OLED, buzzer, or web server.
-
-### ESP32_B - indoor controller
-
-- Receives water data, touch states, and motor commands from ESP32_A.
-- Sends sensor and status information back to ESP32_A.
-- Shows water percentage, litres, and connection status on the OLED.
-- Drives the blue/red indicators from the received touch states.
-- Sounds the full-tank buzzer.
-- Switches the Mirror Light from a person sensor and from the phone.
-- Supports a 3-second button manual override for the Mirror Light.
-- Switches the Bulb from the phone.
-- Presses and releases the RF remote START/STOP buttons.
-- Hosts the Wi-Fi access point and dashboard.
-- Has one physical buzzer-stop / mirror-override button.
-
-### Tank model
-
-- Tank capacity: **750 litres**.
-- Water volume is reported as integer litres (`percentage x 7.5`, clamped to 750 L).
-- Full distance: **10 cm or less** from the sensor face to the water = **100 %**.
-- Empty distance: **76 cm** = **0 %**, calibrated to the installed sensor and empty tank.
-- A **2 cm empty deadband** keeps a true empty tank at 0 % despite small echo jitter.
-- **94 %** is the requested maximum usable filling/overflow point; the 0-100 scale is not
-  remapped to make 94 % equal 100 %.
-- Percentage formula:
+Everything you need to connect is in this block. The detailed table and notes
+follow immediately after it.
 
 ```text
-percent = (76 - distanceCm) / (76 - 10) x 100
+ESP32_A  (rooftop sensor)
+  JSN-SR04T / AJ-SR04M   VCC  -> 5 V
+                         GND  -> GND
+                         TRIG -> GPIO 5
+                         ECHO -> 1k/2k divider -> GPIO 18
+  FILLING probe          GPIO 4  -> probe/switch -> GND   (topmost level)
+  DRAINING probe         GPIO 15 -> probe/switch -> GND   (overflow)
+  START / STOP buttons   optional, disabled in firmware (-1)
+
+ESP32_B  (indoor controller)
+  OLED SSD1306           VCC  -> 3.3 V (check module)
+                         GND  -> GND
+                         SDA  -> GPIO 21
+                         SCL  -> GPIO 22
+  HC-SR04                VCC  -> 5 V
+                         GND  -> GND
+                         TRIG -> GPIO 25
+                         ECHO -> 1k/2k divider -> GPIO 26
+  Relay 1 (Mirror)       IN1  -> GPIO 32
+  Relay 2 (Bulb)         IN2  -> GPIO 33
+  Buzzer (via NPN)       base -> 1k -> GPIO 13
+  Button                 GPIO 4 -> button -> GND
+  Blue LED (via NPN)     base -> 1k -> GPIO 16
+  Red LED  (via NPN)     base -> 1k -> GPIO 17
+  RF remote START        GPIO 18 -> optocoupler/relay -> remote pads
+  RF remote STOP         GPIO 19 -> optocoupler/relay -> remote pads
 ```
 
-- Examples: 10 cm or less = 100 %, 43 cm = 50 %, 76 cm or more = 0 %.
+Never feed a 5 V signal directly into an ESP32 GPIO. Both ECHO lines need the
+1 kΩ / 2 kΩ divider shown below.
 
 ---
 
-## 2. Parts
+## 2. Complete wiring table
 
-### ESP32_A
+| Board | Device / signal | Device terminal | ESP32 pin | Notes |
+|---|---|---|---|---|
+| **A** | Ultrasonic sensor | VCC | 5 V supply | Use the sensor's rated 5 V supply. |
+| **A** | Ultrasonic sensor | GND | GND | Common ground with ESP32_A. |
+| **A** | Ultrasonic sensor | TRIG | GPIO 5 | 3.3 V trigger. Add a level shifter if your 5 V module needs one. |
+| **A** | Ultrasonic sensor | ECHO | Divider output → GPIO 18 | **5 V signal — divider required.** |
+| **A** | Echo divider | R1 1 kΩ | Sensor ECHO → GPIO 18 | Series resistor. |
+| **A** | Echo divider | R2 2 kΩ | GPIO 18 → GND | Lower resistor. |
+| **A** | Topmost probe (GPIO 4) | Probe / switch | GPIO 4 ↔ GND | Active LOW, internal pull-up. Tank-full alert: buzzer + RED LED. |
+| **A** | Overflow probe (GPIO 15) | Probe / switch | GPIO 15 ↔ GND | Active LOW, internal pull-up. BLUE LED + 2 s glow. GPIO 15 is a boot-strap pin; keep it HIGH at reset. |
+| **A** | START button | Button | GPIO to assign | Optional. Firmware default is `-1` (disabled). |
+| **A** | STOP button | Button | GPIO to assign | Optional. Firmware default is `-1` (disabled). |
+| **B** | OLED SSD1306 | VCC | 3.3 V | Check your module; most 4-pin I2C modules are 3.3 V. |
+| **B** | OLED SSD1306 | GND | GND | |
+| **B** | OLED SSD1306 | SDA | GPIO 21 | I2C data. |
+| **B** | OLED SSD1306 | SCL | GPIO 22 | I2C clock. |
+| **B** | HC-SR04 | VCC | 5 V | 5 V module. |
+| **B** | HC-SR04 | GND | GND | Common ground with ESP32_B. |
+| **B** | HC-SR04 | TRIG | GPIO 25 | 3.3 V trigger normally works. |
+| **B** | HC-SR04 | ECHO | Divider output → GPIO 26 | **5 V signal — divider required.** |
+| **B** | HC-SR04 divider | R1 1 kΩ | ECHO → GPIO 26 | Series resistor. |
+| **B** | HC-SR04 divider | R2 2 kΩ | GPIO 26 → GND | Lower resistor. |
+| **B** | Relay 1 (Mirror Light) | IN1 | GPIO 32 | Module is assumed active LOW. |
+| **B** | Relay 2 (Bulb) | IN2 | GPIO 33 | Module is assumed active LOW. |
+| **B** | Relay module | VCC / GND | 5 V / GND | Check whether your module needs 5 V or 3.3 V. |
+| **B** | Buzzer NPN base | 1 kΩ resistor | GPIO 13 | NPN drives the buzzer; GPIO never drives it directly. |
+| **B** | Buzzer | + / − | +5 V / NPN collector | TMB12A05 5 V active buzzer. |
+| **B** | Buzzer-stop button | One side | GPIO 4 | Other side to GND. Internal pull-up. |
+| **B** | Blue indicator NPN base | 1 kΩ resistor | GPIO 16 | Overflow (GPIO 15) indicator. |
+| **B** | Red indicator NPN base | 1 kΩ resistor | GPIO 17 | Topmost (GPIO 4) indicator. |
+| **B** | RF remote START | Optocoupler / relay | GPIO 18 | Across the remote's START button pads only. |
+| **B** | RF remote STOP | Optocoupler / relay | GPIO 19 | Across the remote's STOP button pads only. |
+| **B** | Main power bulb | — | No GPIO | Wired directly to the main supply. |
+| **B** | Reserved buttons | — | GPIO 2, 14, 23 | Not used by the firmware. |
 
-| Qty | Part |
-|---|---|
-| 1 | ESP32 development board |
-| 1 | JSN-SR04T or AJ-SR04M waterproof ultrasonic sensor |
-| 1 | 5 V power supply with enough current for the ESP32 and sensor |
-| 1 | 1 kOhm resistor for the Echo divider |
-| 1 | 2 kOhm resistor for the Echo divider |
-| 2 | Momentary push buttons for START and STOP, optional |
-| 1 | Weatherproof enclosure, cable gland, strain relief |
-
-### ESP32_B
-
-| Qty | Part |
-|---|---|
-| 1 | ESP32 development board |
-| 1 | HC-SR04 ultrasonic sensor |
-| 1 | 1 kOhm resistor for the Echo divider |
-| 1 | 2 kOhm resistor for the Echo divider |
-| 1 | 0.96 inch I2C OLED, SSD1306, address 0x3C or 0x3D |
-| 1 | 2-channel 5 V relay module with optocouplers |
-| 2 | 2N2222 or BC547 NPN transistors for the blue/red indicators |
-| 1 | 2N2222 or BC547 NPN transistor for the buzzer |
-| 3 | 1 kOhm base resistors |
-| 1 | Blue indicator and 1 red indicator, with suitable series resistors |
-| 1 | TMB12A05 5 V active buzzer |
-| 1 | 1N4148 diode, optional, across an inductive buzzer |
-| 4 | Momentary push buttons: 1 buzzer-stop, 3 reserved |
-| 1 | RF remote with separate START and STOP buttons |
-| 2 | PC817 optocouplers, or 2 small signal relays, for the RF remote |
-| 2 | 330 Ohm resistors for the optocoupler LEDs |
-| 1 | 5 V power supply |
-| 1 | Mains-rated enclosure, fuse, terminals, and cable clamps for mains loads |
-
-> The main power indicator bulb is wired directly to the main supply. It is not controlled by the ESP32.
-
----
-
-## 3. ESP32_A wiring
-
-This is the complete ESP32_A connection list.
-
-| Device | Device pin | ESP32_A pin | Notes |
-|---|---|---|---|
-| Ultrasonic sensor | VCC | 5 V supply | Use the sensor's rated voltage. |
-| Ultrasonic sensor | GND | GND | Common ground with the ESP32. |
-| Ultrasonic sensor | TRIG | GPIO 5 | 3.3 V trigger. Add a level shifter if your 5 V sensor needs it. |
-| Ultrasonic sensor | ECHO | Divider output to GPIO 18 | Never connect a 5 V Echo directly. |
-| Echo divider | R1 1 kOhm | Sensor ECHO to GPIO 18 | Series resistor. |
-| Echo divider | R2 2 kOhm | GPIO 18 to GND | Lower resistor. |
-| START button | One side | GPIO to be assigned | Other side to GND. Internal pull-up. |
-| STOP button | One side | GPIO to be assigned | Other side to GND. Internal pull-up. |
-
-### Echo divider
+### Echo divider (use on both boards)
 
 ```text
-Sensor ECHO ---- R1 1 kOhm ----+---- ESP32_A GPIO 18
-                                |
-                             R2 2 kOhm
-                                |
-                               GND
+Sensor ECHO ---- R1 1 kΩ ----+---- ESP32 GPIO
+                              |
+                           R2 2 kΩ
+                              |
+                             GND
 ```
 
-This gives about `5 x 2 / (1 + 2) = 3.33 V` at the GPIO.
+This gives approximately `5 × 2 / (1 + 2) = 3.33 V` at the GPIO.
 
-### ESP32_A buttons
-
-The button GPIO numbers are **not supplied yet**. The firmware uses:
-
-```cpp
-#define PIN_BTN_START -1
-#define PIN_BTN_STOP  -1
-```
-
-`-1` means disabled. The water sensor still works normally.
-
-When the GPIO numbers are confirmed:
-
-1. Replace both `-1` values with safe output-capable GPIOs.
-2. Do not use GPIO 34-39: they are input-only and have no internal pull-up.
-3. Wire each button from its GPIO to GND.
-4. Buttons use `INPUT_PULLUP`, so released = HIGH and pressed = LOW.
-5. Recompile and upload ESP32_A.
-
-A button can connect directly from GPIO to GND. The motor is switched by the existing two transistor/RF circuits on ESP32_B.
-
-If you want to use the two supplied 2N2222 transistors as button input buffers, wire each one like this:
+### Probes on ESP32_A
 
 ```text
-3.3 V ---- push button ---- 1 kOhm ---- base
-                                          |
-                                      NPN 2N2222
-                                          |
-GPIO (INPUT_PULLUP) ---- collector        | emitter ---- GND
-                                          |
-                                    10 kOhm to GND
+ESP32_A GPIO 4  ---- TOPMOST level probe / tilt switch ---- GND
+ESP32_A GPIO 15 ---- OVERFLOW probe / switch ------------- GND
 ```
 
-- Pressing the button turns the NPN ON and pulls the GPIO LOW.
-- The firmware still sees the same active-low signal, so no code change is needed.
-- This transistor stage is optional. It does not switch the motor.
-- Check the 2N2222 pinout from its datasheet before soldering.
-
-### ESP32_A calibration
-
-The defaults are stored in ESP32_A NVS and can be changed from the dashboard **Admin**
-page without recompiling:
-
-```text
-Full distance:   10.0 cm  -> 100 %
-Empty distance:  76.0 cm  -> 0 %
-Empty deadband:   2.0 cm
-Sensor range:     2.0 to 150.0 cm
-Tank capacity:  750 L
-```
-
-Measure from the sensor face to the water surface. Distances of 10 cm or less are clamped
-to 100 %; distances within 2 cm of the 76 cm empty calibration are clamped to 0 %. If the
-sensor is moved or the tank changes, remeasure both points and save them from the Admin
-page. ESP32_B sends the changed settings over ESP-NOW and ESP32_A applies them
-automatically.
-
----
-
-## 4. ESP32_B wiring
-
-This is the complete ESP32_B connection list.
-
-| Device | Device pin | ESP32_B pin | Notes |
-|---|---|---|---|
-| HC-SR04 | VCC | 5 V | 5 V module. |
-| HC-SR04 | GND | GND | Common ground. |
-| HC-SR04 | TRIG | GPIO 25 | 3.3 V trigger normally works. |
-| HC-SR04 | ECHO | Divider output to GPIO 26 | Never connect 5 V Echo directly. |
-| HC-SR04 divider | R1 1 kOhm | ECHO to GPIO 26 | Series resistor. |
-| HC-SR04 divider | R2 2 kOhm | GPIO 26 to GND | Lower resistor. |
-| OLED | VCC | 3.3 V, check your module | Most 4-pin modules are 3.3 V. |
-| OLED | GND | GND | |
-| OLED | SDA | GPIO 21 | I2C data. |
-| OLED | SCL | GPIO 22 | I2C clock. |
-| Relay module | VCC | 5 V or 3.3 V as required | Check the module. |
-| Relay module | GND | GND | |
-| Relay 1 input | IN1 | GPIO 32 | Mirror Light. |
-| Relay 2 input | IN2 | GPIO 33 | Bulb. |
-| Buzzer driver | 1 kOhm to NPN base | GPIO 13 | NPN drives the buzzer. |
-| Blue indicator driver | 1 kOhm to NPN base | GPIO 16 | ON while filling. |
-| Red indicator driver | 1 kOhm to NPN base | GPIO 17 | ON while draining. |
-| Buzzer-stop button | One side | GPIO 4 | Other side to GND. |
-| RF remote START | Optocoupler/relay input | GPIO 18 | Across the remote START pads. |
-| RF remote STOP | Optocoupler/relay input | GPIO 19 | Across the remote STOP pads. |
-| Main power bulb | - | No GPIO | Wired directly to the main supply. |
-| Reserved button | - | GPIO 2, 14, 23 | Not used by firmware. |
-
-### HC-SR04 Echo divider
-
-```text
-HC-SR04 ECHO ---- R1 1 kOhm ----+---- ESP32_B GPIO 26
-                                |
-                             R2 2 kOhm
-                                |
-                               GND
-```
+- Open circuit = inactive (internal pull-up holds GPIO HIGH).
+- Closed circuit to GND = active (GPIO reads LOW). Both probes are submerged
+  sensors, so a submerged probe reads LOW.
+- **GPIO 4 (topmost):** when water reaches the topmost level, ESP32_B beeps the
+  buzzer 5×/sec and blinks the RED LED in sync. There is no hold, so the alert
+  stops the moment the probe leaves the water.
+- **GPIO 15 (overflow):** when water reaches the overflow probe, ESP32_B lights
+  the BLUE LED and keeps it on for an extra 2 s after the probe releases.
+- For long probe leads, add a 10 kΩ pull-up from the GPIO to 3.3 V and a
+  100 nF capacitor from GPIO to GND close to the ESP32.
+- Keep probe wiring away from mains wiring.
+- Use stainless-steel or corrosion-resistant electrodes.
 
 ### Relay polarity
 
-The firmware assumes the relay module is **active LOW**:
+The firmware assumes an **active-LOW** relay module:
 
 ```cpp
 #define RELAY_ACTIVE_HIGH false
@@ -249,552 +148,645 @@ The firmware assumes the relay module is **active LOW**:
 
 If your relay turns ON when its input is HIGH, change it to `true`.
 
-At boot both relays are forced OFF before they become outputs.
+At boot both relays are forced OFF before they become outputs. Add external
+pull resistors so the relay inputs stay inactive while the ESP32 is resetting:
 
-GPIO pins can float briefly during reset. Fit external resistors so the relay inputs stay inactive:
+- Active-LOW module: 10 kΩ from each IN pin to **3.3 V**.
+- Active-HIGH module: 10 kΩ from each IN pin to **GND**.
 
-- Active-LOW module: 10 kOhm from each IN pin to **3.3 V**.
-- Active-HIGH module: 10 kOhm from each IN pin to **GND**.
-
-Do not rely on the ESP32 alone for safe relay state at power-up.
-
-### OLED
-
-The firmware tries address `0x3C` first and then `0x3D`.
-
-The default OLED shows:
-
-- A large water percentage with a smaller `%` sign. U8g2 Logisoso fonts are rendered at their native size with 1 px curves, so the digits do not show scaled 8×8 blocks.
-- Bottom-left link status: `CONNECTED` or `NO LINK` (font size 1).
-- Bottom-right integer litres (font size 1).
-
-The Admin page can show/hide percent, link status, bottom litres, live/stale status,
-and distance. It can also change the percentage scale and bottom font size, contrast,
-and inversion. The live preview approximates the 128×64 OLED.
-
----
-
-## 5. Transistor and RF wiring
-
-### Blue/red indicator NPN driver
+### Buzzer driver
 
 ```text
-5 V or 12 V positive
-        |
-   indicator load and series resistor
-        |
-     collector
-        |
-GPIO 16 or 17 ---- 1 kOhm ---- base   NPN 2N2222/BC547
-        |
-     emitter
-        |
-       GND
-```
-
-- GPIO 16 drives the blue indicator.
-- GPIO 17 drives the red indicator.
-- The ESP32 GPIO drives only the base resistor, never the load.
-- Check the transistor pinout from its datasheet before soldering.
-- Small 2N2222/BC547 transistors are only for small loads. Use a MOSFET or relay for larger loads.
-- Add a flyback diode across an inductive load.
-
-### Buzzer NPN driver
-
-```text
-5 V positive ---- TMB12A05 positive
-TMB12A05 negative ---- collector
++5 V ---- TMB12A05 positive
+TMB12A05 negative ---- NPN collector
                          |
-GPIO 13 ---- 1 kOhm ---- base   NPN 2N2222/BC547
+GPIO 13 ---- 1 kΩ ---- NPN base
                          |
-                      emitter
+                      NPN emitter
                          |
                         GND
 ```
 
-- The firmware assumes an active buzzer.
-- Buzzer output is active HIGH at the GPIO.
-- Add a 1N4148 diode across the buzzer if needed.
+The firmware assumes an active buzzer with an active-HIGH GPIO output. Add a
+1N4148 diode across the buzzer if it is inductive or noisy.
 
-### RF remote START/STOP
+### Blue / red indicator driver
+
+```text
++5 V or +12 V
+     |
+  indicator + series resistor
+     |
+  NPN collector
+     |
+GPIO 16 or 17 ---- 1 kΩ ---- NPN base
+     |
+  NPN emitter
+     |
+    GND
+```
+
+Use a MOSFET or relay for larger loads. Add a flyback diode across an inductive
+load.
+
+### RF remote START / STOP
 
 Do not connect the ESP32 directly to unknown remote button pads.
 
-Use two PC817 optocouplers or two small signal relays. Each one must connect across the two pads of **one** remote button only.
-
 ```text
-ESP32 GPIO 18 or 19 ---- 330 Ohm ---- PC817 pin 1, anode
-                                      PC817 pin 2, cathode ---- GND
+ESP32 GPIO 18 or 19 ---- 330 Ω ---- PC817 pin 1 (anode)
+                                    PC817 pin 2 (cathode) ---- GND
 
-Remote button pad A ---- PC817 pin 4, collector
-Remote button pad B ---- PC817 pin 3, emitter
+Remote button pad A ---- PC817 pin 4 (collector)
+Remote button pad B ---- PC817 pin 3 (emitter)
 ```
 
-- GPIO 18 is START.
-- GPIO 19 is STOP.
+- Each optocoupler must connect across the two pads of **one** remote button.
 - Verify the remote PCB with a multimeter before wiring.
-- If the remote uses a matrix circuit, connect each optocoupler across the exact two pads that its physical button shorts.
-- The firmware releases both RF outputs at boot.
-- A press is released automatically after 4 seconds.
+- If the remote uses a matrix keypad, connect across the exact two pads that
+  the physical button shorts.
+- Both RF outputs are released at boot and auto-release after 4 seconds.
 - START and STOP cannot be active at the same time.
-- There is no motor feedback, so the dashboard only shows the command state, not proof that the motor is running.
 
 ---
 
-## 6. How the system behaves
+## 3. Pin configuration
 
-### Water reading
+### ESP32_A
 
-1. ESP32_A triggers the sensor 5 times (configurable in Admin).
-2. Invalid echoes are discarded.
-3. The median of the valid echoes is used.
-4. Readings outside 2 to 150 cm are rejected by default; 10 cm or less reports 100 %, and 74 cm or more reports 0 %.
-5. A sudden jump over 30 cm must repeat 3 times before it is accepted.
-6. A bit-identical reading for 10 minutes is treated as a stuck sensor.
-7. The accepted distance is converted to percentage and sent to ESP32_B.
+| Function | GPIO | Notes |
+|---|---:|---|
+| Ultrasonic TRIG | 5 | Output. |
+| Ultrasonic ECHO | 18 | Input, must be divided to ≤ 3.3 V. |
+| Topmost level probe | 4 | Active LOW, `INPUT_PULLUP`. Buzzer + RED LED when submerged. |
+| Overflow probe | 15 | Active LOW, `INPUT_PULLUP`; boot-strap pin. BLUE LED + 2 s glow. |
+| START button | -1 | Disabled. Assign a safe GPIO if needed. |
+| STOP button | -1 | Disabled. Assign a safe GPIO if needed. |
 
-All thresholds above are editable in Admin. Use a stable calibration first, then adjust
-filtering only if the installation is noisy.
+### ESP32_B
 
-### Link status
+| Function | GPIO | Notes |
+|---|---:|---|
+| OLED SDA | 21 | I2C. |
+| OLED SCL | 22 | I2C. |
+| HC-SR04 TRIG | 25 | Output. |
+| HC-SR04 ECHO | 26 | Input, must be divided to ≤ 3.3 V. |
+| Relay 1 (Mirror Light) | 32 | Active LOW by default. |
+| Relay 2 (Bulb) | 33 | Active LOW by default. |
+| Buzzer NPN base | 13 | Active HIGH. |
+| Buzzer-stop / override button | 4 | Active LOW, `INPUT_PULLUP`. |
+| Blue overflow indicator | 16 | Active HIGH. |
+| Red topmost-level indicator | 17 | Active HIGH. |
+| RF remote START | 18 | Active HIGH. |
+| RF remote STOP | 19 | Active HIGH. |
+| Reserved | 2, 14, 23 | Not initialized by the firmware. |
 
-- ESP32_B has an 8-second ESP-NOW link timeout and a separate valid-water timeout.
-- Touch states remain usable while the ESP-NOW link is online even if the water reading is invalid.
-- If the link is lost, the buzzer is stopped and both touch indicators turn off.
-- The OLED shows `CONNECTED` while ESP-NOW packets are arriving and `NO LINK` after the link is lost.
-- ESP32_B accepts both current protocol v2 packets and legacy v1 packets from an older ESP32_A, so a B-only update keeps the roof sensor online.
+### Optional ESP32_A motor buttons
 
-### Mirror Light
+The two START/STOP button GPIOs are intentionally disabled:
 
-- The HC-SR04 on ESP32_B looks for a person.
-- Person closer than 100 cm for about 0.4 seconds: Mirror Light ON.
-- Person farther than 105 cm: Mirror Light OFF immediately.
-- The gap between 100 and 105 cm rejects brief false triggers.
-- If the person sensor reading becomes invalid, the light turns OFF immediately.
-- ON/OFF distances, the ON confirmation time, and an optional maximum auto-on time are
-  editable in Admin. Auto detection can also be disabled.
-- The phone can switch the Mirror Light ON or OFF at any time.
-- Holding the GPIO 4 button for 3 seconds toggles manual override ON/OFF.
-- Phone **OFF** immediately exits manual override and keeps the relay off until the
-  detection area is clear.
-- There is **no 30-second timer**.
+```cpp
+#define PIN_BTN_START -1
+#define PIN_BTN_STOP  -1
+```
 
-### Bulb
+To enable them, replace both `-1` values with safe output-capable GPIOs, wire
+each button from the GPIO to GND, and re-upload ESP32_A. Do not use GPIO 34–39
+(input-only, no internal pull-up) and do not use GPIO 4 or 15 (already used by
+the probes).
 
-- The phone switches Relay 2 ON or OFF.
-- It stays in that state until changed.
+---
 
-### Full-tank buzzer
+## 4. Tank calibration
 
-- At 97 % or higher for 2 readings, the buzzer starts.
-- It beeps 5 times per second for up to 40 seconds.
-- A short GPIO 4 button press stops it.
-- A 3-second GPIO 4 long press also acknowledges an active buzzer while toggling mirror override.
-- The phone STOP BUZZER button also stops it.
-- The phone TEST BUZZER (5s) button plays the same beep pattern for 5 seconds, then stops automatically. STOP BUZZER also ends a test immediately.
-- It re-arms only after the water level falls below 93 %.
-- The buzzer also stops if the water link is lost.
-- Start threshold, re-arm threshold, confirmation count, duration, beeps per second,
-  beep ON time, and intensity are editable in Admin. Intensity uses PWM and is
-  approximate on an active buzzer; some modules only click instead of changing volume.
+Defaults are stored in NVS and can be changed at runtime from the Admin API
+(see [HTTP API](#11-http-api)) without recompiling:
+
+| Setting | Default |
+|---|---:|
+| Full distance (100 %) | 25.0 cm |
+| Empty distance (0 %) | 84.0 cm |
+| Empty deadband | 0.0 cm |
+| Sensor range | 2.0 – 200.0 cm |
+| Tank capacity | 750 L |
+| Samples per reading | 5 |
+| Sample spacing | 60 ms |
+| Measurement period | 500 ms |
+| Rolling median window | 5 readings |
+| Smoothing (EMA) | 0.50 |
+| Jump limit | 15 cm per reading |
+| Jump confirm | 2 readings |
+| Stuck timeout | 24 h (off) |
+
+Percentage formula (the only one in the firmware):
+
+```text
+percent = ((emptyDistance - measuredDistance) / (emptyDistance - fullDistance)) × 100
+       = ((84 - measuredDistance) / 59) × 100
+```
+
+Result is clamped to 0–100 %. Reference points:
+
+| Tank | Distance | Percent |
+|---|---:|---:|
+| Empty | 84.0 cm | 0 % |
+| 25 % | 69.25 cm | 25 % |
+| Half | 54.5 cm | 50 % |
+| 75 % | 39.75 cm | 75 % |
+| Full | 25.0 cm (or less) | 100 % |
+
+The sensor faces down, so **water rising means distance falling and percentage
+rising**. ESP32_A computes this value once per reading; the OLED and the web
+dashboard display exactly that value and never re-map it.
+
+Measure from the sensor face to the water surface. If you move the sensor or
+change the tank, remeasure both points and save them through the Admin API.
+ESP32_B forwards the new settings to ESP32_A over ESP-NOW.
+
+The firmware now rejects a reversed calibration (full farther than empty)
+instead of silently inverting the level, and it raises the range limit if
+needed so a real empty reading is not discarded.
+
+> **Flash both boards together.** ESP32_B stores the same calibration/filter
+> values in NVS and pushes them to ESP32_A. If you flash only one board, the
+> other can overwrite the new defaults with its old stored values. The settings
+> version was bumped, so the first boot after flashing both boards resets the
+> stored values to the table above. Re-enter any custom calibration afterwards.
+
+### Important: ultrasonic blind zone
+
+The JSN-SR04T / AJ-SR04M waterproof probe cannot measure closer than about
+**20–25 cm**. The 25 cm full point sits right at the edge of that blind zone, so
+the sensor can read a little short or drift when the tank is nearly full. That is
+why the physical **GPIO 4 topmost probe** is the reliable "tank is full"
+indicator: when water reaches it, ESP32_B beeps the buzzer 5×/sec and blinks the
+RED LED, independently of the ultrasonic reading.
+
+If you want the percentage itself to reach 100 % comfortably, the reliable fix is
+mechanical and does **not** change any wiring:
+
+1. Raise the sensor (or use a short standpipe) so the full water surface stays
+   clearly beyond the blind zone, then measure the new full/empty distances and
+   save them through the Admin API.
+2. Or keep the sensor where it is and set the full calibration to the closest
+   distance the sensor actually reads reliably, accepting that the last few
+   centimetres are reported as 100 %.
+
+There is no software formula that can recover a distance the sensor did not
+measure. The firmware prints a boot-time warning when the full calibration is
+inside this blind zone.
+
+---
+
+## 5. Water measurement logic
+
+1. ESP32_A triggers the sensor 5 times per reading.
+2. A 60 ms no-echo timeout and the 2–200 cm range reject bad samples.
+3. **Burst median:** the median of the valid samples in that reading is taken.
+4. **Jump gate:** a reading more than 15 cm from the previous accepted reading is
+   treated as an echo artefact and not displayed. If two consecutive readings
+   agree on the new value, it is accepted and the filter snaps to it. This gate
+   is symmetric, so it delays (but never blocks) both filling and draining.
+5. **Rolling median:** the median of the last 5 accepted readings removes
+   multi-second spikes.
+6. **EMA:** a 0.50 exponential moving average smooths the remaining noise. A
+   genuine level change is visible in roughly 1–2 seconds.
+7. The filtered distance is converted to percentage and litres **once**, in
+   ESP32_A, using the calibration above.
+8. ESP32_A sends a `WaterPacket` about every 0.8 s and immediately when a probe
+   changes. The OLED and dashboard use the received `percent` unchanged.
+9. A probe must be stable for 50 ms. The **overflow** probe (GPIO 15) keeps its
+   state for 2 s after release so short contact bounces do not flicker the
+   dashboard. The **topmost** probe (GPIO 4) has no hold — its full alert stops
+   immediately when it leaves the water.
+
+ESP32_B keeps the last valid water value, marks it stale if new valid data stops,
+and shows `NO LINK` when no packet at all has arrived for 15 seconds. With
+`DEBUG_SERIAL 1`, ESP32_B logs a warning if the received percentage disagrees
+with the shared calibration, which catches an old or reversed calibration on A.
+
+---
+
+## 6. ESP32_B behaviour
+
+### Mirror Light (Relay 1)
+
+- HC-SR04 detects a person closer than 100 cm → Relay 1 ON.
+- **Background rejection:** the firmware learns the empty-room background
+  distance (floor, wall, or reflections, e.g. ~105 cm). A reading only counts as
+  a person when it is at least **18 cm closer than that background**, so an
+  ambient echo hovering around the 100 cm threshold no longer turns the light on
+  by itself. The background tracks slow ambient drift but stops following as
+  soon as a reading is clearly closer, and is frozen while a person is
+  confirmed.
+- **Noise rejection:** readings below 10 cm are treated as invalid spurious
+  echoes; a sudden change of more than 35 cm from the last accepted distance is
+  ignored until it repeats 3 times; and a detection needs 3 consecutive accepted
+  near readings plus a minimum 600 ms confirm time. Short bursts and glitches no
+  longer turn the light on.
+- Person farther than 105 cm (or no longer clearly closer than the background)
+  → Relay 1 OFF after a 1 s hold, so a brief loss of detection does not switch
+  the mirror light off instantly. Moving back within range during that second
+  cancels the turn-off.
+- Invalid HC-SR04 reading → Relay 1 OFF after the same 1 s hold (sensor dropout
+  is not treated as an immediate "person gone").
+- The sensor keeps sampling continuously (every 250 ms); the 1 s delay only
+  applies to switching Relay 1 off, not to detection speed.
+- Phone ON/OFF works at any time.
+- Phone OFF exits manual override and blocks automatic turn-on until the area is
+  clear.
+- Holding GPIO 4 for 3 seconds toggles manual override.
+- Optional maximum auto-on time is available in settings; default is off.
+
+### Bulb (Relay 2)
+
+- Phone toggle only. The state is retained until changed.
+
+### Buzzer
+
+- **Topmost-probe alert (GPIO 4):** while the topmost probe is submerged, the
+  buzzer beeps 5×/sec and the RED LED blinks in sync with it. This runs
+  continuously (no time limit) and stops the moment the probe leaves the water.
+  It is silenced by the buzzer-disabled setting or by STOP BUZZER, and re-arms
+  when the probe clears.
+- **Level-based full alert:** starts at **95 %** for 2 consecutive valid
+  readings and beeps 5×/sec for up to **40 seconds**.
+- Short press on GPIO 4 (ESP32_B button) stops it.
+- A 3-second long press also stops an active alert while toggling mirror override.
+- The dashboard TEST BUZZER button runs the same pattern for **5 seconds**.
+- STOP BUZZER ends an alert or test immediately.
+- The level alert re-arms only after the level falls below **92 %**.
+- The level alert stops automatically when water data becomes invalid.
+
+`buzzerIntensity` is stored in settings but is not applied by this build; the
+output is plain on/off. Treat it as reserved.
 
 ### Motor control
 
-- The phone START/STOP buttons press the RF remote while held.
-- The optional ESP32_A buttons send START/STOP commands over ESP-NOW.
-- ESP32_B receives the command and drives the RF remote.
-- Any press is released automatically after 4 seconds.
-- Pressing START releases STOP first, and pressing STOP releases START first.
+- Phone START/STOP buttons are momentary: press sends `pressed`, release sends
+  `released`.
+- Optional ESP32_A buttons send the same commands over ESP-NOW.
+- A press is released automatically after 4 seconds.
+- Pressing START releases STOP first; pressing STOP releases START first.
+- There is no motor feedback, so the dashboard shows commands, not proof that
+  the motor is running.
 
-### Two-way ESP-NOW
+### Indicators
 
-ESP32_A sends:
+| Input state | ESP32_B indicator | Dashboard capsule |
+|---|---|---|
+| Topmost probe active (GPIO 4) | Red LED, blinking 5×/sec with the buzzer | Red `TOP LEVEL` |
+| Overflow probe active (GPIO 15) | Blue LED ON (+ 2 s glow) | Blue `OVERFLOWING` |
+| Neither probe active | Both LEDs OFF | `STABLE` |
+| ESP-NOW link lost | Both LEDs OFF | `NO A LINK` |
 
-- WaterPacket: distance, percentage, valid flag, sequence number, uptime, fault flags,
-  echo diagnostics, reset reason, and the settings revision currently applied.
-- CommandPacket: START/STOP or reboot, pressed/released, sequence number, uptime.
-
-ESP32_B sends:
-
-- StatusPacket: HC-SR04 distance, person state, water percentage/distance, relay states, buzzer state, motor states, link state, uptime, and the acknowledged sequence number.
-- SettingsPacket: calibration, filtering, measurement timing, and ESP32_A settings revision.
-- Status is also sent once per second for diagnostics.
-
-ESP32_A prints the received B status to the serial monitor. ESP32_A saves a valid
-SettingsPacket to NVS, resets its measurement state, and reports the new revision in its
-next WaterPacket. ESP32_B keeps retrying until the revisions match.
-
-Current protocol version is **2**. ESP32_B also accepts legacy v1 WaterPacket and CommandPacket frames from an older ESP32_A, so a B-only update is supported. Runtime settings sync to ESP32_A requires v2 on both boards.
+The two small **RED LED** / **BLUE LED** buttons at the bottom of the Motor
+control box are hardware test toggles. Each one forces its indicator LED ON,
+even when the ESP-NOW link is down or the matching probe is inactive. Tap again
+to release the override and return the LED to automatic control. The override
+is not saved across a reboot.
 
 ---
 
-## 7. Firmware logic, function by function
+## 7. Network, MAC addresses, and OTA
 
-### `ESP32_A.ino`
+Both boards must use the same ESP-NOW channel. The firmware default is
+**channel 6**.
 
-| Function | What it does |
-|---|---|
-| `crc16()` | Calculates CRC16-CCITT for packet checking. |
-| `echoISR()` | Records the Echo pulse rise and fall times. |
-| `medianOf()` | Sorts samples and returns the median. |
-| `percentFromDistance()` | Converts centimetres to percentage with the 10/76 cm calibration and 2 cm empty deadband. |
-| `startSample()` | Sends one 10 microsecond trigger pulse. |
-| `finalizeBurst()` | Validates samples, filters jumps/stuck readings, builds a WaterPacket, and sends it. |
-| `serviceMeasurement()` | Runs the non-blocking sample state machine every second. |
-| `serviceSendRetry()` | Resends a water packet until the send succeeds or the B status acknowledges it. |
-| `sendCommandBurstNow()` | Sends one copy of a command packet. |
-| `queueCommand()` | Builds a START/STOP CommandPacket and starts a 3-copy burst. |
-| `serviceCommandBurst()` | Sends the remaining command copies without blocking. |
-| `setupButtons()` | Configures assigned START/STOP GPIOs as inputs with pull-ups. |
-| `serviceButtons()` | Debounces both buttons and queues press/release commands. |
-| `onDataSent()` | Records the result of a water-packet send. |
-| `onDataRecv()` | Validates a StatusPacket from ESP32_B and saves it. |
-| `setupEspNow()` | Starts ESP-NOW, sets the channel, and adds ESP32_B as a peer. |
-| `setup()` | Starts serial, sensor pins, buttons, ESP-NOW, and prints diagnostics. |
-| `loop()` | Runs measurement, retry, command, button, and status-report tasks. |
-
-### `ESP32_B.ino`
-
-| Function | What it does |
-|---|---|
-| `crc16()` | Same CRC16-CCITT as ESP32_A. |
-| `writeRelayPin()` | Applies the relay active-high/active-low setting. |
-| `writeRfPin()` | Applies the RF remote output polarity. |
-| `writeIndicatorPin()` | Applies the indicator output polarity. |
-| `setBuzzerOutput()` | Turns the active buzzer on/off, or generates a tone for a passive buzzer. |
-| `initSafeOutputs()` | Forces relays, RF outputs, indicators, and buzzer OFF at boot. |
-| `computeLinkOnline()` | Checks for any valid ESP-NOW packet newer than 8 seconds. |
-| `computeOnline()` | Checks for a valid water packet newer than 8 seconds. |
-| `buzzerStateName()` | Returns TESTING, ALERTING, SILENCED, or READY. |
-| `stopBuzzerForLinkLoss()` | Stops the buzzer if the water link is lost. |
-| `manualStopBuzzer()` | Stops an alert or test from a button or the dashboard. |
-| `startBuzzerAlert()` | Starts a 40-second full-tank alert. |
-| `startBuzzerTest()` | Starts the same beep pattern as a 5-second test. |
-| `updateBuzzerFromWater()` | Starts and re-arms the full-tank buzzer at 97 % / 93 %. |
-| `serviceBuzzer()` | Produces the configured beep pattern for alerts and tests without blocking. |
-| `applyRelay1()` | Chooses manual override or automatic Mirror Light state and writes Relay 1. |
-| `applyRelay2()` | Writes Relay 2. |
-| `toggleMirrorOverride()` | Toggles the 3-second button Mirror Light override. |
-| `setMirrorRequest()` | Applies a phone ON/OFF request and exits override on OFF. |
-| `hcEchoISR()` | Records the HC-SR04 Echo pulse. |
-| `medianOfValidHc()` | Returns the median of valid HC-SR04 samples. |
-| `pushHcSample()` | Adds an HC-SR04 sample to the filter ring. |
-| `startHcSample()` | Sends one HC-SR04 trigger pulse. |
-| `serviceHcSensor()` | Runs the non-blocking person-sensor sampling. |
-| `updateAutoRelay1()` | Confirms person ON, turns OFF immediately on clear, respects manual override, and blocks auto until clear after phone OFF. |
-| `releaseMotorOutput()` | Releases one RF output. |
-| `pressMotor()` | Presses one RF output and releases the other. |
-| `serviceMotorSafety()` | Releases a press after 4 seconds and prevents both outputs being held. |
-| `motorRemainingMs()` | Returns the remaining auto-release time for the dashboard. |
-| `updateIndicators()` | Drives the blue/red indicators from the received touch states. |
-| `serviceLink()` | Detects link/water online changes and updates indicators. |
-| `serviceBuzzerButton()` | Debounces short press and detects the 3-second long press. |
-| `initOled()` | Starts I2C, finds the OLED, sets maximum brightness, and clears it. |
-| `drawOled()` | Draws the large percentage, link status, and bottom litres. |
-| `buildStateJson()` | Builds the `/api/state` JSON response. |
-| `sendJsonState()` | Sends the current state to the dashboard. |
-| `sendApiError()` | Sends a JSON error response. |
-| `parseOnValue()` | Parses `{"on":true}` or `{"on":false}`. |
-| `parseBoolField()` | Parses a named boolean JSON field. |
-| `parseStringField()` | Parses a named string JSON field. |
-| `handleRoot()` | Serves the embedded dashboard. |
-| `handleState()` | Handles `GET /api/state`. |
-| `handleMirrorLight()` | Handles manual Mirror Light commands. |
-| `handleBulb()` | Handles Bulb commands. |
-| `handleBuzzerStop()` | Handles buzzer-stop commands. |
-| `handleBuzzerTest()` | Handles the 5-second buzzer-test command. |
-| `handleMotor()` | Handles phone START/STOP press and release. |
-| `onDataRecv()` | Copies incoming ESP-NOW data into a queue. |
-| `sendStatus()` | Builds and sends a StatusPacket to ESP32_A. |
-| `handleCommandPacket()` | Applies a START/STOP command from ESP32_A. |
-| `handleWaterPacket()` | Validates and applies a WaterPacket, then sends status. |
-| `serviceEspNowQueue()` | Processes queued ESP-NOW packets safely in the main loop. |
-| `setupEspNow()` | Starts ESP-NOW and adds ESP32_A as a peer. |
-| `serviceStatusTx()` | Sends status to ESP32_A once per second. |
-| `setup()` | Starts safe outputs, sensors, OLED, access point, ESP-NOW, web server, and diagnostics. |
-| `loop()` | Runs all non-blocking services and the web server. |
-
-### Dashboard logic
-
-| Feature | Behaviour |
-|---|---|
-| Polling | Reads `/api/state` every 500 ms. |
-| Timeout | Gives up after 2.5 seconds and backs off to 5 seconds. |
-| Water display | Shows percentage, integer litres, bar, distance, and FILLING/OVERFLOWING/STABLE touch capsules. |
-| Stale data | Keeps the last water percentage and draws a thin underline while link/data is stale. |
-| Mirror Light | Toggle follows the actual Relay 1 state and shows person/manual mode; auto-off is immediate. |
-| Bulb | Toggle follows Relay 2. |
-| Motor | Press and hold sends pressed; release sends released. |
-| Safety | Releases held motor buttons when the page loses focus or closes. |
-| Buzzer | TEST BUZZER plays the alert pattern for 5 seconds; STOP BUZZER ends an alert or test. |
-| Admin | Top-right ADMIN button opens the Admin page directly; no passcode. |
-
-### Admin control centre
-
-The Admin page is part of the same `index.html` and is served at `http://192.168.4.1/`.
-It is a full-screen overlay; the original dashboard controls remain unchanged behind it.
-
-- **Access:** no passcode. Any phone on the local ESP32_B access point can open Admin.
-- **Live diagnostics:** ESP32_A online/link state, uptime, reset reason, valid/timeout
-  echo counts, flags, settings-sync state, current level, ESP-NOW link.
-- **History graph:** stored water samples with rising/filling and falling/draining
-  colours, range buttons, and automatic old-sample trimming.
-- **Noise/event log:** no-echo, timeout, jump, stuck, out-of-range, link loss/restore,
-  mirror dropouts, reboot, and settings events.
-- **Water settings:** full/empty/deadband, capacity, sensor limits, smoothing, jump
-  limit/confirmations, stuck timeout, measure period, sample spacing, samples/cycle.
-- **Mirror settings:** enable, ON/OFF distances, ON confirm time, max auto-on. OFF is immediate.
-- **Buzzer settings:** enable, start/re-arm thresholds, confirmations, duration, beeps
-  per second, beep ON time, intensity.
-- **OLED settings:** show/hide fields, percentage scale, bottom font size, contrast, inversion, live 128×64 preview.
-- **History settings:** enable, sample interval, retention days, clear history/events.
-- **Maintenance:** reboot ESP32_A, reboot ESP32_B, clear history, clear events.
-- **Technical information:** MACs, IP, channel, uptime, reset reasons, free heap, flash,
-  LittleFS usage, stored line counts, and pin assignments.
-
-Settings are saved to NVS on ESP32_B. Water settings are forwarded to ESP32_A over
-ESP-NOW and also persisted in ESP32_A NVS, so they survive reboots. History and events
-are stored in LittleFS on ESP32_B. There is no RTC, so history ages are approximate and
-are based on the configured sampling interval.
-
----
-
-## 8. Wi-Fi and dashboard
-
-ESP32_B creates this access point:
+### ESP32_B access point
 
 ```text
-SSID:     Smart Water Tank
-Password: dks12345
-Address:  http://192.168.4.1/
-Channel:  6
+SSID:      Smart Water Tank
+Password:  dks12345
+Dashboard: http://192.168.4.1/
+Channel:   6
 ```
 
-Change these in `ESP32_B.ino` before deployment:
+Change `AP_WIFI_PASSWORD` in `ESP32_B.ino` before deployment. The password must
+be at least 8 characters.
 
-```cpp
-static const char AP_WIFI_PASSWORD[] = "dks12345";
-#define WIFI_CHANNEL 6
+### ESP32_A OTA access point
+
+```text
+SSID:      • TP-Link_8080
+Password:  dks12345
+Address:   192.168.10.1
+Channel:   6
 ```
 
-The password must be at least 8 characters.
+ESP32_A hosts this AP only for wireless firmware uploads. It shares channel 6
+with ESP-NOW.
 
-The ESP-NOW channel on both boards must be the same.
+### MAC addresses
 
----
-
-## 9. MAC addresses
-
-ESP-NOW needs the other board's MAC address. Only these two values are used:
+Only two values are required:
 
 | Value needed | Comes from | Goes into |
 |---|---|---|
-| ESP32_A **STA MAC** | ESP32_A Serial Monitor | `ESP32_A_MAC` in `ESP32_B.ino` |
-| ESP32_B **AP MAC** | ESP32_B Serial Monitor | `ESP32_B_MAC` in `ESP32_A.ino` |
+| ESP32_A **AP MAC** | ESP32_A Serial Monitor: `ESP32_A AP MAC ...` | `ESP32_A_MAC` in `ESP32_B.ino` |
+| ESP32_B **AP MAC** | ESP32_B Serial Monitor: `ESP32_B AP MAC ...` | `ESP32_B_MAC` in `ESP32_A.ino` |
 
-ESP32_A does not create an access point, so an A AP MAC is not used. ESP32_B uses its AP interface for ESP-NOW, so a B STA MAC is not used.
+Both boards run in AP mode, so use their **AP** MACs as ESP-NOW peers. The AP MAC
+is normally the STA MAC + 1 on an ESP32, but always verify it from the serial
+output.
 
-### Find ESP32_A station MAC
-
-Upload ESP32_A and open Serial Monitor at 115200 baud. It prints:
-
-```text
-ESP32_A STA MAC: 00:70:07:A1:DC:80
-```
-
-Put that value in `ESP32_B.ino`:
+Current values in the code:
 
 ```cpp
-static const uint8_t ESP32_A_MAC[6] = {0x00, 0x70, 0x07, 0xA1, 0xDC, 0x80};
-```
-
-### Find ESP32_B access-point MAC
-
-Upload ESP32_B and open Serial Monitor. It prints:
-
-```text
-ESP32_B AP MAC  (use in ESP32_A): 30:76:F5:E4:FD:D5
-```
-
-Put that value in `ESP32_A.ino`:
-
-```cpp
+// ESP32_A.ino
 static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
+
+// ESP32_B.ino
+static const uint8_t ESP32_A_MAC[6] = {0x00, 0x70, 0x07, 0xA1, 0xDC, 0x81};
 ```
 
-These are the addresses already configured in this project. Verify them against the Serial Monitor after flashing.
+If either board is replaced, update these values and re-upload.
+
+### OTA
+
+After one USB flash, both boards can be updated wirelessly:
+
+| Board | Connect laptop to | OTA hostname | OTA password |
+|---|---|---|---|
+| ESP32_A | `• TP-Link_8080` / `dks12345` | `ESP32-WATER-A` | `dks12345` |
+| ESP32_B | `Smart Water Tank` / `dks12345` | `ESP32-WATER-B` | `dks12345` |
+
+Use an OTA-capable partition scheme, for example **Default 4MB with spiffs**.
+Keep power connected during upload.
 
 ---
 
-## 10. Compile and upload
+## 8. Two-way ESP-NOW protocol
+
+ESP32_A sends:
+
+- **WaterPacket** — distance, percentage, litres, valid flag, sequence, uptime,
+  fault flags, echo diagnostics, reset reason, and applied settings revision.
+- **CommandPacket** — START/STOP/reboot, pressed/released, sequence, uptime.
+
+ESP32_B sends:
+
+- **StatusPacket** — HC-SR04 distance, person state, water values, relay states,
+  buzzer state, motor states, link state, uptime, and acknowledged sequence.
+- **SettingsPacket** — calibration, filtering, measurement timing, and revision.
+- **CommandPacket** — reboot ESP32_A.
+
+All packets are packed, use magic `WTA1`, and carry CRC16-CCITT over every byte
+except the trailing CRC. Protocol version is **2**. ESP32_B also accepts legacy
+v1 WaterPacket and CommandPacket frames from an older ESP32_A.
+
+Settings flow: ESP32_B is the source of truth. It sends the settings packet to
+ESP32_A, ESP32_A saves them to NVS and resets its measurement state, and the new
+revision is reported in the next WaterPacket. ESP32_B retries until the
+revisions match.
+
+---
+
+## 9. Compile and upload
 
 ### Arduino IDE
 
-1. Install the ESP32 board package.
-2. Select board **ESP32 Dev Module**.
-3. Install **U8g2** (used for the SSD1306 OLED).
+1. Install the ESP32 board package (target: `esp32:esp32` 3.3.11 or newer).
+2. Install **U8g2** (used by the SSD1306 OLED).
+3. Select **ESP32 Dev Module**.
 4. Open `ESP32_A.ino` and upload it to the rooftop board.
 5. Open `ESP32_B.ino` and upload it to the indoor board.
-6. Set both boards to the same ESP-NOW channel.
-7. Enter both MAC addresses.
-8. Upload both boards again.
+6. Confirm both boards use channel 6 and the correct peer MACs.
 
-### Important sketch-folder rule
+### Important Arduino sketch-folder rule
 
-Arduino expects the folder name to match the `.ino` name.
-
-If Arduino refuses to open the file, make a temporary folder for each board:
+Arduino expects the folder name to match the sketch name. This folder is named
+`Smart Water Tank`, so it cannot compile both `.ino` files directly. Copy each
+sketch into its own matching folder before compiling:
 
 ```text
 ESP32_A/ESP32_A.ino
 ESP32_B/ESP32_B.ino
 ```
 
-This project folder can still hold both files for delivery, but compile them from matching temporary folders.
+The three source files can still be stored together for delivery.
 
-### Command-line compile used for this project
+### Arduino CLI
 
 ```bash
-arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_A.ino
-arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B.ino
+arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_A
+arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 ```
 
-If the sketches are not inside matching folders, copy each one into its own folder first.
-
----
-
-## 11. Dashboard file
-
-`index.html` is the readable dashboard source.
-
-The same HTML is embedded inside `ESP32_B.ino` between:
-
-```text
-R"WTDASH(
-...
-)WTDASH"
-```
-
-If you edit `index.html`, copy the new HTML into that block in `ESP32_B.ino`. Keep the two copies identical or the browser and serial monitor will serve different versions.
-
-Do not move the dashboard to an external file or CDN. ESP32_B must serve everything locally.
-
----
-
-## 12. HTTP API
-
-| Method | Path | Body | Purpose |
-|---|---|---|---|
-| GET | `/api/state` | none | Returns current water, relay, buzzer, motor, and sensor state. |
-| POST | `/api/mirror-light` | `{"on":true}` | Manual Mirror Light ON/OFF. |
-| POST | `/api/bulb` | `{"on":true}` | Bulb ON/OFF. |
-| POST | `/api/buzzer/test` | `{}` | Play the alert beep pattern for 5 seconds. |
-| POST | `/api/buzzer/stop` | `{}` | Stop an alert or test immediately. |
-| POST | `/api/motor` | `{"button":"start","pressed":true}` | Press or release the RF motor button. |
-
-The dashboard polls state every 500 ms. Command requests time out after 3 seconds.
-
----
-
-## 13. Test checklist
-
-1. Power ESP32_B with no mains load connected. Confirm relays are OFF at boot.
-2. Connect to the `Smart Water Tank` Wi-Fi and open `http://192.168.4.1/`.
-3. Confirm the OLED shows `NO LINK` before ESP32_A starts.
-4. Power ESP32_A and confirm the OLED changes to `CONNECTED`.
-5. Move the water sensor and watch the percentage change.
-6. Short ESP32_A GPIO 4 / GPIO 15 to GND in turn and confirm the blue/red LEDs and dashboard capsules change immediately.
-7. Hold a hand within 100 cm of the HC-SR04. Mirror Light should turn ON.
-8. Remove your hand beyond 105 cm. Mirror Light should turn OFF immediately.
-9. Use the phone Mirror Light toggle while no person is detected. It should stay ON or OFF with no timer.
-10. Test the Bulb toggle.
-11. Press TEST BUZZER. Confirm it uses the same pattern as a full-tank alert and stops automatically after 5 seconds. Press TEST BUZZER again and stop it early with STOP BUZZER and with the physical button.
-12. Test the buzzer at full water, then press the physical button and the dashboard button.
-13. Test phone START/STOP. Each press should release after 4 seconds.
-14. Assign ESP32_A button GPIOs and test START/STOP from the rooftop board.
-15. Check that the dashboard updates after a page reload.
-
----
-
-## 14. Safety notes
-
-- Mains voltage can kill. Use a proper enclosure, fuse, strain relief, and rated terminals.
-- Do not touch the relay board or wiring while mains power is connected.
-- The ESP32 GPIOs are 3.3 V. Never feed 5 V directly into an Echo or button input.
-- Use the Echo divider on both ultrasonic sensors.
-- Do not power relay coils from an ESP32 GPIO.
-- Verify the RF remote PCB before connecting it.
-- Use a flyback diode across inductive loads.
-- Keep the water sensor cable's waterproof joint out of standing water.
-- Do not exceed relay contact ratings. Motors have high inrush current.
-- The project has no motor feedback. The dashboard shows commands, not physical motor state.
-
----
-
-## 15. Configuration summary
-
-### ESP32_A
-
-```cpp
-static const uint8_t ESP32_B_MAC[6] = {0x30, 0x76, 0xF5, 0xE4, 0xFD, 0xD5};
-#define WIFI_CHANNEL 6
-#define PIN_TRIG 5
-#define PIN_ECHO 18
-#define PIN_BTN_START -1
-#define PIN_BTN_STOP  -1
-static const float FULL_DISTANCE_CM  = 10.0f;
-static const float EMPTY_DISTANCE_CM = 76.0f;
-static const float EMPTY_DEADBAND_CM = 2.0f;
-static const float SENSOR_MIN_CM     = 2.0f;
-```
-
-### ESP32_B
-
-```cpp
-static const uint8_t ESP32_A_MAC[6] = {0x00, 0x70, 0x07, 0xA1, 0xDC, 0x80};
-#define WIFI_CHANNEL 6
-#define PIN_I2C_SDA 21
-#define PIN_I2C_SCL 22
-#define PIN_HCSR_TRIG 25
-#define PIN_HCSR_ECHO 26
-#define PIN_RELAY1 32
-#define PIN_RELAY2 33
-#define PIN_BUZZER 13
-#define PIN_BTN_BUZZER_STOP 4
-#define PIN_IND_BLUE 16
-#define PIN_IND_RED 17
-#define PIN_RF_START 18
-#define PIN_RF_STOP 19
-#define RELAY_ACTIVE_HIGH false
-```
-
----
-
-## 16. Current compile results
-
-Checked with Arduino-ESP32 core 3.3.11:
+### Verified build results (ESP32 core 3.3.11)
 
 | Sketch | Flash | RAM |
 |---|---:|---:|
-| ESP32_A | 899,236 bytes (68 %) | 46,304 bytes (14 %) |
-| ESP32_B | 1,169,115 bytes (89 %) | 51,068 bytes (15 %) |
+| ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
+| ESP32_B | 1,182,362 bytes (90 %) | 55,992 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
 ---
 
-## 17. Troubleshooting
+## 10. Dashboard
+
+ESP32_B serves the embedded dashboard at `http://192.168.4.1/`.
+
+- Polls `/api/state` every 700 ms.
+- Request timeout is 2.5 s; failures back off up to 4 s.
+- Shows percentage, litres, bar, sensor distance, and TOP LEVEL / OVERFLOWING /
+  STABLE capsules.
+- Mirror Light and Bulb toggles follow the actual relay state.
+- Motor buttons are press-and-hold and release automatically when the page loses
+  focus or closes.
+- Buzzer TEST (5 s) and STOP buttons work without a page reload.
+
+The dashboard has no separate Admin screen. Use the Admin API endpoints below
+from a browser, `curl`, or a small script.
+
+---
+
+## 11. HTTP API
+
+| Method | Path | Body | Purpose |
+|---|---|---|---|
+| GET | `/api/state` | — | Current water, relay, buzzer, motor, and sensor state. |
+| POST | `/api/mirror-light` | `{"on":true}` | Mirror Light ON/OFF. |
+| POST | `/api/bulb` | `{"on":true}` | Bulb ON/OFF. |
+| POST | `/api/buzzer/test` | `{}` | 5-second buzzer test. |
+| POST | `/api/buzzer/stop` | `{}` | Stop alert or test. |
+| POST | `/api/led/test` | `{"led":"blue","on":true}` | Force Blue/Red indicator LED ON/OFF for testing. |
+| POST | `/api/motor` | `{"button":"start","pressed":true}` | Press or release the RF motor output. |
+| GET | `/api/admin/settings` | — | Read all settings and diagnostics. |
+| POST | `/api/admin/settings` | JSON fields | Change settings. |
+| POST | `/api/admin/reboot-a` | `{}` | Reboot ESP32_A. |
+| POST | `/api/admin/reboot-b` | `{}` | Reboot ESP32_B. |
+| POST | `/api/admin/clear-data` | `{"history":true}` and/or `{"events":true}` | Clear stored data. |
+| GET | `/api/history` | — | Water history CSV-derived JSON. |
+| GET | `/api/events` | — | Event log JSON. |
+
+There is **no passcode** on the local AP. Anyone connected to `Smart Water Tank`
+can use these endpoints. Change the AP password before deployment.
+
+### Setting examples
+
+```bash
+curl -X POST http://192.168.4.1/api/mirror-light \
+  -H 'Content-Type: application/json' -d '{"on":true}'
+
+curl -X POST http://192.168.4.1/api/admin/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"tankCapacityL":750,"fullDistanceCm":25,"emptyDistanceCm":84}'
+```
+
+Settings are saved to NVS on ESP32_B. Water settings are forwarded to ESP32_A
+and also persisted in ESP32_A NVS.
+
+---
+
+## 12. Storage and history
+
+ESP32_B uses LittleFS for:
+
+- `/history.csv` — water samples, default every 300 s, 4 days retained.
+- `/events.csv` — fault/link/reboot/settings events, capped at 1,200 lines.
+
+There is no RTC. Graph ages are approximate and derived from the configured
+sampling interval, not wall-clock time.
+
+---
+
+## 13. Test checklist and troubleshooting
+
+### First power-up
+
+1. Power ESP32_B with no mains load connected. Confirm relays are OFF.
+2. Connect to `Smart Water Tank` and open `http://192.168.4.1/`.
+3. Confirm the OLED shows `NO LINK` before ESP32_A starts.
+4. Power ESP32_A and confirm the OLED changes to `CONNECTED`.
+5. Move the water sensor and watch the percentage change.
+6. Short ESP32_A GPIO 4 to GND: the buzzer should beep 5×/sec and the RED LED
+   should blink with it; the dashboard shows a red `TOP LEVEL` capsule. Short
+   GPIO 15 to GND: the BLUE LED lights and the dashboard shows blue
+   `OVERFLOWING`, staying on for 2 s after you release the probe.
+7. With no probe active, tap **BLUE LED** then **RED LED** under the Motor
+   control buttons. Each LED should light and stay lit until tapped again.
+8. Hold a hand within 100 cm of the HC-SR04. Mirror Light should turn ON.
+9. Move beyond 105 cm. Mirror Light should turn OFF after about 1 second.
+10. Test the Bulb toggle.
+11. Press TEST BUZZER, then stop it early with STOP BUZZER and with the physical
+    button.
+12. Test phone START/STOP. Each press should release after 4 seconds.
+
+### Troubleshooting
 
 | Problem | Check |
 |---|---|
-| OLED blank | Check 3.3 V, GND, SDA 21, SCL 22, and address 0x3C/0x3D. |
-| Dashboard does not open | Join the `Smart Water Tank` Wi-Fi and use `http://192.168.4.1/`. |
-| Water shows no data | Check both MAC addresses, both channels, ESP32_A power, and sensor wiring. |
-| Distance is always invalid | Check the Echo divider, sensor supply, and calibration values. |
-| Mirror Light flickers | Keep the HC-SR04 away from reflective surfaces and check its 5 V supply. |
-| Mirror Light stays on | Check for a person within 105 cm, or a phone manual ON command. |
+| OLED blank | 3.3 V, GND, SDA 21, SCL 22, address 0x3C/0x3D. |
+| Dashboard does not open | Join `Smart Water Tank`; use `http://192.168.4.1/`. |
+| Water shows no data | Both AP MACs, both channels, ESP32_A power, sensor wiring. |
+| Distance always invalid | Echo divider, sensor supply, calibration values, 60 ms timeout. |
+| Level falls while filling / tops out at 75–85 % | Sensor is inside its 20–25 cm blind zone; see [Important: ultrasonic blind zone](#important-ultrasonic-blind-zone). |
+| Buzzer never reaches full alert | If the tank tops out below 95 %, the sensor cannot see the real full level; fix the mounting or lower the full calibration. |
+| Percentage disagrees with distance | Check the serial log for `percent/distance disagree`; A is running an old calibration. |
+| Mirror Light flickers | Keep HC-SR04 away from reflective surfaces; check its 5 V supply. |
+| Mirror Light turns on with nobody there | Check `mirrorBackgroundCm` and `hcsr04Distance` in `/api/state`; if the sensor reads a static echo only slightly closer than the background, move it away from reflections or lower `mirrorOnCm`. |
+| Mirror Light stays on | A person is within 105 cm, phone manual ON is active, or override is on. |
 | Relay works backwards | Change `RELAY_ACTIVE_HIGH`. |
-| Buzzer never sounds | Check transistor pinout, base resistor, buzzer polarity, and `BUZZER_IS_ACTIVE`. |
-| Motor does not respond | Verify the RF remote wiring and that the remote battery is installed. |
-| ESP-NOW send fails | Confirm both boards use the same channel and the correct peer MAC. |
-| ESP32_A buttons do nothing | Set `PIN_BTN_START` and `PIN_BTN_STOP` to real GPIO numbers. |
+| Buzzer never sounds | NPN pinout, 1 kΩ base resistor, buzzer polarity, `BUZZER_IS_ACTIVE`. |
+| Motor does not respond | RF remote wiring and battery; verify optocoupler orientation. |
+| ESP-NOW send fails | Same channel, correct **AP** MACs, peer registered. |
+| ESP32_A buttons do nothing | Assign `PIN_BTN_START` / `PIN_BTN_STOP`. |
+| ESP32_A does not boot | GPIO 15 may be held LOW by the overflow probe; add a 10 kΩ pull-up. |
+
+---
+
+## 14. Changes made in this cleanup
+
+### Latest: calibration + topmost/overflow probe rework
+
+- **Recalibrated the tank:** full = **25 cm**, empty = **84 cm** (was 10 / 100).
+  With the tank empty the sensor's ~84 cm reading now shows **0 %** instead of
+  the old ~18 %. Bumped the settings version on **both** boards so any stored
+  10/100 calibration is discarded on first boot.
+- **Reworked the ESP32_A probes:** GPIO 4 is now the **topmost level** probe and
+  GPIO 15 stays the **overflow** probe.
+- **ESP32_A GPIO 4:** when water reaches the topmost probe, ESP32_B beeps the
+  buzzer **5×/sec** and blinks the **RED LED** in sync with the buzzer. No hold —
+  it stops as soon as the probe leaves the water.
+- **ESP32_A GPIO 15:** overflow lights the **BLUE LED** and keeps it on for an
+  extra **2 s** after release.
+- Swapped the ESP32_B indicator roles accordingly (blue = overflow, red =
+  topmost) and relabelled the dashboard capsule to red `TOP LEVEL` (the blue
+  `OVERFLOWING` capsule is unchanged). The ESP-NOW field names `filling`/
+  `draining` are kept for protocol compatibility.
+- Added a probe-driven buzzer path that runs independently of the 40 s level
+  alert; STOP BUZZER silences it until the probe clears.
+
+### Earlier cleanup
+
+- Removed the separate `index.html` (it was a duplicate of the HTML already
+  embedded in `ESP32_B.ino`).
+- Removed `ADDITIONAL_FEATURES_AND_WIRING.md`; its useful wiring is now in this
+  README.
+- Removed `WIRELESS_UPLOAD_ESP32_A.md` and `WIRELESS_UPLOAD_ESP32_B.md`; OTA
+  setup is now in [Network, MAC addresses, and OTA](#7-network-mac-addresses-and-ota).
+- Corrected the README to match the current firmware: 25/84 cm calibration,
+  2–200 cm sensor range, 15 s link timeout, 95/92 % buzzer thresholds, 700 ms
+  dashboard polling, and 3.5 s command timeout.
+- Fixed the ESP32_A ↔ ESP32_B peer address documentation: both boards use their
+  **AP** MAC for ESP-NOW, not the station MAC.
+- Kept ESP32_A's OTA SSID unchanged as `• TP-Link_8080`.
+- Moved ESP32_A settings application out of the ESP-NOW receive callback into
+  the main loop, so NVS writes and measurement resets cannot stall the Wi-Fi
+  task.
+- Restored the jump/stuck settings in ESP32_A so the existing settings fields
+  actually work; the jump filter now defaults to an active 15 cm symmetric gate.
+- Re-applied the empty deadband in the percentage calculation (default 0 cm).
+- **Fixed the level calculation:** ESP32_A now converts distance to percentage
+  once with `(100 - d) / 90 × 100`, and ESP32_B/OLED/dashboard display that value
+  unchanged. Removed the ambiguous "either sensor orientation" branch.
+- **Blocked reversed calibration:** both sketches now swap/reject a pair where
+  "full" is farther than "empty", which was the one configuration that made the
+  percentage fall while the tank filled.
+- **Fixed the jump filter:** the old code cleared the confirm counter on every
+  rejected reading, so once a reading exceeded the jump limit it could be
+  rejected forever. Confirmed changes are now accepted in both directions.
+- **Replaced filtering:** burst median → 15 cm symmetric jump gate → 5-reading
+  rolling median → EMA 0.50. Rising and falling levels are treated identically.
+- Bumped the stored settings version on both boards so any old 29/76 or
+  smoothing-off calibration in NVS is discarded on first boot after flashing.
+- Added a boot-time warning and README section for the JSN-SR04T ~20–25 cm
+  blind zone, which is the physical reason a full tank can read below 100 %.
+- Fixed the OLED footer so distance, link status, and litres no longer draw on
+  top of each other.
+- Removed hard-coded ESP32_B pin numbers from the admin JSON; it now reports the
+  real configured pins.
+- **ESP32_B OLED:** the percentage now uses FreeSans Bold (`fub42`/`fub35`/
+  `fub25`) with a wider custom `%` sign, and the number width is measured from
+  real glyph advances so `100%` still fits.
+- **ESP32_B mirror light:** Relay 1 now holds ON for 1 s after the person leaves
+  (or after an echo dropout) before switching off; returning within 100 cm
+  cancels the turn-off.
+- **ESP32_B indicator LEDs:** added RED LED / BLUE LED test toggles at the bottom
+  of the Motor control card, backed by `POST /api/led/test`.
+- **ESP32_B person detection:** added background-echo rejection — a reading must
+  be at least 18 cm closer than the learned empty-room distance — plus a jump
+  gate, a minimum valid distance, 3 consecutive near readings and a 600 ms
+  confirm floor, so ambient echoes near 1 m and short noise bursts no longer
+  turn the mirror light on.
+- Verified both sketches compile with `arduino-cli` on ESP32 core 3.3.11 with
+  `--warnings all`.
+
+---
+
+## 15. Safety notes
+
+- Mains voltage can kill. Use a proper enclosure, fuse, strain relief, and rated
+  terminals.
+- Do not touch the relay board or wiring while mains power is connected.
+- ESP32 GPIOs are 3.3 V. Never feed 5 V directly into an ECHO or button input.
+- Use the 1 kΩ / 2 kΩ divider on **both** ultrasonic sensors.
+- Do not power relay coils or buzzers from an ESP32 GPIO.
+- Verify the RF remote PCB before connecting it.
+- Use a flyback diode across inductive loads.
+- Keep the water sensor cable's waterproof joint out of standing water.
+- Do not exceed relay contact ratings. Motors have high inrush current.
+- The project has no motor feedback. The dashboard shows commands, not physical
+  motor state.

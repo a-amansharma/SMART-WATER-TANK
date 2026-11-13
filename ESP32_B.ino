@@ -11,18 +11,19 @@
     * receive water level, touch states and START/STOP commands from ESP32_A
     * send sensor/status information back to ESP32_A
     * 750 L tank percentage/volume model, full-tank buzzer
-    * FILLING/DRAINING touch inputs -> indicator LEDs and dashboard capsules
+    * topmost (GPIO 4) probe -> buzzer 5x/sec + RED LED blink, overflow
+      (GPIO 15) probe -> BLUE LED, and dashboard capsules
     * HC-SR04 person detection -> Relay 1 automatic mirror light
     * phone Mirror Light control, 3 s button manual override, Relay 2, RF
     * 0.96" I2C OLED, Wi-Fi AP "Smart Water Tank", local dashboard
     * four physical buttons: one buzzer-stop/manual-override, three RESERVED
 
-  The dashboard HTML is embedded below as DASHBOARD_HTML and is identical to
-  index.html.  If you edit index.html, re-embed it (see README.md, section
-  "Editing the dashboard").
+  The dashboard HTML is embedded below in this file as DASHBOARD_HTML. Edit it
+  directly in the DASHBOARD_HTML block (see README.md, section "Editing the
+  dashboard").
 
   USER-SPECIFIC VALUES TO CHANGE (marked ">>> CHANGE"):
-  1. ESP32_A_MAC = ESP32_A station MAC (printed by ESP32_A at boot).
+  1. ESP32_A_MAC = ESP32_A access-point MAC (printed by ESP32_A at boot).
   2. WIFI_CHANNEL = same channel as ESP32_A.
   3. AP_WIFI_PASSWORD = your chosen password (min 8 chars).
   4. Verify every GPIO against YOUR board before wiring.
@@ -53,8 +54,10 @@
 
 #define DEBUG_SERIAL 1                 // 1 = diagnostic serial output, 0 = quiet
 
-// ESP32_A station MAC address (printed by ESP32_A at boot).
-static const uint8_t ESP32_A_MAC[6] = {0x00, 0x70, 0x07, 0xA1, 0xDC, 0x80};
+// ESP32_A ACCESS-POINT MAC address. ESP32_A runs in AP mode, so this is the
+// interface it uses for ESP-NOW. It is printed by ESP32_A at boot as
+// "ESP32_A AP MAC" and is normally the A STA MAC + 1.
+static const uint8_t ESP32_A_MAC[6] = {0x00, 0x70, 0x07, 0xA1, 0xDC, 0x81};
 
 // Wi-Fi AP + ESP-NOW channel. MUST exactly match ESP32_A.ino. Default 6.
 #define WIFI_CHANNEL 6
@@ -88,8 +91,8 @@ static const char OTA_PASSWORD[] = "dks12345";  // >>> CHANGE before deployment
 #define PIN_BTN_BUZZER_STOP 4    // other side of button to GND; INPUT_PULLUP
 #define BUTTON_ACTIVE_LOW   true
 
-#define PIN_IND_BLUE       16   // FILLING indicator (NPN/MOSFET driver)
-#define PIN_IND_RED        17   // DRAINING indicator
+#define PIN_IND_BLUE       16   // OVERFLOW (GPIO 15) indicator (NPN/MOSFET driver)
+#define PIN_IND_RED        17   // TOPMOST level (GPIO 4) indicator
 #define IND_ACTIVE_HIGH    true
 
 #define PIN_RF_START       18   // to isolated remote-button switching circuit
@@ -108,8 +111,22 @@ static const uint32_t HC_MIN_ECHO_US         = 100;
 static const uint32_t HC_MAX_ECHO_US         = 25000;
 static const float    HC_DETECT_ON_CM        = 100.0f;
 static const float    HC_DETECT_OFF_CM       = 105.0f;  // hysteresis
+// A real person must be this much closer than the learned background distance
+// (floor/wall echo), so ambient readings near the on-threshold are ignored.
+static const float    HC_NEAR_DROP_CM        = 18.0f;
+static const float    HC_BASELINE_BAND_CM    = 8.0f;    // only track readings this close to the background
+static const float    HC_BASELINE_ALPHA      = 0.05f;   // background tracking rate
+// Noise rejection: reject sudden jumps and require a sustained approach.
+static const float    HC_MIN_VALID_CM        = 10.0f;   // ignore near-zero spurious echoes
+static const float    HC_JUMP_CM             = 35.0f;   // max change accepted in one sample
+static const uint8_t  HC_JUMP_CONFIRM        = 3;       // ...unless it repeats this many times
+static const uint8_t  HC_NEAR_RUN_SAMPLES    = 3;       // consecutive near readings to confirm
+static const uint32_t HC_MIN_ON_CONFIRM_MS   = 600;     // floor for the on-confirm time
 static const uint32_t HC_ON_CONFIRM_MS        = 400;
 static const uint32_t HC_OFF_CONFIRM_MS       = 800;
+// Once the person is gone, keep Relay 1 (mirror light) on for one more second
+// before switching it off. The HC-SR04 keeps sampling the whole time.
+static const uint32_t HC_OFF_DELAY_MS         = 1000;
 static const uint8_t  HC_FILTER_SAMPLES      = 5;
 static const float    SOUND_CM_PER_US        = 0.0343f;
 
@@ -127,7 +144,7 @@ static const uint32_t BUZZER_BEEP_PERIOD_MS  = 200;  // 5 beeps per second
 static const uint32_t BUZZER_BEEP_ON_MS      = 80;
 
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
-#define B_SETTINGS_VERSION 2u
+#define B_SETTINGS_VERSION 4u          // bumped: refreshes stale calibration/filter values
 
 // History storage limits. Samples are CSV lines in LittleFS; old lines are
 // compacted automatically so the log stays bounded.
@@ -341,7 +358,7 @@ static_assert(sizeof(SettingsPacket) == 58, "SettingsPacket size must match ESP3
 #endif
 
 /* ==========================================================================
-   EMBEDDED DASHBOARD (identical copy of index.html)
+   EMBEDDED DASHBOARD (served from this file; no separate index.html)
    ========================================================================== */
 
 static const char DASHBOARD_HTML[] PROGMEM = R"WTDASH(<!doctype html>
@@ -386,8 +403,8 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .touch-capsules{display:flex;gap:6px;flex-wrap:wrap}
 .capsule{font-size:10px;font-weight:900;letter-spacing:.6px;border-radius:999px;padding:6px 10px;border:1px solid #dbe3eb;background:#f3f7fa;color:#65768a}
 .capsule.hidden{display:none}
-.capsule.filling.active{color:#fff;border-color:#2eb7f0;background:#1697d8}
-.capsule.overflowing.active{color:#fff;border-color:#f27182;background:#e03a52}
+.capsule.filling.active{color:#fff;border-color:#f27182;background:#e03a52}
+.capsule.overflowing.active{color:#fff;border-color:#2eb7f0;background:#1697d8}
 .capsule.stable{color:#087c4a;border-color:#b9e6cd;background:#e9f9f0}
 .capsule.stable.offline{color:#bd2d40;border-color:#efbdc4;background:#fff0f2}
 .distance{font-size:10px;color:#6f8195;font-weight:700;text-align:right}
@@ -402,6 +419,11 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .motor-btn.stop{background:#e04658}
 .motor-btn:active,.motor-btn.held{transform:scale(.97);filter:brightness(.96)}
 .motor-caption{font-size:15px;font-weight:900;letter-spacing:1px;color:#1e314a}
+.led-tests{display:flex;gap:8px;width:100%;justify-content:center;margin-top:10px}
+.led-test{flex:1 1 0;max-width:104px;border:2px solid #c4d0dd;background:#eef3f8;color:#465a71;border-radius:999px;padding:9px 8px;font-size:11px;font-weight:900;letter-spacing:.6px;cursor:pointer;transition:background .15s,border-color .15s,color .15s,box-shadow .15s,transform .1s}
+.led-test:active{transform:scale(.96)}
+.led-test.red.on{background:#e04658;border-color:#a82336;color:#fff;box-shadow:0 0 12px rgba(224,70,88,.55)}
+.led-test.blue.on{background:#1697d8;border-color:#0b6a9e;color:#fff;box-shadow:0 0 12px rgba(22,151,216,.55)}
 .side-card{padding:8px;display:flex;flex-direction:column;gap:8px}
 .control-tile{flex:1;border:1px solid #e0e8f0;background:#f9fbfd;border-radius:16px;padding:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center}
 .control-tile.light-on{background:#fff7d8;border-color:#efd16f}
@@ -418,7 +440,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .buzzer-btn.test{background:#16b978}
 .buzzer-btn.stop{background:#dd2f46}
 footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;font-weight:800;padding:6px 0 2px;line-height:1.3}
-@media(max-width:430px){.app{padding:8px 8px calc(10px + env(safe-area-inset-bottom));gap:8px}.brand-title{font-size:20px}.credit{font-size:9px}.connection{padding:6px 10px;font-size:10px}.tank{padding:10px}.percent{font-size:56px}.volume strong{font-size:34px}.motor-btn{width:100px;height:100px}.controls{grid-template-columns:1.2fr 1fr;gap:8px}.side-card{padding:6px;gap:6px}.control-tile{padding:6px 4px;gap:4px}.control-name{font-size:13px}.toggle{width:70px;height:40px}.toggle:after{width:30px;height:30px}.toggle.on:after{transform:translateX(28px)}.buzzer-btn{font-size:11px;padding:9px 6px}footer{font-size:9px}}
+@media(max-width:430px){.app{padding:8px 8px calc(10px + env(safe-area-inset-bottom));gap:8px}.brand-title{font-size:20px}.credit{font-size:9px}.connection{padding:6px 10px;font-size:10px}.tank{padding:10px}.percent{font-size:56px}.volume strong{font-size:34px}.motor-btn{width:100px;height:100px}.controls{grid-template-columns:1.2fr 1fr;gap:8px}.side-card{padding:6px;gap:6px}.control-tile{padding:6px 4px;gap:4px}.control-name{font-size:13px}.toggle{width:70px;height:40px}.toggle:after{width:30px;height:30px}.toggle.on:after{transform:translateX(28px)}.buzzer-btn{font-size:11px;padding:9px 6px}footer{font-size:9px}.led-test{font-size:10px;padding:7px 5px;letter-spacing:.4px}}
 @media(max-height:700px){.app{gap:8px}.motor-buttons{gap:8px}.motor-btn{width:104px;height:104px}.percent{font-size:60px}.volume strong{font-size:36px}}
 </style>
 </head>
@@ -441,7 +463,7 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
  <div class="scale"><span>0 L · EMPTY</span><span id="scaleFull">750 L · FULL</span></div>
  <div class="tank-bottom">
   <div class="touch-capsules">
-   <span class="capsule filling hidden" id="fillCapsule">FILLING</span>
+   <span class="capsule filling hidden" id="fillCapsule">TOP LEVEL</span>
    <span class="capsule overflowing hidden" id="overflowCapsule">OVERFLOWING</span>
    <span class="capsule stable" id="stableCapsule">STABLE</span>
   </div>
@@ -460,6 +482,10 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
     <button class="motor-btn stop" id="motorStop" aria-pressed="false"><svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"><path d="M24 5v20"/><path d="M12.5 12.5a18 18 0 1 0 23 0"/></svg></button>
     <div class="motor-caption">STOP</div>
    </div>
+  </div>
+  <div class="led-tests">
+   <button class="led-test red" id="ledTestRed" aria-pressed="false">RED LED</button>
+   <button class="led-test blue" id="ledTestBlue" aria-pressed="false">BLUE LED</button>
   </div>
  </section>
  <section class="card side-card">
@@ -497,11 +523,12 @@ const motorStatusEl=$('motorStatus');
 const relay1Btn=$('relay1'), relay2Btn=$('relay2'), mirrorTile=$('mirrorTile'), bulbTile=$('bulbTile');
 const r1state=$('r1state'), r2state=$('r2state'), mirrorInfo=$('mirrorInfo'), buzzerStateEl=$('buzzerState');
 const startBtn=$('motorStart'), stopBtn=$('motorStop');
+const ledRedBtn=$('ledTestRed'), ledBlueBtn=$('ledTestBlue');
 
 const POLL_MS=700, POLL_TIMEOUT_MS=2500;
-let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,draining:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,capacityL:750};
+let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,draining:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,indBlueTest:false,indRedTest:false,capacityL:750};
 let reachable=false, failures=0, inFlight=false, pollTimer=null;
-let mirrorBusy=false, bulbBusy=false, buzzerBusy=false;
+let mirrorBusy=false, bulbBusy=false, buzzerBusy=false, ledBlueBusy=false, ledRedBusy=false;
 const motor={start:{btn:startBtn,held:false,pointerId:null},stop:{btn:stopBtn,held:false,pointerId:null}};
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
@@ -555,6 +582,10 @@ function render(s){
  const bulbOn=(s.relay2===true);
  relay2Btn.classList.toggle('on',bulbOn); relay2Btn.setAttribute('aria-pressed',bulbOn?'true':'false'); bulbTile.classList.toggle('bulb-on',bulbOn);
  r2state.textContent=bulbOn?'ON':'OFF';
+
+ const blueTest=(s.indBlueTest===true), redTest=(s.indRedTest===true);
+ ledBlueBtn.classList.toggle('on',blueTest); ledBlueBtn.setAttribute('aria-pressed',blueTest?'true':'false');
+ ledRedBtn.classList.toggle('on',redTest); ledRedBtn.setAttribute('aria-pressed',redTest?'true':'false');
 
  const bstate=String(s.buzzerState||'READY').toUpperCase();
  if(s.buzzerTest===true || bstate==='TESTING'){
@@ -629,6 +660,8 @@ relay1Btn.addEventListener('click',async()=>{ if(mirrorBusy) return; mirrorBusy=
 relay2Btn.addEventListener('click',async()=>{ if(bulbBusy) return; bulbBusy=true; try{ await sendCommand('/api/bulb',{on:!(current&&current.relay2===true)}); }finally{ bulbBusy=false; } });
 $('buzzerTest').addEventListener('click',async()=>{ if(buzzerBusy) return; buzzerBusy=true; try{ await sendCommand('/api/buzzer/test',{}); }finally{ buzzerBusy=false; } });
 $('buzzerStop').addEventListener('click',async()=>{ if(buzzerBusy) return; buzzerBusy=true; try{ await sendCommand('/api/buzzer/stop',{}); }finally{ buzzerBusy=false; } });
+$('ledTestBlue').addEventListener('click',async()=>{ if(ledBlueBusy) return; ledBlueBusy=true; try{ await sendCommand('/api/led/test',{led:'blue',on:!(current&&current.indBlueTest===true)}); }finally{ ledBlueBusy=false; } });
+$('ledTestRed').addEventListener('click',async()=>{ if(ledRedBusy) return; ledRedBusy=true; try{ await sendCommand('/api/led/test',{led:'red',on:!(current&&current.indRedTest===true)}); }finally{ ledRedBusy=false; } });
 
 render(current);
 pollState();
@@ -685,11 +718,14 @@ uint16_t lastFlags = 0;
 uint8_t  aProtocolVersion = PROTOCOL_VERSION;
 
 // --- Buzzer ---
-bool     buzzerAlerting = false;
+bool     buzzerAlerting = false;      // level-based full-tank alert
 bool     buzzerTesting = false;
 bool     buzzerArmed = true;
 uint32_t buzzerStartMs = 0;
 uint32_t buzzerTestStartMs = 0;
+uint32_t buzzerProbeStartMs = 0;      // topmost-probe beep phase reference
+bool     probeBuzzerMuted = false;    // topmost beep silenced until probe clears
+bool     buzzerOutputOn = false;      // last level written (RED LED blink sync)
 uint8_t  fullConfirmCount = 0;
 
 // --- HC-SR04 / Relay 1 ---
@@ -705,11 +741,15 @@ float    hcRing[HC_FILTER_SAMPLES];
 bool     hcRingValid[HC_FILTER_SAMPLES];
 uint8_t  hcRingHead = 0;
 float    hcDistanceCm = 0.0f;
+float    hcBaselineCm = 0.0f;   // learned empty-room background distance (0 = not yet learned)
+uint8_t  hcJumpCount = 0;       // consecutive rejected jumps (noise rejection)
+uint8_t  hcNearRun = 0;         // consecutive accepted near readings
 bool     hcValid = false;
 bool     haveHcReading = false;
 uint32_t lastValidHcMs = 0;
 uint32_t hcNearSinceMs = 0;
 uint32_t hcFarSinceMs = 0;
+uint32_t personClearSinceMs = 0;   // start of the 1 s mirror off-delay
 uint32_t autoRelay1OnSinceMs = 0;
 bool     autoRelay1On = false;
 bool     personDetected = false;
@@ -753,6 +793,13 @@ bool     prevLinkOnline = false;
 bool     prevBlue = false;
 bool     prevRed = false;
 
+// --- Indicator LED test overrides (dashboard test buttons) ---
+// While a flag is true the matching indicator LED is forced ON, regardless of
+// the topmost/overflow probe state or a lost ESP-NOW link. Toggle from the
+// dashboard.
+bool     indBlueTestOn = false;
+bool     indRedTestOn  = false;
+
 /* ==========================================================================
    CRC16-CCITT (identical to ESP32_A)
    ========================================================================== */
@@ -783,24 +830,24 @@ void defaultSettings(AppSettings &c) {
   c.version = B_SETTINGS_VERSION;
   c.revision = 1;
   c.aRevision = 1;
-  c.fullDistanceCm = 29.0f;
-  c.emptyDistanceCm = 76.0f;
-  c.emptyDeadbandCm = 2.0f;
+  c.fullDistanceCm = 25.0f;
+  c.emptyDistanceCm = 84.0f;
+  c.emptyDeadbandCm = 0.0f;
   c.tankCapacityL = 750.0f;
   c.sensorMinCm = 2.0f;
-  c.sensorMaxCm = 150.0f;
-  c.smoothAlpha = 0.35f;
-  c.jumpLimitCm = 30.0f;
-  c.stuckTimeoutMs = 600000UL;
-  c.measurePeriodMs = 1000;
+  c.sensorMaxCm = 200.0f;
+  c.smoothAlpha = 0.50f;
+  c.jumpLimitCm = 15.0f;
+  c.stuckTimeoutMs = 86400000UL;
+  c.measurePeriodMs = 500;
   c.sampleSpacingMs = 60;
-  c.jumpConfirm = 3;
+  c.jumpConfirm = 2;
   c.samplesPerCycle = 5;
 
   c.mirrorEnabled = 1;
   c.mirrorOnCm = 100.0f;
   c.mirrorOffCm = 105.0f;
-  c.mirrorOnConfirmMs = 400;
+  c.mirrorOnConfirmMs = (uint16_t)HC_MIN_ON_CONFIRM_MS;
   c.mirrorOffConfirmMs = 0;
   c.mirrorInvalidHoldoffMs = 0;
   c.mirrorMaxOnMinutes = 0;
@@ -827,27 +874,42 @@ void defaultSettings(AppSettings &c) {
 }
 
 void clampSettings(AppSettings &c) {
-  if (!isfinite(c.fullDistanceCm)) c.fullDistanceCm = 29.0f;
-  if (!isfinite(c.emptyDistanceCm)) c.emptyDistanceCm = 76.0f;
-  if (!isfinite(c.emptyDeadbandCm)) c.emptyDeadbandCm = 2.0f;
+  if (!isfinite(c.fullDistanceCm)) c.fullDistanceCm = 25.0f;
+  if (!isfinite(c.emptyDistanceCm)) c.emptyDistanceCm = 84.0f;
+  if (!isfinite(c.emptyDeadbandCm)) c.emptyDeadbandCm = 0.0f;
   if (!isfinite(c.tankCapacityL)) c.tankCapacityL = 750.0f;
   if (!isfinite(c.sensorMinCm)) c.sensorMinCm = 2.0f;
-  if (!isfinite(c.sensorMaxCm)) c.sensorMaxCm = 150.0f;
-  if (!isfinite(c.smoothAlpha)) c.smoothAlpha = 0.35f;
-  if (!isfinite(c.jumpLimitCm)) c.jumpLimitCm = 30.0f;
+  if (!isfinite(c.sensorMaxCm)) c.sensorMaxCm = 200.0f;
+  if (!isfinite(c.smoothAlpha)) c.smoothAlpha = 0.50f;
+  if (!isfinite(c.jumpLimitCm)) c.jumpLimitCm = 15.0f;
   if (!isfinite(c.mirrorOnCm)) c.mirrorOnCm = 100.0f;
   if (!isfinite(c.mirrorOffCm)) c.mirrorOffCm = 105.0f;
   if (!isfinite(c.buzzerFullPercent)) c.buzzerFullPercent = 95.0f;
   if (!isfinite(c.buzzerRearmPercent)) c.buzzerRearmPercent = 92.0f;
 
-  c.fullDistanceCm = constrain(c.fullDistanceCm, 1.0f, 120.0f);
+  c.fullDistanceCm = constrain(c.fullDistanceCm, 1.0f, 200.0f);
+  c.emptyDistanceCm = constrain(c.emptyDistanceCm, 1.0f, 400.0f);
+
+  // "Full" must be closer to the downward-facing sensor than "empty".
+  // Reversing these silently inverts every percentage, so never allow it.
+  if (c.emptyDistanceCm < c.fullDistanceCm) {
+    float t = c.fullDistanceCm;
+    c.fullDistanceCm = c.emptyDistanceCm;
+    c.emptyDistanceCm = t;
+  }
+  if (c.emptyDistanceCm - c.fullDistanceCm < 5.0f) {
+    c.fullDistanceCm = 25.0f;
+    c.emptyDistanceCm = 84.0f;
+  }
+  c.emptyDeadbandCm = constrain(c.emptyDeadbandCm, 0.0f, 20.0f);
   c.sensorMinCm = constrain(c.sensorMinCm, 1.0f, 100.0f);
   c.sensorMaxCm = constrain(c.sensorMaxCm, c.sensorMinCm + 5.0f, 400.0f);
-  c.emptyDistanceCm = constrain(c.emptyDistanceCm, c.fullDistanceCm + 3.0f, 300.0f);
-  c.emptyDeadbandCm = constrain(c.emptyDeadbandCm, 0.0f, 20.0f);
+  if (c.sensorMaxCm < c.emptyDistanceCm + 5.0f) {
+    c.sensorMaxCm = constrain(c.emptyDistanceCm + 50.0f, c.sensorMinCm + 5.0f, 400.0f);
+  }
   c.tankCapacityL = constrain(c.tankCapacityL, 1.0f, 65000.0f);
-  c.smoothAlpha = constrain(c.smoothAlpha, 0.05f, 0.95f);
-  c.jumpLimitCm = constrain(c.jumpLimitCm, 5.0f, 100.0f);
+  c.smoothAlpha = constrain(c.smoothAlpha, 0.05f, 1.00f);
+  c.jumpLimitCm = constrain(c.jumpLimitCm, 5.0f, 200.0f);
   c.jumpConfirm = constrain(c.jumpConfirm, 1, 10);
   c.samplesPerCycle = constrain(c.samplesPerCycle, 3, 9);
   c.measurePeriodMs = constrain(c.measurePeriodMs, 200, 10000);
@@ -857,7 +919,7 @@ void clampSettings(AppSettings &c) {
   c.mirrorEnabled = c.mirrorEnabled ? 1 : 0;
   c.mirrorOnCm = constrain(c.mirrorOnCm, 5.0f, 300.0f);
   c.mirrorOffCm = constrain(c.mirrorOffCm, c.mirrorOnCm + 1.0f, 400.0f);
-  c.mirrorOnConfirmMs = constrain(c.mirrorOnConfirmMs, 50, 10000);
+  c.mirrorOnConfirmMs = constrain(c.mirrorOnConfirmMs, (uint16_t)HC_MIN_ON_CONFIRM_MS, (uint16_t)10000);
   c.mirrorOffConfirmMs = 0;
   c.mirrorInvalidHoldoffMs = 0;
   c.mirrorMaxOnMinutes = constrain(c.mirrorMaxOnMinutes, 0, 1440);
@@ -890,14 +952,30 @@ bool loadSettings() {
   prefsB.begin("water-b", false);
   size_t got = prefsB.getBytesLength("cfg");
   bool valid = false;
+  bool migrated = false;
   if (got == sizeof(settings)) {
     prefsB.getBytes("cfg", &settings, sizeof(settings));
     valid = settings.magic == B_SETTINGS_MAGIC && settings.version == B_SETTINGS_VERSION;
   }
   if (!valid) {
     defaultSettings(settings);
-    prefsB.putBytes("cfg", &settings, sizeof(settings));
+    migrated = true;
+  } else if (fabsf(settings.fullDistanceCm - 29.0f) < 0.2f &&
+             fabsf(settings.emptyDistanceCm - 76.0f) < 0.2f) {
+    // Migrate old calibration to corrected tank model (25 cm full / 84 cm empty).
+    settings.fullDistanceCm = 25.0f;
+    settings.emptyDistanceCm = 84.0f;
+    settings.emptyDeadbandCm = 0.0f;
+    settings.sensorMaxCm = 200.0f;
+    settings.smoothAlpha = 0.50f;
+    settings.jumpLimitCm = 15.0f;
+    settings.jumpConfirm = 2;
+    settings.measurePeriodMs = 500;
+    settings.stuckTimeoutMs = 86400000UL;
+    settings.aRevision = settings.aRevision + 1;
+    migrated = true;
   }
+  if (migrated) prefsB.putBytes("cfg", &settings, sizeof(settings));
   clampSettings(settings);
   aDesiredRevision = settings.aRevision;
   return true;
@@ -1259,6 +1337,7 @@ void writeIndicatorPin(uint8_t pin, bool on) {
 void setBuzzerOutput(bool on) {
   // Active buzzer (e.g. TMB12A05): GPIO13 -> 1k -> NPN base, emitter GND,
   // collector -> buzzer(-), buzzer(+) -> +5V. HIGH on GPIO turns NPN on => beep.
+  buzzerOutputOn = on;   // tracked so the RED LED can blink in sync
   pinMode(PIN_BUZZER, OUTPUT);
   noTone(PIN_BUZZER);
   if (!BUZZER_IS_ACTIVE) {
@@ -1329,6 +1408,8 @@ bool computeOnline() {
 const char *buzzerStateName() {
   if (buzzerTesting)  return "TESTING";
   if (buzzerAlerting) return "ALERTING";
+  if (computeLinkOnline() && fillingActive &&
+      settings.buzzerEnabled && !probeBuzzerMuted) return "ALERTING";
   if (!buzzerArmed)   return "SILENCED";
   return "READY";
 }
@@ -1338,18 +1419,20 @@ void stopBuzzerForLinkLoss() {
   // Only stop automatic full-tank alert when water data is no longer valid.
   if (buzzerAlerting) {
     buzzerAlerting = false;
-    buzzerArmed = false;      // re-arm only after valid level < 93 %
+    buzzerArmed = false;      // re-arm only after valid level < 92 %
     setBuzzerOutput(false);
   }
 }
 
 void manualStopBuzzer() {
-  bool wasActive = buzzerAlerting || buzzerTesting;
+  bool wasActive = buzzerAlerting || buzzerTesting ||
+                   (computeLinkOnline() && fillingActive);
   buzzerTesting = false;
   if (buzzerAlerting) {
     buzzerAlerting = false;
-    buzzerArmed = false;      // remains disarmed until level < 93 %
+    buzzerArmed = false;      // remains disarmed until level < 92 %
   }
+  if (fillingActive) probeBuzzerMuted = true;  // topmost beep stays silent
   setBuzzerOutput(false);
   if (wasActive) DBGLN("[B] Buzzer stopped by user");
 }
@@ -1419,22 +1502,29 @@ void serviceBuzzer() {
     return;
   }
 
-  if (!buzzerAlerting) {
-    setBuzzerOutput(false);
-    return;
-  }
+  // Topmost-probe alert: beep continuously while the GPIO 4 probe is in water
+  // (unless the buzzer is disabled in settings or silenced with the button).
+  bool probeAlert = computeLinkOnline() && fillingActive &&
+                    settings.buzzerEnabled && !probeBuzzerMuted;
 
-  uint32_t elapsed = millis() - buzzerStartMs;
-  if (elapsed >= settings.buzzerDurationMs) {
+  // The level-based full-tank alert has a maximum duration.
+  if (buzzerAlerting &&
+      (uint32_t)(millis() - buzzerStartMs) >= settings.buzzerDurationMs) {
     buzzerAlerting = false;
     buzzerArmed = false;
-    setBuzzerOutput(false);
     DBG("[B] Buzzer alert timed out after %lu s\n",
         (unsigned long)(settings.buzzerDurationMs / 1000UL));
+  }
+
+  if (!buzzerAlerting && !probeAlert) {
+    setBuzzerOutput(false);
     return;
   }
 
-  uint32_t phase = elapsed % settings.buzzerBeepPeriodMs;
+  // Beep 5x/sec (period 200 ms, on 80 ms). The level alert uses its own start
+  // time; the probe alert uses the moment the probe first went active.
+  uint32_t refMs = buzzerAlerting ? buzzerStartMs : buzzerProbeStartMs;
+  uint32_t phase = (uint32_t)(millis() - refMs) % settings.buzzerBeepPeriodMs;
   setBuzzerOutput(phase < settings.buzzerBeepOnMs);
 }
 
@@ -1513,19 +1603,17 @@ float medianOfValidHc() {
 }
 
 void pushHcSample(float cm, bool valid) {
-  // No echo / out-of-range means nothing detected: clear immediately (no delay).
+  // No echo / out-of-range: drop the filter history. Do NOT switch the relay
+  // off here - updateAutoRelay1() applies the 1 s off-delay so a single lost
+  // echo cannot turn the mirror light off early.
   if (!valid) {
     for (uint8_t i = 0; i < HC_FILTER_SAMPLES; i++) hcRingValid[i] = false;
     hcRingHead = 0;
     hcValid = false;
-    personDetected = false;
     hcNearSinceMs = 0;
     hcFarSinceMs = millis();
-    if (!mirrorOverride) {
-      autoRelay1On = false;
-      autoRelay1OnSinceMs = 0;
-    }
-    applyRelay1();
+    hcJumpCount = 0;
+    hcNearRun = 0;
     return;
   }
 
@@ -1534,14 +1622,30 @@ void pushHcSample(float cm, bool valid) {
   hcRingHead = (hcRingHead + 1) % HC_FILTER_SAMPLES;
 
   float med = medianOfValidHc();
-  if (med >= 0.0f) {
-    hcDistanceCm = med;
-    hcValid = true;
-    haveHcReading = true;
-    lastValidHcMs = millis();
-  } else {
+  if (med < 0.0f) {
     hcValid = false;
+    return;
   }
+
+  // Jump gate: a sudden large change from the last accepted distance is treated
+  // as noise and ignored until it repeats HC_JUMP_CONFIRM times. This rejects
+  // short spurious bursts (crosstalk, ringing) without slowing a real person,
+  // whose distance changes smoothly.
+  if (hcValid && fabsf(med - hcDistanceCm) > HC_JUMP_CM) {
+    if (hcJumpCount < 255) hcJumpCount++;
+    if (hcJumpCount < HC_JUMP_CONFIRM) {
+      haveHcReading = true;
+      lastValidHcMs = millis();
+      return;                              // keep the previous accepted distance
+    }
+  } else {
+    hcJumpCount = 0;
+  }
+
+  hcDistanceCm = med;
+  hcValid = true;
+  haveHcReading = true;
+  lastValidHcMs = millis();
 }
 
 void startHcSample() {
@@ -1583,7 +1687,7 @@ void serviceHcSensor() {
       uint32_t width = fall - rise;
       if (width >= HC_MIN_ECHO_US && width <= HC_MAX_ECHO_US) {
         cm = (float)width * SOUND_CM_PER_US * 0.5f;
-        valid = (cm >= 2.0f && cm <= 400.0f);
+        valid = (cm >= HC_MIN_VALID_CM && cm <= 400.0f);
       }
       done = true;
     } else if ((int32_t)(micros() - hcWaitDeadlineUs) >= 0) {
@@ -1612,34 +1716,81 @@ void updateAutoRelay1() {
     autoRelay1OnSinceMs = 0;
     hcNearSinceMs = 0;
     hcFarSinceMs = 0;
+    personClearSinceMs = 0;
+    hcNearRun = 0;
     applyRelay1();
     return;
   }
 
-  if (hcValid) {
-    if (hcDistanceCm < settings.mirrorOnCm) {
-      hcFarSinceMs = 0;
-      if (hcNearSinceMs == 0) hcNearSinceMs = now;
-      if (!personDetected &&
-          (uint32_t)(now - hcNearSinceMs) >= settings.mirrorOnConfirmMs) {
-        personDetected = true;
-        DBG("[B] Person confirmed present (%.1f cm)\n", hcDistanceCm);
-      }
-    } else if (hcDistanceCm > settings.mirrorOffCm) {
-      hcNearSinceMs = 0;
-      hcFarSinceMs = now;
-      if (personDetected) {
-        personDetected = false;
-        DBG("[B] Person clear - mirror off immediately (%.1f cm)\n", hcDistanceCm);
-      }
+  // Learn the empty-room background distance from valid readings so a static
+  // echo (floor, wall, reflections) is never mistaken for a person. It tracks
+  // the average noise but stops following as soon as the reading is clearly
+  // closer than the background (an approaching person). Frozen while confirmed.
+  if (hcValid && !personDetected) {
+    if (hcBaselineCm <= 0.0f) {
+      hcBaselineCm = hcDistanceCm;
+    } else if (hcDistanceCm >= hcBaselineCm - HC_BASELINE_BAND_CM) {
+      hcBaselineCm += (hcDistanceCm - hcBaselineCm) * HC_BASELINE_ALPHA;
     }
-  } else {
+  }
+
+  // A person must be clearly closer than the background, not just below the
+  // fixed on-threshold, otherwise ambient readings hovering around the
+  // threshold would keep triggering detection.
+  bool approach = (hcBaselineCm <= 0.0f) ||
+                  (hcDistanceCm < hcBaselineCm - HC_NEAR_DROP_CM);
+  bool nearNow  = hcValid && approach && (hcDistanceCm < settings.mirrorOnCm);
+
+  uint32_t confirmMs = settings.mirrorOnConfirmMs;
+  if (confirmMs < HC_MIN_ON_CONFIRM_MS) confirmMs = HC_MIN_ON_CONFIRM_MS;
+
+  // Detect a person on/off. When the person leaves (far reading or a lost
+  // echo), Relay 1 stays on for HC_OFF_DELAY_MS (1 s) before it is switched
+  // off. Re-detection during that window cancels the pending off.
+  if (!hcValid) {
     hcNearSinceMs = 0;
     hcFarSinceMs = 0;
+    hcNearRun = 0;
     if (personDetected) {
-      personDetected = false;
-      logEvent(9, hcDistanceCm);
-      DBG("[B] Person cleared immediately after sensor dropout\n");
+      if (personClearSinceMs == 0) personClearSinceMs = now;
+      if ((uint32_t)(now - personClearSinceMs) >= HC_OFF_DELAY_MS) {
+        personDetected = false;
+        personClearSinceMs = 0;
+        logEvent(9, hcDistanceCm);
+        DBG("[B] Person cleared after sensor dropout (1 s hold)\n");
+      }
+    }
+  } else if (nearNow) {
+    hcFarSinceMs = 0;
+    personClearSinceMs = 0;               // person is back: cancel off-delay
+    if (hcNearRun < 255) hcNearRun++;
+    if (hcNearSinceMs == 0) hcNearSinceMs = now;
+    if (!personDetected &&
+        hcNearRun >= HC_NEAR_RUN_SAMPLES &&
+        (uint32_t)(now - hcNearSinceMs) >= confirmMs) {
+      personDetected = true;
+      DBG("[B] Person confirmed present (%.1f cm, background %.1f cm)\n",
+          hcDistanceCm, hcBaselineCm);
+    }
+  } else if (approach && hcDistanceCm <= settings.mirrorOffCm) {
+    // Still clearly closer than the background (hysteresis band): keep the
+    // current state and cancel any pending turn-off.
+    hcNearSinceMs = 0;
+    hcNearRun = 0;
+    personClearSinceMs = 0;
+  } else {
+    // Not clearly a person: background-level reading or beyond the off
+    // distance. Start / continue the off-delay.
+    hcNearSinceMs = 0;
+    hcNearRun = 0;
+    hcFarSinceMs = now;
+    if (personDetected) {
+      if (personClearSinceMs == 0) personClearSinceMs = now;
+      if ((uint32_t)(now - personClearSinceMs) >= HC_OFF_DELAY_MS) {
+        personDetected = false;
+        personClearSinceMs = 0;
+        DBG("[B] Person clear - mirror off after 1 s (%.1f cm)\n", hcDistanceCm);
+      }
     }
   }
 
@@ -1746,8 +1897,21 @@ uint32_t motorRemainingMs(bool startChannel) {
    ========================================================================== */
 
 void updateIndicators(bool linkOnlineNow) {
-  bool blue = linkOnlineNow && fillingActive;
-  bool red  = linkOnlineNow && drainingActive;
+  // GPIO 4 topmost probe  -> RED LED  (blinks in sync with the buzzer, 5x/sec)
+  // GPIO 15 overflow probe -> BLUE LED (solid; A adds the extra 2 s glow)
+  bool topProbe = linkOnlineNow && fillingActive;
+  bool overflow = linkOnlineNow && drainingActive;
+
+  bool red  = indRedTestOn  || topProbe;
+  bool blue = indBlueTestOn || overflow;
+
+  // While the topmost probe drives the buzzer, follow the exact beep phase so
+  // the RED LED blinks with it. If the buzzer is disabled or was silenced, the
+  // RED LED stays solid to still show the probe is submerged.
+  if (!indRedTestOn && topProbe && settings.buzzerEnabled && !probeBuzzerMuted) {
+    red = buzzerOutputOn;
+  }
+
   if (blue != prevBlue) {
     writeIndicatorPin(PIN_IND_BLUE, blue);
     prevBlue = blue;
@@ -1773,10 +1937,9 @@ void serviceLink() {
   if (prevLinkOnline && !linkNow) {
     fillingActive = false;
     drainingActive = false;
-    prevBlue = false;
-    prevRed = false;
-    writeIndicatorPin(PIN_IND_BLUE, false);
-    writeIndicatorPin(PIN_IND_RED, false);
+    probeBuzzerMuted = false;
+    // Do not force the pins off here: updateIndicators() still applies any
+    // active LED test override from the dashboard.
     logEvent(6, 0);
     DBGLN("[B] ESP-NOW link OFFLINE");
   } else if (!prevLinkOnline && linkNow) {
@@ -1886,26 +2049,37 @@ void drawOled() {
 
   if (show & OLED_SHOW_PERCENT) {
     // Draw number + custom '%' fully inside frame above footer (y ~0..51).
-    const uint8_t *numFont = u8g2_font_logisoso38_tn;
-    int16_t baseline = 44;
-    int16_t areaH = 38;
+    // FreeSans Bold is much wider and heavier than the old logisoso face:
+    // the largest size uses fub42, where "100" is 91 px wide and 44 px tall
+    // (the old font was 62 x 38 px), filling almost the whole 128 px panel.
+    const uint8_t *numFont = u8g2_font_fub42_tn;
+    int16_t baseline = 46;
+    int16_t areaH = 44;
     if (settings.oledPercentSize <= 2) {
-      numFont = u8g2_font_logisoso26_tn; baseline = 36; areaH = 26;
+      numFont = u8g2_font_fub25_tn; baseline = 33; areaH = 26;
     } else if (settings.oledPercentSize <= 4) {
-      numFont = u8g2_font_logisoso32_tn; baseline = 41; areaH = 32;
+      numFont = u8g2_font_fub35_tn; baseline = 41; areaH = 37;
     } else {
-      numFont = u8g2_font_logisoso38_tn; baseline = 44; areaH = 38;
+      numFont = u8g2_font_fub42_tn; baseline = 46; areaH = 44;
     }
 
     display.setFont(numFont);
-    int16_t baseW = (int16_t)display.getStrWidth(pctNum);
-    int16_t signW = (areaH * 3) / 4;              // wider custom percent symbol
-    int16_t gap = 4;
-    int16_t extra = (int16_t)strlen(pctNum) * 2;  // faux-bold/wider spacing
-    int16_t numW = baseW + extra;
+    int16_t signW = (areaH * 3) / 4;              // wide custom percent symbol
+    if (signW > 29) signW = 29;                   // keep "100%" inside 128 px
+    int16_t gap = (areaH >= 40) ? 2 : 4;
+    int16_t extra = (areaH >= 40) ? 0 : (int16_t)strlen(pctNum) * 2;
+
+    // Use the real per-glyph advance for the number width: getStrWidth() on
+    // the whole string includes side bearings that are not drawn when each
+    // glyph is placed individually, and that difference overflowed the panel.
+    int16_t numW = 0;
+    for (size_t i = 0; pctNum[i]; i++) {
+      char ch[2] = {pctNum[i], 0};
+      numW += (int16_t)display.getStrWidth(ch) + extra;
+    }
     int16_t totalW = numW + gap + signW;
     int16_t x = (OLED_WIDTH - totalW) / 2;
-    if (x < 2) x = 2;
+    if (x < 0) x = 0;
 
     // Draw digits twice with 1px horizontal offset for wider/bolder look.
     for (int pass = 0; pass < 2; pass++) {
@@ -1913,28 +2087,32 @@ void drawOled() {
       for (size_t i = 0; pctNum[i]; i++) {
         char ch[2] = {pctNum[i], 0};
         display.drawStr(cx, baseline, ch);
-        cx += (int16_t)display.getStrWidth(ch) + 2;
+        cx += (int16_t)display.getStrWidth(ch) + extra;
       }
     }
 
-    // Custom '%' symbol: thick slash + two hollow circular dots.
+    // Custom '%' symbol: bold, wide slash + two heavy hollow dots.
     int16_t sx = x + numW + gap;
     int16_t topY = baseline - areaH + 2;
     if (topY < 1) topY = 1;
     int16_t bottomY = topY + areaH - 3;
     if (bottomY > 49) bottomY = 49;
-    int16_t r = (areaH >= 36) ? 5 : 4;
+    int16_t r = (areaH >= 40) ? 6 : (areaH >= 36) ? 5 : 4;
     int16_t x1 = sx + r + 1;
     int16_t y1 = topY + r;
     int16_t x2 = sx + signW - r - 1;
     int16_t y2 = bottomY - r;
-    for (int t = -1; t <= 1; t++) {
+    // 4 px diagonal on the big size, 3 px on the smaller ones.
+    int16_t tMax = (areaH >= 40) ? 2 : 1;
+    for (int t = -1; t <= tMax; t++) {
       display.drawLine(x1 + t, y2, x2 + t, y1);
     }
-    display.drawCircle(x1, y1, r, U8G2_DRAW_ALL);
-    display.drawCircle(x1, y1, r - 1, U8G2_DRAW_ALL);
-    display.drawCircle(x2, y2, r, U8G2_DRAW_ALL);
-    display.drawCircle(x2, y2, r - 1, U8G2_DRAW_ALL);
+    // Three concentric rings on the big size give the dots a bold weight.
+    int16_t ringMin = r - ((areaH >= 40) ? 2 : 1);
+    for (int rr = r; rr >= ringMin; rr--) {
+      display.drawCircle(x1, y1, rr, U8G2_DRAW_ALL);
+      display.drawCircle(x2, y2, rr, U8G2_DRAW_ALL);
+    }
   }
 
   char litres[10];
@@ -1952,18 +2130,15 @@ void drawOled() {
     char dist[16];
     snprintf(dist, sizeof(dist), "%.0fcm", lastValidDistanceCm);
     display.drawStr(0, 63, dist);
-  }
-
-  if (show & OLED_SHOW_LINK) {
+  } else if (show & OLED_SHOW_LINK) {
     display.drawStr(0, 63, linkNow ? "CONNECTED" : "NO LINK");
+  } else if (show & OLED_SHOW_STATUS) {
+    display.drawStr(0, 63, linkNow ? "LIVE" : "STALE");
   }
   if (show & OLED_SHOW_BOTTOM_L) {
     int16_t x = OLED_WIDTH - (int16_t)display.getStrWidth(litres);
     if (x < 0) x = 0;
     display.drawStr(x, 63, litres);
-  }
-  if ((show & OLED_SHOW_STATUS) && !(show & OLED_SHOW_LINK)) {
-    display.drawStr(0, 63, linkNow ? "LIVE" : "STALE");
   }
 
   display.sendBuffer();
@@ -2004,13 +2179,19 @@ String buildStateJson() {
 
   j += ",\"hcsr04Valid\":";  j += hcValid ? "true" : "false";
   j += ",\"hcsr04Distance\":"; j += jsonFloatOrNull(haveHcReading, hcDistanceCm, 1);
+  j += ",\"mirrorBackgroundCm\":"; j += jsonFloatOrNull(hcBaselineCm > 0.0f, hcBaselineCm, 1);
   j += ",\"personDetected\":"; j += personDetected ? "true" : "false";
   j += ",\"relay1\":";       j += relay1On ? "true" : "false";
   j += ",\"mirrorOverride\":"; j += mirrorOverride ? "true" : "false";
   j += ",\"autoBlocked\":";  j += autoBlocked ? "true" : "false";
   j += ",\"relay2\":";       j += relay2On ? "true" : "false";
+  j += ",\"indBlueTest\":";  j += indBlueTestOn ? "true" : "false";
+  j += ",\"indRedTest\":";   j += indRedTestOn ? "true" : "false";
 
-  j += ",\"buzzerActive\":"; j += (buzzerAlerting || buzzerTesting) ? "true" : "false";
+  j += ",\"buzzerActive\":";
+  j += (buzzerAlerting || buzzerTesting ||
+        (computeLinkOnline() && fillingActive &&
+         settings.buzzerEnabled && !probeBuzzerMuted)) ? "true" : "false";
   j += ",\"buzzerTest\":";   j += buzzerTesting ? "true" : "false";
   j += ",\"buzzerTestRemainingMs\":";
   j += buzzerTesting ? String((unsigned long)(BUZZER_TEST_MS - (millis() - buzzerTestStartMs))) : "0";
@@ -2256,6 +2437,34 @@ void handleBuzzerTest() {
   sendJsonState();
 }
 
+void handleLedTest() {
+  if (server.method() != HTTP_POST) {
+    server.sendHeader("Allow", "POST");
+    sendApiError(405, "use POST");
+    return;
+  }
+  String body = server.arg("plain");
+  String led;
+  bool on = false;
+  if (body.length() > 256 ||
+      !parseStringField(body, "led", led) ||
+      !parseBoolField(body, "on", on)) {
+    sendApiError(400, "invalid body; expected {\"led\":\"blue|red\",\"on\":true|false}");
+    return;
+  }
+  if (led == "blue") {
+    indBlueTestOn = on;
+  } else if (led == "red") {
+    indRedTestOn = on;
+  } else {
+    sendApiError(400, "led must be \"blue\" or \"red\"");
+    return;
+  }
+  updateIndicators(computeLinkOnline());
+  DBG("[B] LED test %s -> %s\n", led.c_str(), on ? "ON" : "OFF");
+  sendJsonState();
+}
+
 void handleMotor() {
   if (server.method() != HTTP_POST) {
     server.sendHeader("Allow", "POST");
@@ -2374,10 +2583,19 @@ String buildAdminJson() {
   j += ",\"aResetReason\":"; j += String((unsigned)lastAResetReason);
   j += ",\"aFlags\":"; j += String((unsigned)lastFlags);
   j += ",\"pins\":{";
-  j += "\"trig\":5,\"echo\":18,\"filling\":4,\"draining\":15";
-  j += ",\"oledSda\":21,\"oledScl\":22,\"hcTrig\":25,\"hcEcho\":26";
-  j += ",\"relay1\":32,\"relay2\":33,\"buzzer\":13,\"button\":4";
-  j += ",\"indBlue\":16,\"indRed\":17,\"rfStart\":18,\"rfStop\":19";
+  j += "\"trig\":5,\"echo\":18,\"filling\":4,\"draining\":15";   // filling=topmost, draining=overflow
+  j += ",\"oledSda\":"; j += String(PIN_I2C_SDA);
+  j += ",\"oledScl\":"; j += String(PIN_I2C_SCL);
+  j += ",\"hcTrig\":"; j += String(PIN_HCSR_TRIG);
+  j += ",\"hcEcho\":"; j += String(PIN_HCSR_ECHO);
+  j += ",\"relay1\":"; j += String(PIN_RELAY1);
+  j += ",\"relay2\":"; j += String(PIN_RELAY2);
+  j += ",\"buzzer\":"; j += String(PIN_BUZZER);
+  j += ",\"button\":"; j += String(PIN_BTN_BUZZER_STOP);
+  j += ",\"indBlue\":"; j += String(PIN_IND_BLUE);
+  j += ",\"indRed\":"; j += String(PIN_IND_RED);
+  j += ",\"rfStart\":"; j += String(PIN_RF_START);
+  j += ",\"rfStop\":"; j += String(PIN_RF_STOP);
   j += "}}";
 
   j += ",\"state\":";
@@ -2427,7 +2645,7 @@ void handleAdminSettings() {
   if (jsonBoolField(body, "mirrorEnabled", b)) settings.mirrorEnabled = b ? 1 : 0;
   if (jsonFloatField(body, "mirrorOnCm", f)) settings.mirrorOnCm = f;
   if (jsonFloatField(body, "mirrorOffCm", f)) settings.mirrorOffCm = f;
-  if (jsonIntField(body, "mirrorOnConfirmMs", n)) settings.mirrorOnConfirmMs = (uint16_t)constrain(n, 50L, 10000L);
+  if (jsonIntField(body, "mirrorOnConfirmMs", n)) settings.mirrorOnConfirmMs = (uint16_t)constrain(n, (long)HC_MIN_ON_CONFIRM_MS, 10000L);
   if (jsonIntField(body, "mirrorOffConfirmMs", n)) settings.mirrorOffConfirmMs = (uint16_t)constrain(n, 50L, 10000L);
   if (jsonIntField(body, "mirrorInvalidHoldoffMs", n)) settings.mirrorInvalidHoldoffMs = (uint16_t)constrain(n, 0L, 60000L);
   if (jsonIntField(body, "mirrorMaxOnMinutes", n)) settings.mirrorMaxOnMinutes = (uint16_t)constrain(n, 0L, 1440L);
@@ -2687,8 +2905,24 @@ void handleWaterPacket(const RxItem &item) {
   lastAUptimeMs = uptimeMs;
   haveSeq = true;
   lastFlags = flags;
+  bool prevFilling = fillingActive;
+  bool prevDraining = drainingActive;
   fillingActive = (filling != 0);
   drainingActive = (draining != 0);
+
+  // GPIO 4 topmost probe rising edge: start the beep phase and un-mute. The
+  // alert beeps 5x/sec with the RED LED until the probe leaves the water.
+  if (fillingActive && !prevFilling) {
+    buzzerProbeStartMs = millis();
+    probeBuzzerMuted = false;
+    DBGLN("[B] TOPMOST probe: water at top level -> buzzer + RED LED");
+  } else if (!fillingActive && prevFilling) {
+    probeBuzzerMuted = false;
+    DBGLN("[B] TOPMOST probe clear");
+  }
+  if (drainingActive && !prevDraining) {
+    DBGLN("[B] OVERFLOW probe: water overflowing -> BLUE LED");
+  }
 
   if (version >= 2) {
     lastAValidEchoes = validEchoes;
@@ -2728,6 +2962,26 @@ void handleWaterPacket(const RxItem &item) {
     if (lastValidLitres > capLitres) lastValidLitres = (uint16_t)capLitres;
     lastValidRxMs = now;
     haveValidWater = true;
+
+#if DEBUG_SERIAL
+    // Cross-check the percentage A computed against the shared calibration.
+    // A mismatch means A is still running an old/reversed calibration; the
+    // log makes that visible instead of silently showing wrong levels.
+    if (version >= 2 && haveASettingsRevision && aSeenRevision == aDesiredRevision) {
+      float span = settings.emptyDistanceCm - settings.fullDistanceCm;
+      if (span >= 1.0f) {
+        float expect = (settings.emptyDistanceCm - d) * 100.0f / span;
+        expect = constrain(expect, 0.0f, 100.0f);
+        static uint32_t lastMismatchLogMs = 0;
+        if (fabsf(expect - p) > 2.0f &&
+            (uint32_t)(millis() - lastMismatchLogMs) > 10000UL) {
+          lastMismatchLogMs = millis();
+          DBG("[B] WARN percent/distance disagree: d=%.1f p=%.1f expected=%.1f\n",
+              d, p, expect);
+        }
+      }
+    }
+#endif
 
     updateBuzzerFromWater(p, true);
   }
@@ -2870,6 +3124,7 @@ void setup() {
   server.on("/api/bulb", HTTP_ANY, handleBulb);
   server.on("/api/buzzer/stop", HTTP_ANY, handleBuzzerStop);
   server.on("/api/buzzer/test", HTTP_ANY, handleBuzzerTest);
+  server.on("/api/led/test", HTTP_ANY, handleLedTest);
   server.on("/api/motor", HTTP_ANY, handleMotor);
   server.on("/api/admin/settings", HTTP_ANY, handleAdminSettings);
   server.on("/api/admin/reboot-a", HTTP_ANY, handleAdminRebootA);
