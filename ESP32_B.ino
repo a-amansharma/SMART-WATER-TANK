@@ -2461,7 +2461,7 @@ void drawLinkIcon(int16_t cx, int16_t cy, bool ok) {
 }
 
 // Fixed, simple OLED layout:
-//   - a thin status bar on top: litres on the left, ESP-NOW tick/cross right
+//   - a thin status bar on top: ESP-NOW tick/cross left, litres right
 //   - a 1 px horizontal divider under the bar
 //   - the big percentage centred in the space below the divider
 void drawOled() {
@@ -2486,13 +2486,14 @@ void drawOled() {
   display.setDrawColor(1);
   display.setFontMode(1);
 
-  // ---- Status bar: small smooth text + link tick/cross ------------------
+  // ---- Status bar: link tick/cross (left) + litres (right) --------------
   display.setFont(u8g2_font_fub11_tf);
+  drawLinkIcon(8, 6, linkNow);
   char litres[12];
   if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
   else                snprintf(litres, sizeof(litres), "--L");
-  display.drawStr(2, 11, litres);
-  drawLinkIcon(OLED_WIDTH - 8, 6, linkNow);
+  int16_t lw = (int16_t)display.getStrWidth(litres);
+  display.drawStr(OLED_WIDTH - 2 - lw, 11, litres);
 
   // ---- Thin horizontal divider -----------------------------------------
   display.drawHLine(0, 15, OLED_WIDTH);

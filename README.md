@@ -478,7 +478,7 @@ dashboard:
 
 ```text
 ┌──────────────────────────────┐
-│ 250L                      ✓  │   status bar: litres (left) + link tick/cross (right)
+│ ✓                        250L│   status bar: link tick/cross (left) + litres (right)
 ├──────────────────────────────┤   thin horizontal divider
 │                              │
 │            62%               │   big percentage, centred below the divider
@@ -486,9 +486,9 @@ dashboard:
 └──────────────────────────────┘
 ```
 
-- **Status bar** (top, small smooth text): the litre value on the left and the
-  ESP-NOW link as a hand-drawn **tick** (connected) / **cross** (no link) on the
-  right.
+- **Status bar** (top, small smooth text): the ESP-NOW link as a hand-drawn
+  **tick** (connected) / **cross** (no link) on the left, and the litre value on
+  the right.
 - **Divider**: a 1 px horizontal line across the panel.
 - **Percentage**: the big level reading, centred in the lower region.
 
@@ -747,7 +747,7 @@ sampling interval, not wall-clock time.
 
 1. Power ESP32_B with no mains load connected. Confirm relays are OFF.
 2. Connect to `Smart Water Tank` and open `http://192.168.4.1/`.
-3. Confirm the OLED shows a **cross** (✗) at the **top-right** of the status bar
+3. Confirm the OLED shows a **cross** (✗) at the **left** of the status bar
    before ESP32_A starts.
 4. Power ESP32_A and confirm the OLED cross changes to a **tick** (✓).
 5. Move the water sensor and watch the percentage change.
@@ -795,7 +795,7 @@ sampling interval, not wall-clock time.
 ### Latest: simple fixed OLED + Admin keeps Mirror/Buzzer (ESP32_B only)
 
 - **The OLED layout is now fixed and simple** — nothing to configure:
-  a small status bar on top (litres left, ESP-NOW **tick/cross** right), a thin
+  a small status bar on top (ESP-NOW **tick/cross** left, litres right), a thin
   horizontal divider, and the big percentage centred below it.
 - **All OLED settings are removed from the Admin panel.** The panel now keeps
   only **Mirror light** and **Buzzer**. The per-item nine-way anchors, font-size
