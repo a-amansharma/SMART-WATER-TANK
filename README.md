@@ -370,19 +370,24 @@ with the shared calibration, which catches an old or reversed calibration on A.
 
 ### Mirror Light (Relay 1)
 
-- HC-SR04 detects a person closer than 100 cm → Relay 1 ON.
+- HC-SR04 detects a **large object (a person)** closer than 100 cm → Relay 1 ON.
 - **Background rejection:** the firmware learns the empty-room background
   distance (floor, wall, or reflections, e.g. ~105 cm). A reading only counts as
-  a person when it is at least **18 cm closer than that background**, so an
+  a person when it is at least **25 cm closer than that background**, so an
   ambient echo hovering around the 100 cm threshold no longer turns the light on
   by itself. The background tracks slow ambient drift but stops following as
   soon as a reading is clearly closer, and is frozen while a person is
   confirmed.
-- **Noise rejection:** readings below 10 cm are treated as invalid spurious
+- **Large-object (approach) gate:** a small/static object and a random noise
+  echo both fail this test — the firmware only counts a detection when it has
+  actually seen the object **close in** (the distance getting steadily smaller),
+  i.e. something big moving toward the mirror. A small object sitting in the
+  beam (or a one-off spurious echo) never approaches, so it is ignored.
+- **Noise rejection:** readings below 12 cm are treated as invalid spurious
   echoes; a sudden change of more than 35 cm from the last accepted distance is
-  ignored until it repeats 3 times; and a detection needs 3 consecutive accepted
-  near readings plus a minimum 600 ms confirm time. Short bursts and glitches no
-  longer turn the light on.
+  ignored until it repeats 3 times; and a detection needs **5 consecutive
+  accepted near readings plus a minimum 1000 ms confirm time**. Short bursts and
+  glitches no longer turn the light on.
 - Person farther than 105 cm (or no longer clearly closer than the background)
   → Relay 1 OFF after a 1 s hold, so a brief loss of detection does not switch
   the mirror light off instantly. Moving back within range during that second
@@ -573,7 +578,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,182,074 bytes (90 %) | 55,984 bytes (17 %) |
+| ESP32_B | 1,182,174 bytes (90 %) | 55,992 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -662,7 +667,10 @@ sampling interval, not wall-clock time.
    after you release the probe, and nothing blinks.
 7. With no probe active, tap **BLUE LED** then **RED LED** under the Motor
    control buttons. Each LED should light and stay lit until tapped again.
-8. Hold a hand within 100 cm of the HC-SR04. Mirror Light should turn ON.
+8. Walk toward the HC-SR04 from beyond 100 cm: Mirror Light should turn ON once
+   you are clearly closer than the learned background. A small object placed in
+   the beam (or a hand held still) should **not** turn it on — the firmware only
+   counts a big object that is seen approaching.
 9. Move beyond 105 cm. Mirror Light should turn OFF after about 1 second.
 10. Test the Bulb toggle.
 11. Press TEST BUZZER, then stop it early with STOP BUZZER and with the physical
@@ -681,7 +689,7 @@ sampling interval, not wall-clock time.
 | Buzzer never reaches full alert | If the tank tops out below 95 %, the sensor cannot see the real full level; fix the mounting or lower the full calibration. |
 | Percentage disagrees with distance | Check the serial log for `percent/distance disagree`; A is running an old calibration. |
 | Mirror Light flickers | Keep HC-SR04 away from reflective surfaces; check its 5 V supply. |
-| Mirror Light turns on with nobody there | Check `mirrorBackgroundCm` and `hcsr04Distance` in `/api/state`; if the sensor reads a static echo only slightly closer than the background, move it away from reflections or lower `mirrorOnCm`. |
+| Mirror Light turns on with nobody there | Check `mirrorBackgroundCm` and `hcsr04Distance` in `/api/state`; a small object or static echo only counts if it is seen approaching, so if it still triggers the background is being learned too close — move the sensor away from reflections or lower `mirrorOnCm`. |
 | Mirror Light stays on | A person is within 105 cm, phone manual ON is active, or override is on. |
 | Relay works backwards | Change `RELAY_ACTIVE_HIGH`. |
 | Buzzer never sounds | NPN pinout, 1 kΩ base resistor, buzzer polarity, `BUZZER_IS_ACTIVE`. |
@@ -694,7 +702,23 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: calibration + probe/LED rework
+### Latest: stricter mirror person detection (ESP32_B only)
+
+- **Fixed the HC-SR04 mirror light auto-triggering with nobody there.** The
+  person detector now requires a **large object (person)**, not a small object
+  or a noise echo.
+- **Bigger approach:** the object must be at least **25 cm closer** than the
+  learned background (was 18 cm).
+- **Approach gate (new):** the firmware only confirms a person if it has seen
+  the object **close in** (readings getting steadily smaller). A small/static
+  object or a one-off noise echo never approaches, so it is ignored.
+- **Longer sustain:** **5** consecutive near readings (was 3) and a **1000 ms**
+  minimum confirm time (was 600 ms).
+- **Stricter valid distance:** readings below **12 cm** (was 10 cm) are treated
+  as spurious echoes.
+- No change to ESP32_A or the wiring.
+
+### Earlier: calibration + probe/LED rework
 
 - **Recalibrated the tank:** full = **18 cm**, empty = **85 cm** (was 25 / 84).
   With the tank empty the sensor's ~85 cm reading shows **0 %**. Bumped the
@@ -762,7 +786,8 @@ sampling interval, not wall-clock time.
   be at least 18 cm closer than the learned empty-room distance — plus a jump
   gate, a minimum valid distance, 3 consecutive near readings and a 600 ms
   confirm floor, so ambient echoes near 1 m and short noise bursts no longer
-  turn the mirror light on.
+  turn the mirror light on. (Later tightened to 25 cm / 5 readings / 1000 ms plus
+  an approach gate — see the Latest entry above.)
 - Verified both sketches compile with `arduino-cli` on ESP32 core 3.3.11 with
   `--warnings all`.
 

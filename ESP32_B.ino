@@ -111,17 +111,22 @@ static const uint32_t HC_MIN_ECHO_US         = 100;
 static const uint32_t HC_MAX_ECHO_US         = 25000;
 static const float    HC_DETECT_ON_CM        = 100.0f;
 static const float    HC_DETECT_OFF_CM       = 105.0f;  // hysteresis
-// A real person must be this much closer than the learned background distance
-// (floor/wall echo), so ambient readings near the on-threshold are ignored.
-static const float    HC_NEAR_DROP_CM        = 18.0f;
+// A real person is a LARGE object, so it must be clearly closer than the
+// learned background distance (floor/wall echo). Small objects and ambient
+// echoes that only dip a little below the background are ignored.
+static const float    HC_NEAR_DROP_CM        = 25.0f;   // was 18 - bigger approach required
 static const float    HC_BASELINE_BAND_CM    = 8.0f;    // only track readings this close to the background
 static const float    HC_BASELINE_ALPHA      = 0.05f;   // background tracking rate
 // Noise rejection: reject sudden jumps and require a sustained approach.
-static const float    HC_MIN_VALID_CM        = 10.0f;   // ignore near-zero spurious echoes
+static const float    HC_MIN_VALID_CM        = 12.0f;   // ignore near-zero spurious echoes
 static const float    HC_JUMP_CM             = 35.0f;   // max change accepted in one sample
 static const uint8_t  HC_JUMP_CONFIRM        = 3;       // ...unless it repeats this many times
-static const uint8_t  HC_NEAR_RUN_SAMPLES    = 3;       // consecutive near readings to confirm
-static const uint32_t HC_MIN_ON_CONFIRM_MS   = 600;     // floor for the on-confirm time
+// A large object must stay in the beam for several consecutive samples over a
+// sustained time, AND it must be seen closing in (approaching). Small/static
+// objects and random noise echoes do neither, so they are ignored.
+static const uint8_t  HC_NEAR_RUN_SAMPLES    = 5;       // was 3 - longer sustained run
+static const uint32_t HC_MIN_ON_CONFIRM_MS   = 1000;    // was 600 - longer confirm time
+static const float    HC_CLOSE_STEP_CM       = 2.0f;    // a reading this much closer = object approaching
 static const uint32_t HC_ON_CONFIRM_MS        = 400;
 static const uint32_t HC_OFF_CONFIRM_MS       = 800;
 // Once the person is gone, keep Relay 1 (mirror light) on for one more second
@@ -741,6 +746,7 @@ float    hcDistanceCm = 0.0f;
 float    hcBaselineCm = 0.0f;   // learned empty-room background distance (0 = not yet learned)
 uint8_t  hcJumpCount = 0;       // consecutive rejected jumps (noise rejection)
 uint8_t  hcNearRun = 0;         // consecutive accepted near readings
+bool     hcClosingSeen = false; // object was seen approaching (readings getting closer)
 bool     hcValid = false;
 bool     haveHcReading = false;
 uint32_t lastValidHcMs = 0;
@@ -1627,10 +1633,20 @@ void pushHcSample(float cm, bool valid) {
     hcJumpCount = 0;
   }
 
+  float prevCm = hcDistanceCm;
+  bool  hadPrev = haveHcReading;
   hcDistanceCm = med;
   hcValid = true;
   haveHcReading = true;
   lastValidHcMs = millis();
+
+  // A real person approaching the mirror produces readings that get steadily
+  // closer. Remember that we saw the object close in: a small/static object
+  // (which never approaches) or a one-off noise echo cannot be mistaken for a
+  // person. This is cleared again in updateAutoRelay1() once the view is clear.
+  if (hadPrev && med <= prevCm - HC_CLOSE_STEP_CM) {
+    hcClosingSeen = true;
+  }
 }
 
 void startHcSample() {
@@ -1703,6 +1719,7 @@ void updateAutoRelay1() {
     hcFarSinceMs = 0;
     personClearSinceMs = 0;
     hcNearRun = 0;
+    hcClosingSeen = false;
     applyRelay1();
     return;
   }
@@ -1736,6 +1753,7 @@ void updateAutoRelay1() {
     hcNearSinceMs = 0;
     hcFarSinceMs = 0;
     hcNearRun = 0;
+    hcClosingSeen = false;
     if (personDetected) {
       if (personClearSinceMs == 0) personClearSinceMs = now;
       if ((uint32_t)(now - personClearSinceMs) >= HC_OFF_DELAY_MS) {
@@ -1752,6 +1770,7 @@ void updateAutoRelay1() {
     if (hcNearSinceMs == 0) hcNearSinceMs = now;
     if (!personDetected &&
         hcNearRun >= HC_NEAR_RUN_SAMPLES &&
+        hcClosingSeen &&
         (uint32_t)(now - hcNearSinceMs) >= confirmMs) {
       personDetected = true;
       DBG("[B] Person confirmed present (%.1f cm, background %.1f cm)\n",
@@ -1765,9 +1784,11 @@ void updateAutoRelay1() {
     personClearSinceMs = 0;
   } else {
     // Not clearly a person: background-level reading or beyond the off
-    // distance. Start / continue the off-delay.
+    // distance. Start / continue the off-delay and forget the approach, so a
+    // fresh approach is required for the next detection.
     hcNearSinceMs = 0;
     hcNearRun = 0;
+    hcClosingSeen = false;
     hcFarSinceMs = now;
     if (personDetected) {
       if (personClearSinceMs == 0) personClearSinceMs = now;
