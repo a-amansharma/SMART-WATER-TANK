@@ -471,6 +471,22 @@ even when the ESP-NOW link is down or the matching probe is inactive. Tap again
 to release the override and return the LED to automatic control. The override
 is not saved across a reboot.
 
+### OLED screen (SSD1306 128×64)
+
+The panel is fully configurable from the dashboard **ADMIN** panel (see
+[Admin panel](#admin-panel--tap-admin-in-the-header)). Default layout:
+
+| Item | Default position | Notes |
+|---|---|---|
+| Big percentage | centre | six selectable font sizes |
+| Litres value | top-right | footer font size 1–4 |
+| ESP-NOW link | top-left | tick (connected) / cross (no link) |
+| Distance | bottom-left | off by default |
+| Status text (LIVE) | bottom-right | off by default |
+
+Contrast (1–255) and colour invert are also adjustable. All OLED settings are
+stored in ESP32_B NVS and survive a reboot.
+
 ---
 
 ## 7. Network, MAC addresses, and OTA
@@ -603,7 +619,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,192,926 bytes (91 %) | 56,992 bytes (17 %) |
+| ESP32_B | 1,217,810 bytes (92 %) | 57,000 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -622,6 +638,27 @@ ESP32_B serves the embedded dashboard at `http://192.168.4.1/`.
   focus or closes.
 - Buzzer TEST (5 s) and STOP buttons work without a page reload.
 - A **HC-SR04 ↗** link in the header opens the live sensor page (below).
+- An **ADMIN** capsule sits just left of the online status capsule. Tap it to
+  open the settings panel (see below).
+
+### Admin panel — tap **ADMIN** in the header
+
+The panel talks to `/api/admin/settings` (GET to read, POST to change) and
+applies changes live — no reboot. It currently covers:
+
+- **OLED screen** — for each item (percentage, litres, ESP-NOW tick/cross,
+  distance, status text) you can show/hide it and place it anywhere on a **3×3
+  grid** (top / middle / bottom × left / centre / right). There are **font-size
+  steppers** for the big percentage (1–6) and the footer text (1–4), a contrast
+  slider, an invert toggle, and a **Reset OLED layout** button. The default
+  layout is percentage centred, litres top-right, tick/cross top-left.
+- **Mirror light (Relay 1)** — enable, on-distance, off-distance, and an optional
+  auto-off time in minutes (0 = off).
+- **Buzzer** — enable, alert level %, re-arm level %, and max alert time.
+
+Changes to the OLED, mirror, and buzzer are local to ESP32_B and are saved to
+NVS, so they survive a reboot. Only the tank/water calibration fields are pushed
+to ESP32_A.
 
 ### Live HC-SR04 page — `http://192.168.4.1/hc`
 
@@ -642,8 +679,8 @@ dashboard) while connected to the `Smart Water Tank` AP. The page polls
 Use it to see exactly why the mirror light does or does not turn on. This is the
 recommended way to tune the mirror detection when no USB serial is available.
 
-The dashboard has no separate Admin screen. Use the Admin API endpoints below
-from a browser, `curl`, or a small script.
+The dashboard also has the **ADMIN** panel (above). Every endpoint below is still
+available directly from a browser, `curl`, or a small script.
 
 ---
 
@@ -680,7 +717,16 @@ curl -X POST http://192.168.4.1/api/mirror-light \
 curl -X POST http://192.168.4.1/api/admin/settings \
   -H 'Content-Type: application/json' \
   -d '{"tankCapacityL":750,"fullDistanceCm":18,"emptyDistanceCm":85}'
+
+# Move the OLED litre value to the top-right and grow the percentage font
+curl -X POST http://192.168.4.1/api/admin/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"oledLitreAlign":2,"oledPercentSize":6}'
 ```
+
+`oledShow` is a bitmask: `1` percentage, `4` ESP-NOW tick/cross, `8` litres,
+`16` status text, `32` distance. The `oled*Align` fields are nine-way anchors
+`0`=top-left … `8`=bottom-right (row-major).
 
 Settings are saved to NVS on ESP32_B. Water settings are forwarded to ESP32_A
 and also persisted in ESP32_A NVS.
@@ -705,8 +751,9 @@ sampling interval, not wall-clock time.
 
 1. Power ESP32_B with no mains load connected. Confirm relays are OFF.
 2. Connect to `Smart Water Tank` and open `http://192.168.4.1/`.
-3. Confirm the OLED footer shows a **cross** (✗) before ESP32_A starts.
-4. Power ESP32_A and confirm the OLED footer changes to a **tick** (✓).
+3. Confirm the OLED shows a **cross** (✗) in the **top-left corner** before
+   ESP32_A starts.
+4. Power ESP32_A and confirm the OLED cross changes to a **tick** (✓).
 5. Move the water sensor and watch the percentage change.
 6. Short ESP32_A GPIO 4 to GND: the BLUE LED lights and the dashboard shows a
    blue `TOP LEVEL` capsule. Short GPIO 15 to GND: the RED LED lights and the
@@ -749,7 +796,27 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: immediate mirror trigger + OLED rework (ESP32_B only)
+### Latest: OLED layout control + Admin panel (ESP32_B only)
+
+- **OLED placement is now fully configurable.** Every item (percentage, litres,
+  ESP-NOW tick/cross, distance, status text) has its own **nine-way anchor**
+  (top / middle / bottom × left / centre / right), so anything can be moved to a
+  corner or centred. New default: **tick/cross top-left**, **litres top-right**,
+  percentage centred.
+- **Font sizes are selectable:** the big percentage maps to six FreeSans Bold
+  sizes (`fub17`…`fub49`) and the footer text to four (`fub11`…`fub20`), with
+  +/− steppers in the panel.
+- **New ADMIN capsule** on the dashboard (just left of the online capsule) opens
+  a settings panel that talks to `/api/admin/settings` and applies changes live:
+  - **OLED** — show/hide + 3×3 position for each item, percent/footer font size,
+    contrast, invert, and a reset button.
+  - **Mirror light** — enable, on/off distance, auto-off minutes.
+  - **Buzzer** — enable, alert %, re-arm %, max alert time.
+- New settings fields: `oledPctAlign`, `oledLitreAlign`, `oledLinkAlign`,
+  `oledDistAlign`, `oledStatusAlign` (0–8). Settings version bumped to 6 so the
+  new defaults take effect once. ESP32_A and the wiring are unchanged.
+
+### Earlier: immediate mirror trigger + OLED rework (ESP32_B only)
 
 - **Immediate detection:** the approach-step gate, the near-run gate and the
   1200 ms confirm time are **removed**. The mirror now lights on the **first

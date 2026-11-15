@@ -167,7 +167,7 @@ static const uint32_t BUZZER_BEEP_PERIOD_MS  = 200;  // 5 beeps per second
 static const uint32_t BUZZER_BEEP_ON_MS      = 80;
 
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
-#define B_SETTINGS_VERSION 5u          // bumped: refreshes stale calibration/filter values
+#define B_SETTINGS_VERSION 6u          // bumped: OLED anchors + size fields added
 
 // History storage limits. Samples are CSV lines in LittleFS; old lines are
 // compacted automatically so the log stays bounded.
@@ -186,6 +186,18 @@ static const uint32_t BUZZER_BEEP_ON_MS      = 80;
 #define OLED_SHOW_BOTTOM_L  0x08u
 #define OLED_SHOW_STATUS    0x10u
 #define OLED_SHOW_DISTANCE  0x20u
+
+// OLED nine-way anchor positions (row-major: top, middle, bottom x left,
+// centre, right). Used to place each field anywhere on the 128x64 panel.
+#define OLED_ANCHOR_TL 0
+#define OLED_ANCHOR_TC 1
+#define OLED_ANCHOR_TR 2
+#define OLED_ANCHOR_ML 3
+#define OLED_ANCHOR_MC 4
+#define OLED_ANCHOR_MR 5
+#define OLED_ANCHOR_BL 6
+#define OLED_ANCHOR_BC 7
+#define OLED_ANCHOR_BR 8
 
 // Protocol constants (must match ESP32_A.ino).
 #define PROTOCOL_VERSION 2u
@@ -354,7 +366,12 @@ struct __attribute__((packed)) AppSettings {
   uint8_t  oledBottomSize;
   uint8_t  oledContrast;
   uint8_t  oledInvert;
-  uint8_t  reserved4[2];
+  uint8_t  oledPctAlign;     // nine-way anchor for the big percentage
+  uint8_t  oledLitreAlign;   // nine-way anchor for the litre value
+  uint8_t  oledLinkAlign;    // nine-way anchor for the ESP-NOW tick/cross
+  uint8_t  oledDistAlign;    // nine-way anchor for the distance text
+  uint8_t  oledStatusAlign;  // nine-way anchor for the LIVE/STALE text
+  uint8_t  reserved4[3];
   // History / admin.
   uint16_t historyIntervalSec;
   uint8_t  historyRetentionDays;
@@ -407,6 +424,46 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .connection{display:flex;align-items:center;gap:7px;padding:8px 12px;border-radius:20px;background:#e8f8ee;border:1px solid #b8e3c8;color:#087c4a;font-size:11px;font-weight:900}
 .connection.offline{background:#fff1f3;border-color:#efc0c7;color:#c52c40}
 .hc-link{padding:8px 12px;border-radius:20px;background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3;font-size:11px;font-weight:900;text-decoration:none;white-space:nowrap}
+.head-right{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.admin-capsule{padding:8px 12px;border-radius:20px;background:#fff4e6;border:1px solid #f6d5a8;color:#9a5b06;font-size:11px;font-weight:900;letter-spacing:.5px;cursor:pointer;white-space:nowrap}
+.admin-capsule[aria-pressed="true"]{background:#f6a723;border-color:#d98a00;color:#fff}
+.admin-overlay{position:fixed;inset:0;background:rgba(12,24,40,.55);backdrop-filter:blur(3px);display:none;z-index:60;padding:14px;overflow:auto}
+.admin-overlay.open{display:block}
+.admin-panel{width:min(100%,560px);margin:0 auto;background:#fff;border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 18px 50px rgba(10,30,60,.3)}
+.admin-head{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--line);background:#f7fbff}
+.admin-title{font-size:16px;font-weight:900;letter-spacing:.4px}
+.admin-close{border:none;background:#eef2f7;border-radius:10px;width:34px;height:34px;font-size:15px;font-weight:900;color:#4a5c72;cursor:pointer}
+.admin-body{padding:12px 14px;display:flex;flex-direction:column;gap:14px;max-height:70vh;overflow:auto}
+.adm-sec{border:1px solid var(--line);border-radius:14px;padding:10px 12px}
+.adm-sec h3{margin:0 0 4px;font-size:13px;letter-spacing:.6px;text-transform:uppercase;color:#3b4d63}
+.adm-note{margin:0 0 8px;font-size:11px;color:var(--muted);font-weight:700}
+.adm-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px dashed #e6edf4}
+.adm-row:first-of-type{border-top:none}
+.adm-row>label{font-size:13px;font-weight:800;color:#26374c}
+.adm-elem{border-top:1px dashed #e6edf4;padding:8px 0;display:flex;flex-direction:column;gap:6px}
+.adm-elem-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.adm-elem-head .nm{font-size:13px;font-weight:800;color:#26374c}
+.oled-grid{display:grid;grid-template-columns:repeat(3,26px);grid-auto-rows:26px;gap:4px}
+.oled-grid button{border:1px solid #cfd9e4;background:#f4f8fb;border-radius:6px;cursor:pointer;padding:0;font-size:0;position:relative}
+.oled-grid button:after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:2px;background:#c3ceda;transform:translate(-50%,-50%)}
+.oled-grid button.on{border-color:#0e9a63;background:#e6f7ef}
+.oled-grid button.on:after{background:#0e9a63}
+.stepper{display:flex;align-items:center;gap:8px}
+.stepper button{width:32px;height:32px;border-radius:9px;border:1px solid #cfd9e4;background:#f4f8fb;font-size:17px;font-weight:900;color:#33475e;cursor:pointer;line-height:1}
+.stepper button:active{transform:scale(.95)}
+.stepper .val{min-width:58px;text-align:center;font-size:14px;font-weight:900;color:#1c2f45}
+.adm-toggle{width:58px;height:32px;border:1px solid #b9c7d5;background:#d8e0e8;border-radius:20px;padding:3px;cursor:pointer}
+.adm-toggle:after{content:"";display:block;width:24px;height:24px;border-radius:50%;background:#fff;transition:.16s}
+.adm-toggle.on{background:#19b66f;border-color:#0b8a59}
+.adm-toggle.on:after{transform:translateX(26px)}
+.adm-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:4px}
+.adm-btn{border:1px solid #cfd9e4;background:#f4f8fb;color:#33475e;border-radius:10px;padding:9px 12px;font-size:12px;font-weight:900;cursor:pointer}
+.adm-btn.primary{background:#1697d8;border-color:#0b6a9e;color:#fff}
+.adm-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-top:1px solid var(--line);background:#f7fbff}
+.adm-hint{font-size:11px;font-weight:800;color:var(--muted)}
+.adm-hint.ok{color:#0e9a63}
+.adm-hint.err{color:#df3c4f}
+input[type=range]{width:150px}
 .dot{width:9px;height:9px;border-radius:50%;background:#16a66a}
 .offline .dot{background:#df3c4f}
 .card{background:#fff;border:1px solid var(--line);border-radius:20px}
@@ -464,7 +521,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .buzzer-btn.test{background:#16b978}
 .buzzer-btn.stop{background:#dd2f46}
 footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;font-weight:800;padding:6px 0 2px;line-height:1.3}
-@media(max-width:430px){.app{padding:8px 8px calc(10px + env(safe-area-inset-bottom));gap:8px}.brand-title{font-size:20px}.credit{font-size:9px}.connection{padding:6px 10px;font-size:10px}.tank{padding:10px}.percent{font-size:56px}.volume strong{font-size:34px}.motor-btn{width:100px;height:100px}.controls{grid-template-columns:1.2fr 1fr;gap:8px}.side-card{padding:6px;gap:6px}.control-tile{padding:6px 4px;gap:4px}.control-name{font-size:13px}.toggle{width:70px;height:40px}.toggle:after{width:30px;height:30px}.toggle.on:after{transform:translateX(28px)}.buzzer-btn{font-size:11px;padding:9px 6px}footer{font-size:9px}.led-test{font-size:10px;padding:7px 5px;letter-spacing:.4px}}
+@media(max-width:430px){.app{padding:8px 8px calc(10px + env(safe-area-inset-bottom));gap:8px}.brand-title{font-size:20px}.credit{font-size:9px}.connection{padding:6px 10px;font-size:10px}.hc-link,.admin-capsule{padding:6px 9px;font-size:10px}.head-right{gap:4px}.tank{padding:10px}.percent{font-size:56px}.volume strong{font-size:34px}.motor-btn{width:100px;height:100px}.controls{grid-template-columns:1.2fr 1fr;gap:8px}.side-card{padding:6px;gap:6px}.control-tile{padding:6px 4px;gap:4px}.control-name{font-size:13px}.toggle{width:70px;height:40px}.toggle:after{width:30px;height:30px}.toggle.on:after{transform:translateX(28px)}.buzzer-btn{font-size:11px;padding:9px 6px}footer{font-size:9px}.led-test{font-size:10px;padding:7px 5px;letter-spacing:.4px}}
 @media(max-height:700px){.app{gap:8px}.motor-buttons{gap:8px}.motor-btn{width:104px;height:104px}.percent{font-size:60px}.volume strong{font-size:36px}}
 </style>
 </head>
@@ -475,8 +532,11 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
   <div class="logo" aria-hidden="true"><img src="data:image/png;base64,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" width="200" height="200" alt=""></div>
   <div><div class="brand-title">Smart Water Tank</div><div class="credit">ESP32_B Local Dashboard</div></div>
  </div>
- <a class="hc-link" href="/hc" title="Live HC-SR04 sensor data">HC-SR04 &#8599;</a>
- <div class="connection offline" id="connection"><span class="dot"></span><span id="connectionText">OFFLINE</span></div>
+ <div class="head-right">
+  <a class="hc-link" href="/hc" title="Live HC-SR04 sensor data">HC-SR04 &#8599;</a>
+  <button class="admin-capsule" id="adminBtn" aria-pressed="false">ADMIN</button>
+  <div class="connection offline" id="connection"><span class="dot"></span><span id="connectionText">OFFLINE</span></div>
+ </div>
 </header>
 <section class="card tank" id="tankCard">
  <div class="card-head"><span class="eyebrow">Tank level</span><span class="live" id="liveTag">LIVE</span></div>
@@ -537,6 +597,19 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
 </section>
 <footer>SMART WATER TANK · LOCAL ESP32 DASHBOARD</footer>
 </main>
+<div class="admin-overlay" id="adminOverlay" aria-hidden="true">
+ <div class="admin-panel" role="dialog" aria-modal="true" aria-label="Admin settings">
+  <div class="admin-head">
+   <div class="admin-title">Admin · Settings</div>
+   <button class="admin-close" id="adminClose" aria-label="Close">&#10005;</button>
+  </div>
+  <div class="admin-body" id="adminBody"></div>
+  <div class="admin-foot">
+   <span class="adm-hint" id="adminHint">Changes apply live.</span>
+   <button class="adm-btn primary" id="adminReload">Reload</button>
+  </div>
+ </div>
+</div>
 <script>
 (function(){
 'use strict';
@@ -698,6 +771,138 @@ $('buzzerTest').addEventListener('click',async()=>{ if(buzzerBusy) return; buzze
 $('buzzerStop').addEventListener('click',async()=>{ if(buzzerBusy) return; buzzerBusy=true; try{ await sendCommand('/api/buzzer/stop',{}); }finally{ buzzerBusy=false; } });
 $('ledTestBlue').addEventListener('click',async()=>{ if(ledBlueBusy) return; ledBlueBusy=true; try{ await sendCommand('/api/led/test',{led:'blue',on:!(current&&current.indBlueTest===true)}); }finally{ ledBlueBusy=false; } });
 $('ledTestRed').addEventListener('click',async()=>{ if(ledRedBusy) return; ledRedBusy=true; try{ await sendCommand('/api/led/test',{led:'red',on:!(current&&current.indRedTest===true)}); }finally{ ledRedBusy=false; } });
+
+// ---- Admin panel: OLED + mirror + buzzer settings ----------------------
+const adminOverlay=$('adminOverlay'), adminBtn=$('adminBtn'), adminBody=$('adminBody'), adminHint=$('adminHint');
+let adm=null, admBusy=false;
+
+const OLED_ELEMENTS=[
+ {bit:1,  align:'oledPctAlign',    label:'Percentage %'},
+ {bit:8,  align:'oledLitreAlign',  label:'Litres value'},
+ {bit:4,  align:'oledLinkAlign',   label:'ESP-NOW tick / cross'},
+ {bit:32, align:'oledDistAlign',   label:'Distance text'},
+ {bit:16, align:'oledStatusAlign', label:'Status text (LIVE)'}
+];
+
+function admHintMsg(msg,cls){ adminHint.textContent=msg; adminHint.className='adm-hint'+(cls?' '+cls:''); }
+function mkEl(tag,cls,txt){ const e=document.createElement(tag); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e; }
+
+async function loadAdmin(){
+ try{
+  const r=await fetch('/api/admin/settings',{cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  adm=(j&&j.settings)?j.settings:null;
+  if(adm) buildAdmin(); else admHintMsg('No settings returned','err');
+ }catch(e){ admHintMsg('Could not load settings','err'); }
+}
+
+async function postSettings(patch){
+ if(admBusy) return; admBusy=true; admHintMsg('Saving…');
+ try{
+  const r=await fetch('/api/admin/settings',{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  const j=await r.json();
+  if(j&&j.settings) adm=j.settings;
+  buildAdmin(); admHintMsg('Saved ✓','ok');
+  setTimeout(()=>admHintMsg('Changes apply live.'),1500);
+ }catch(e){ admHintMsg('Save failed','err'); }
+ finally{ admBusy=false; }
+}
+
+function stepperRow(label,o){
+ const row=mkEl('div','adm-row'); row.appendChild(mkEl('label',null,label));
+ const wrap=mkEl('div','stepper');
+ const minus=mkEl('button',null,'−'), val=mkEl('span','val'), plus=mkEl('button',null,'+');
+ const scale=o.scale||1;
+ val.textContent=String(Math.round(Number(adm[o.f])/scale));
+ minus.addEventListener('click',()=>stepVal(o,-1));
+ plus.addEventListener('click',()=>stepVal(o,1));
+ wrap.appendChild(minus); wrap.appendChild(val); wrap.appendChild(plus);
+ row.appendChild(wrap); return row;
+}
+function stepVal(o,dir){
+ const scale=o.scale||1, step=o.step||1;
+ let v=Number(adm[o.f])/scale + dir*step;
+ const lo=o.min/scale, hi=o.max/scale;
+ if(v<lo)v=lo; if(v>hi)v=hi;
+ postSettings({[o.f]:v*scale});
+}
+function rangeRow(label,o){
+ const row=mkEl('div','adm-row'); row.appendChild(mkEl('label',null,label));
+ const inp=document.createElement('input'); inp.type='range'; inp.min=o.min; inp.max=o.max; inp.value=Number(adm[o.f]);
+ inp.addEventListener('change',()=>postSettings({[o.f]:Number(inp.value)}));
+ row.appendChild(inp); return row;
+}
+function toggleRow(label,field){
+ const row=mkEl('div','adm-row'); row.appendChild(mkEl('label',null,label));
+ const b=mkEl('button','adm-toggle'+(adm[field]?' on':'')); b.setAttribute('aria-pressed',adm[field]?'true':'false');
+ b.addEventListener('click',()=>postSettings({[field]:!adm[field]}));
+ row.appendChild(b); return row;
+}
+
+function buildAdmin(){
+ if(!adm) return;
+ adminBody.innerHTML='';
+
+ // --- OLED ---
+ const sec=mkEl('section','adm-sec');
+ sec.appendChild(mkEl('h3',null,'OLED screen'));
+ sec.appendChild(mkEl('p','adm-note','Tick an item to show it, then tap where it should sit on the 3×3 grid. The panel updates live.'));
+ OLED_ELEMENTS.forEach(el=>{
+  const row=mkEl('div','adm-elem');
+  const head=mkEl('div','adm-elem-head');
+  head.appendChild(mkEl('span','nm',el.label));
+  const on=!!(adm.oledShow & el.bit);
+  const tog=mkEl('button','adm-toggle'+(on?' on':'')); tog.setAttribute('aria-pressed',on?'true':'false');
+  tog.addEventListener('click',()=>postSettings({oledShow:(adm.oledShow ^ el.bit)}));
+  head.appendChild(tog);
+  const grid=mkEl('div','oled-grid');
+  for(let a=0;a<9;a++){
+   const b=mkEl('button',(adm[el.align]===a)?'on':''); b.title='Position '+a;
+   b.addEventListener('click',()=>postSettings({[el.align]:a}));
+   grid.appendChild(b);
+  }
+  row.appendChild(head); row.appendChild(grid); sec.appendChild(row);
+ });
+ sec.appendChild(stepperRow('Percent size',{f:'oledPercentSize',min:1,max:6,step:1}));
+ sec.appendChild(stepperRow('Footer size',{f:'oledBottomSize',min:1,max:4,step:1}));
+ sec.appendChild(rangeRow('Contrast',{f:'oledContrast',min:1,max:255}));
+ sec.appendChild(toggleRow('Invert colours','oledInvert'));
+ const act=mkEl('div','adm-actions');
+ const rb=mkEl('button','adm-btn','Reset OLED layout');
+ rb.addEventListener('click',()=>postSettings({oledShow:13,oledPctAlign:4,oledLitreAlign:2,oledLinkAlign:0,oledDistAlign:6,oledStatusAlign:8,oledPercentSize:5,oledBottomSize:1}));
+ act.appendChild(rb); sec.appendChild(act);
+ adminBody.appendChild(sec);
+
+ // --- Mirror light ---
+ const mir=mkEl('section','adm-sec');
+ mir.appendChild(mkEl('h3',null,'Mirror light (Relay 1)'));
+ mir.appendChild(mkEl('p','adm-note','The mirror lights immediately for a person within the on-distance, and turns off about 1 s after they leave.'));
+ mir.appendChild(toggleRow('Enabled','mirrorEnabled'));
+ mir.appendChild(stepperRow('On distance (cm)',{f:'mirrorOnCm',min:5,max:300,step:5}));
+ mir.appendChild(stepperRow('Off distance (cm)',{f:'mirrorOffCm',min:5,max:400,step:5}));
+ mir.appendChild(stepperRow('Auto-off (min, 0=off)',{f:'mirrorMaxOnMinutes',min:0,max:1440,step:5}));
+ adminBody.appendChild(mir);
+
+ // --- Buzzer ---
+ const buz=mkEl('section','adm-sec');
+ buz.appendChild(mkEl('h3',null,'Buzzer'));
+ buz.appendChild(mkEl('p','adm-note','Starts when the level reaches the alert %, re-arms once it falls below the re-arm %.'));
+ buz.appendChild(toggleRow('Enabled','buzzerEnabled'));
+ buz.appendChild(stepperRow('Alert level (%)',{f:'buzzerFullPercent',min:50,max:100,step:1}));
+ buz.appendChild(stepperRow('Re-arm level (%)',{f:'buzzerRearmPercent',min:0,max:99,step:1}));
+ buz.appendChild(stepperRow('Max alert (s)',{f:'buzzerDurationMs',min:1000,max:300000,step:5,scale:1000}));
+ adminBody.appendChild(buz);
+}
+
+function openAdmin(){ adminOverlay.classList.add('open'); adminOverlay.setAttribute('aria-hidden','false'); adminBtn.setAttribute('aria-pressed','true'); loadAdmin(); }
+function closeAdmin(){ adminOverlay.classList.remove('open'); adminOverlay.setAttribute('aria-hidden','true'); adminBtn.setAttribute('aria-pressed','false'); }
+adminBtn.addEventListener('click',()=>{ adminOverlay.classList.contains('open')?closeAdmin():openAdmin(); });
+$('adminClose').addEventListener('click',closeAdmin);
+adminOverlay.addEventListener('click',e=>{ if(e.target===adminOverlay) closeAdmin(); });
+$('adminReload').addEventListener('click',loadAdmin);
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'&&adminOverlay.classList.contains('open')) closeAdmin(); });
 
 render(current);
 pollState();
@@ -1038,11 +1243,16 @@ void defaultSettings(AppSettings &c) {
   c.buzzerBeepOnMs = BUZZER_BEEP_ON_MS;
 
   c.oledShow = OLED_SHOW_PERCENT | OLED_SHOW_LINK | OLED_SHOW_BOTTOM_L;
-  c.oledPercentSize = 6;
+  c.oledPercentSize = 5;                 // -> fub42_tn (same look as before)
   c.oledLitresSize = 2;
-  c.oledBottomSize = 1;
+  c.oledBottomSize = 1;                  // -> fub11_tf footer
   c.oledContrast = 255;
   c.oledInvert = 0;
+  c.oledPctAlign = OLED_ANCHOR_MC;       // percentage centered
+  c.oledLitreAlign = OLED_ANCHOR_TR;     // litres top-right
+  c.oledLinkAlign = OLED_ANCHOR_TL;      // ESP-NOW tick/cross top-left
+  c.oledDistAlign = OLED_ANCHOR_BL;      // distance bottom-left
+  c.oledStatusAlign = OLED_ANCHOR_BR;    // LIVE/STALE bottom-right
 
   c.historyIntervalSec = 300;
   c.historyRetentionDays = 4;
@@ -1115,6 +1325,11 @@ void clampSettings(AppSettings &c) {
   c.oledBottomSize = constrain(c.oledBottomSize, 1, 4);
   c.oledContrast = constrain(c.oledContrast, 1, 255);
   c.oledInvert = c.oledInvert ? 1 : 0;
+  c.oledPctAlign = (uint8_t)constrain((int)c.oledPctAlign, 0, 8);
+  c.oledLitreAlign = (uint8_t)constrain((int)c.oledLitreAlign, 0, 8);
+  c.oledLinkAlign = (uint8_t)constrain((int)c.oledLinkAlign, 0, 8);
+  c.oledDistAlign = (uint8_t)constrain((int)c.oledDistAlign, 0, 8);
+  c.oledStatusAlign = (uint8_t)constrain((int)c.oledStatusAlign, 0, 8);
 
   c.historyIntervalSec = constrain(c.historyIntervalSec, HISTORY_MIN_INTERVAL_SEC, HISTORY_MAX_INTERVAL_SEC);
   c.historyRetentionDays = constrain(c.historyRetentionDays, 1, 30);
@@ -2310,8 +2525,57 @@ void initOled() {
   display.sendBuffer();
 }
 
-// Hand-drawn ESP-NOW link symbol for the OLED footer: a tick when the link is
-// up, a cross when it is down. (cx, cy) is the centre of the symbol.
+// Map the stored percent size (1..6) to a FreeSans Bold digit font. These are
+// the "_tn" fonts (digits + a few symbols); the '%' is drawn by hand.
+const uint8_t *oledPercentFont(uint8_t size) {
+  switch (size) {
+    case 1:  return u8g2_font_fub17_tn;
+    case 2:  return u8g2_font_fub25_tn;
+    case 3:  return u8g2_font_fub30_tn;
+    case 4:  return u8g2_font_fub35_tn;
+    case 5:  return u8g2_font_fub42_tn;
+    default: return u8g2_font_fub49_tn;
+  }
+}
+
+// Map the stored footer size (1..4) to a FreeSans Bold full-ASCII font.
+const uint8_t *oledFooterFont(uint8_t size) {
+  switch (size) {
+    case 1:  return u8g2_font_fub11_tf;
+    case 2:  return u8g2_font_fub14_tf;
+    case 3:  return u8g2_font_fub17_tf;
+    default: return u8g2_font_fub20_tf;
+  }
+}
+
+// Nine-way placement: given a block of size (w,h), return its top-left corner.
+void oledPlace(uint8_t anchor, int16_t w, int16_t h, int16_t &x, int16_t &y) {
+  uint8_t col = anchor % 3;   // 0 left, 1 centre, 2 right
+  uint8_t row = anchor / 3;   // 0 top, 1 middle, 2 bottom
+  if (col == 0)      x = 0;
+  else if (col == 1) x = (OLED_WIDTH - w) / 2;
+  else               x = OLED_WIDTH - w;
+  if (row == 0)      y = 0;
+  else if (row == 1) y = (OLED_HEIGHT - h) / 2;
+  else               y = OLED_HEIGHT - h;
+  if (x < 0) x = 0;
+  if (y < 0) y = 0;
+}
+
+// Draw a string at a nine-way anchor. The font must already be selected.
+void oledDrawText(uint8_t anchor, const char *s) {
+  int16_t w   = (int16_t)display.getStrWidth(s);
+  int16_t asc = (int16_t)display.getAscent();
+  int16_t desc = (int16_t)display.getDescent();
+  int16_t h   = asc - desc;
+  if (h < 1) h = 1;
+  int16_t x, y;
+  oledPlace(anchor, w, h, x, y);
+  display.drawStr(x, y + asc, s);
+}
+
+// Hand-drawn ESP-NOW link symbol: a tick when the link is up, a cross when it
+// is down. (cx, cy) is the centre of the symbol.
 void drawLinkIcon(int16_t cx, int16_t cy, bool ok) {
   if (ok) {
     display.drawLine(cx - 5, cy + 1, cx - 1, cy + 5);
@@ -2354,21 +2618,15 @@ void drawOled() {
   else                snprintf(pctNum, sizeof(pctNum), "--");
 
   if (show & OLED_SHOW_PERCENT) {
-    // FreeSans Bold digits, CENTERED on the panel. A wider/bolder face makes
-    // the curves read smoother on this 1-bit display; the custom '%' sits right
-    // after the number.
-    const uint8_t *numFont = u8g2_font_fub42_tn;
-    int16_t baseline = 46;
-    int16_t areaH = 44;
-    if (settings.oledPercentSize <= 2) {
-      numFont = u8g2_font_fub25_tn; baseline = 33; areaH = 26;
-    } else if (settings.oledPercentSize <= 4) {
-      numFont = u8g2_font_fub35_tn; baseline = 41; areaH = 37;
-    } else {
-      numFont = u8g2_font_fub42_tn; baseline = 46; areaH = 44;
-    }
+    // FreeSans Bold digits placed at a nine-way anchor. A wider/bolder face
+    // makes the curves read smoother on this 1-bit display; the custom '%' sits
+    // right after the number.
+    display.setFont(oledPercentFont(settings.oledPercentSize));
+    int16_t asc   = (int16_t)display.getAscent();
+    int16_t desc  = (int16_t)display.getDescent();
+    int16_t areaH = asc - desc;
+    if (areaH < 8) areaH = 8;
 
-    display.setFont(numFont);
     int16_t gap = (areaH >= 40) ? 2 : 4;
     int16_t extra = (areaH >= 40) ? 0 : (int16_t)strlen(pctNum) * 2;
 
@@ -2389,10 +2647,11 @@ void drawOled() {
       if (signW < 8) signW = 8;
     }
 
-    // CENTER the whole "NNN%" block horizontally.
+    // Place the whole "NNN%" block at the configured anchor.
     int16_t totalW = numW + gap + signW;
-    int16_t x = (OLED_WIDTH - totalW) / 2;
-    if (x < 0) x = 0;
+    int16_t x, yTop;
+    oledPlace(settings.oledPctAlign, totalW, areaH, x, yTop);
+    int16_t baseline = yTop + asc;
 
     // Draw digits twice with 1px horizontal offset for wider/bolder look.
     for (int pass = 0; pass < 2; pass++) {
@@ -2406,12 +2665,13 @@ void drawOled() {
 
     // Custom '%' symbol: bold, wide slash + two heavy hollow dots.
     int16_t sx = x + numW + gap;
-    int16_t topY = baseline - areaH + 2;
+    int16_t topY = yTop + 2;
     if (topY < 1) topY = 1;
-    int16_t bottomY = topY + areaH - 3;
-    if (bottomY > 49) bottomY = 49;
+    int16_t bottomY = yTop + areaH - 3;
+    if (bottomY > 63) bottomY = 63;
     int16_t r = (areaH >= 40) ? 6 : (areaH >= 36) ? 5 : 4;
     if (r > signW / 2) r = signW / 2;
+    if (r < 2) r = 2;
     int16_t x1 = sx + r + 1;
     int16_t y1 = topY + r;
     int16_t x2 = sx + signW - r - 1;
@@ -2433,29 +2693,26 @@ void drawOled() {
   if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
   else                snprintf(litres, sizeof(litres), "--L");
 
-  // Footer: everything on the bottom line. The litre value is a little smaller
-  // than before and uses the same FreeSans Bold family as the big percentage.
-  // The ESP-NOW link is shown as a hand-drawn tick (connected) or cross (not
-  // connected) instead of text.
-  const uint8_t *footFont = u8g2_font_fub11_tf;
-  if (settings.oledBottomSize >= 2) footFont = u8g2_font_fub14_tf;
-  display.setFont(footFont);
-
-  int16_t fx = 0;
+  // Each remaining field is drawn independently at its own nine-way anchor, so
+  // the litre value, distance, link symbol and status text can be placed in any
+  // corner. The ESP-NOW link is a hand-drawn tick (connected) / cross (not).
+  display.setFont(oledFooterFont(settings.oledBottomSize));
   if (show & OLED_SHOW_BOTTOM_L) {
-    display.drawStr(fx, 63, litres);
-    fx += (int16_t)display.getStrWidth(litres) + 5;
+    oledDrawText(settings.oledLitreAlign, litres);
   }
   if ((show & OLED_SHOW_DISTANCE) && haveValidWater) {
     char dist[16];
     snprintf(dist, sizeof(dist), "%.0fcm", lastValidDistanceCm);
-    display.drawStr(fx, 63, dist);
-    fx += (int16_t)display.getStrWidth(dist) + 5;
+    oledDrawText(settings.oledDistAlign, dist);
   }
   if (show & OLED_SHOW_LINK) {
-    drawLinkIcon(fx + 6, 57, linkNow);
-  } else if (show & OLED_SHOW_STATUS) {
-    display.drawStr(fx, 63, linkNow ? "LIVE" : "STALE");
+    const int16_t S = 13;                       // tick/cross is 13 px across
+    int16_t ix, iy;
+    oledPlace(settings.oledLinkAlign, S, S, ix, iy);
+    drawLinkIcon(ix + S / 2, iy + S / 2, linkNow);
+  }
+  if (show & OLED_SHOW_STATUS) {
+    oledDrawText(settings.oledStatusAlign, linkNow ? "LIVE" : "STALE");
   }
 
   display.sendBuffer();
@@ -2938,6 +3195,11 @@ String buildAdminJson() {
   j += ",\"oledBottomSize\":"; j += String((unsigned)settings.oledBottomSize);
   j += ",\"oledContrast\":"; j += String((unsigned)settings.oledContrast);
   j += ",\"oledInvert\":"; j += settings.oledInvert ? "true" : "false";
+  j += ",\"oledPctAlign\":"; j += String((unsigned)settings.oledPctAlign);
+  j += ",\"oledLitreAlign\":"; j += String((unsigned)settings.oledLitreAlign);
+  j += ",\"oledLinkAlign\":"; j += String((unsigned)settings.oledLinkAlign);
+  j += ",\"oledDistAlign\":"; j += String((unsigned)settings.oledDistAlign);
+  j += ",\"oledStatusAlign\":"; j += String((unsigned)settings.oledStatusAlign);
 
   j += ",\"historyIntervalSec\":"; j += String((unsigned)settings.historyIntervalSec);
   j += ",\"historyRetentionDays\":"; j += String((unsigned)settings.historyRetentionDays);
@@ -3052,6 +3314,11 @@ void handleAdminSettings() {
   if (jsonIntField(body, "oledBottomSize", n)) settings.oledBottomSize = (uint8_t)constrain(n, 1L, 4L);
   if (jsonIntField(body, "oledContrast", n)) settings.oledContrast = (uint8_t)constrain(n, 1L, 255L);
   if (jsonBoolField(body, "oledInvert", b)) settings.oledInvert = b ? 1 : 0;
+  if (jsonIntField(body, "oledPctAlign", n)) settings.oledPctAlign = (uint8_t)constrain(n, 0L, 8L);
+  if (jsonIntField(body, "oledLitreAlign", n)) settings.oledLitreAlign = (uint8_t)constrain(n, 0L, 8L);
+  if (jsonIntField(body, "oledLinkAlign", n)) settings.oledLinkAlign = (uint8_t)constrain(n, 0L, 8L);
+  if (jsonIntField(body, "oledDistAlign", n)) settings.oledDistAlign = (uint8_t)constrain(n, 0L, 8L);
+  if (jsonIntField(body, "oledStatusAlign", n)) settings.oledStatusAlign = (uint8_t)constrain(n, 0L, 8L);
 
   if (jsonIntField(body, "historyIntervalSec", n)) settings.historyIntervalSec = (uint16_t)constrain(n, (long)HISTORY_MIN_INTERVAL_SEC, (long)HISTORY_MAX_INTERVAL_SEC);
   if (jsonIntField(body, "historyRetentionDays", n)) settings.historyRetentionDays = (uint8_t)constrain(n, 1L, 30L);
