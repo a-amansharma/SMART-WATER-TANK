@@ -122,11 +122,19 @@ static const float    HC_MIN_VALID_CM        = 12.0f;   // ignore near-zero spur
 static const float    HC_JUMP_CM             = 35.0f;   // max change accepted in one sample
 static const uint8_t  HC_JUMP_CONFIRM        = 3;       // ...unless it repeats this many times
 // A large object must stay in the beam for several consecutive samples over a
-// sustained time, AND it must be seen closing in (approaching). Small/static
-// objects and random noise echoes do neither, so they are ignored.
-static const uint8_t  HC_NEAR_RUN_SAMPLES    = 5;       // was 3 - longer sustained run
-static const uint32_t HC_MIN_ON_CONFIRM_MS   = 1000;    // was 600 - longer confirm time
-static const float    HC_CLOSE_STEP_CM       = 2.0f;    // a reading this much closer = object approaching
+// sustained time, AND it must be seen closing in (approaching) repeatedly.
+// Small/static objects and random noise echoes do neither, so they are ignored.
+static const uint8_t  HC_NEAR_RUN_SAMPLES    = 5;       // consecutive near readings required
+static const uint32_t HC_MIN_ON_CONFIRM_MS   = 1000;    // minimum confirm time
+static const float    HC_CLOSE_STEP_CM       = 2.0f;    // a reading this much closer = one approach step
+static const uint8_t  HC_CLOSE_STEPS         = 2;       // approach steps required (static object gives only 1)
+// The background is only re-learned from STABLE readings, and detection is
+// disabled for a short warm-up so the first readings can settle. Together these
+// stop a wrong "background" from turning the mirror on by itself.
+static const uint8_t  HC_STABLE_SAMPLES      = 4;       // stable readings before the background may re-learn
+static const float    HC_STABLE_STEP_CM      = 2.0f;    // "stable" = reading moves less than this
+static const uint32_t HC_WARMUP_MS           = 4000;    // no detection while the background settles
+static const uint8_t  HC_DEBUG_EVERY         = 2;       // serial diagnostic line every N samples
 static const uint32_t HC_ON_CONFIRM_MS        = 400;
 static const uint32_t HC_OFF_CONFIRM_MS       = 800;
 // Once the person is gone, keep Relay 1 (mirror light) on for one more second
@@ -531,7 +539,7 @@ const startBtn=$('motorStart'), stopBtn=$('motorStop');
 const ledRedBtn=$('ledTestRed'), ledBlueBtn=$('ledTestBlue');
 
 const POLL_MS=700, POLL_TIMEOUT_MS=2500;
-let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,draining:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,indBlueTest:false,indRedTest:false,capacityL:750};
+let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,draining:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,hcsr04RawCm:null,mirrorBackgroundCm:null,mirrorApproach:false,mirrorNear:false,mirrorWarmup:false,mirrorClosingSteps:0,mirrorNearRun:0,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,indBlueTest:false,indRedTest:false,capacityL:750};
 let reachable=false, failures=0, inFlight=false, pollTimer=null;
 let mirrorBusy=false, bulbBusy=false, buzzerBusy=false, ledBlueBusy=false, ledRedBusy=false;
 const motor={start:{btn:startBtn,held:false,pointerId:null},stop:{btn:stopBtn,held:false,pointerId:null}};
@@ -580,7 +588,13 @@ function render(s){
  r1state.textContent=mirrorOn?'ON':'OFF';
  const hc=num(s.hcsr04Distance);
  let info=(s.mirrorOverride===true)?'MANUAL OVERRIDE':(s.autoBlocked===true?'AUTO BLOCKED':(s.personDetected===true?'AUTO · PERSON':'AUTO · CLEAR'));
- if(hc!==null) info+=' · '+(hc/100).toFixed(1)+' m';
+ if(hc!==null) info+=' · '+hc.toFixed(0)+' cm';
+ const bg=num(s.mirrorBackgroundCm);
+ if(bg!==null) info+=' · bg '+bg.toFixed(0);
+ const raw=num(s.hcsr04RawCm);
+ if(raw!==null) info+=' · raw '+raw.toFixed(0);
+ info+=' · ap '+(s.mirrorApproach?'1':'0')+' near '+(s.mirrorNear?'1':'0')+' steps '+(s.mirrorClosingSteps!=null?s.mirrorClosingSteps:'-')+' run '+(s.mirrorNearRun!=null?s.mirrorNearRun:'-');
+ if(s.mirrorWarmup===true) info+=' · WARM-UP';
  if(!linkOk) info+=' · A LINK DOWN';
  mirrorInfo.textContent=info;
 
@@ -746,7 +760,19 @@ float    hcDistanceCm = 0.0f;
 float    hcBaselineCm = 0.0f;   // learned empty-room background distance (0 = not yet learned)
 uint8_t  hcJumpCount = 0;       // consecutive rejected jumps (noise rejection)
 uint8_t  hcNearRun = 0;         // consecutive accepted near readings
-bool     hcClosingSeen = false; // object was seen approaching (readings getting closer)
+uint8_t  hcClosingSteps = 0;    // consecutive approach steps seen (readings getting closer)
+float    hcLastMedianCm = 0.0f; // previous accepted distance (stability + approach detection)
+uint8_t  hcStableCount = 0;     // consecutive stable readings (background re-learn gate)
+uint32_t hcWarmupStartMs = 0;   // detection is paused for HC_WARMUP_MS after this
+uint32_t hcLastEchoUs = 0;      // last raw echo width (diagnostics)
+float    hcLastRawCm = 0.0f;    // last raw distance before filtering (diagnostics)
+bool     hcHaveRaw = false;     // a raw echo has been captured (diagnostics)
+bool     hcNewSample = false;   // a fresh sample is ready to log (diagnostics)
+uint16_t hcDebugCount = 0;      // diagnostic line divider
+// Live mirror-detection state exposed to the dashboard/API for debugging.
+bool     mirrorApproachNow = false;
+bool     mirrorNearNow = false;
+bool     mirrorWarmupNow = false;
 bool     hcValid = false;
 bool     haveHcReading = false;
 uint32_t lastValidHcMs = 0;
@@ -1605,6 +1631,7 @@ void pushHcSample(float cm, bool valid) {
     hcFarSinceMs = millis();
     hcJumpCount = 0;
     hcNearRun = 0;
+    hcNewSample = true;
     return;
   }
 
@@ -1615,6 +1642,7 @@ void pushHcSample(float cm, bool valid) {
   float med = medianOfValidHc();
   if (med < 0.0f) {
     hcValid = false;
+    hcNewSample = true;
     return;
   }
 
@@ -1639,13 +1667,14 @@ void pushHcSample(float cm, bool valid) {
   hcValid = true;
   haveHcReading = true;
   lastValidHcMs = millis();
+  hcNewSample = true;
 
   // A real person approaching the mirror produces readings that get steadily
-  // closer. Remember that we saw the object close in: a small/static object
-  // (which never approaches) or a one-off noise echo cannot be mistaken for a
-  // person. This is cleared again in updateAutoRelay1() once the view is clear.
+  // closer. Count each approach step: a small/static object gives at most one
+  // step (the moment it appears) while a walking person gives several, so only
+  // a big approaching object can reach HC_CLOSE_STEPS.
   if (hadPrev && med <= prevCm - HC_CLOSE_STEP_CM) {
-    hcClosingSeen = true;
+    if (hcClosingSteps < 255) hcClosingSteps++;
   }
 }
 
@@ -1686,12 +1715,19 @@ void serviceHcSensor() {
       interrupts();
 
       uint32_t width = fall - rise;
+      hcLastEchoUs = width;
+      hcLastRawCm = (float)width * SOUND_CM_PER_US * 0.5f;
+      hcHaveRaw = true;
       if (width >= HC_MIN_ECHO_US && width <= HC_MAX_ECHO_US) {
-        cm = (float)width * SOUND_CM_PER_US * 0.5f;
+        cm = hcLastRawCm;
         valid = (cm >= HC_MIN_VALID_CM && cm <= 400.0f);
       }
       done = true;
     } else if ((int32_t)(micros() - hcWaitDeadlineUs) >= 0) {
+      // Timeout: no echo returned at all.
+      hcLastEchoUs = 0;
+      hcLastRawCm = 0.0f;
+      hcHaveRaw = true;
       done = true;
     }
 
@@ -1708,6 +1744,24 @@ void serviceHcSensor() {
   }
 }
 
+// Print one diagnostic line per HC_DEBUG_EVERY samples so the whole HC-SR04
+// pipeline can be watched on the serial monitor (115200 baud). This is the main
+// tool for tuning the mirror detection on real hardware.
+void logHcDiag() {
+  if (!hcNewSample) return;
+  hcNewSample = false;
+  if (++hcDebugCount < HC_DEBUG_EVERY) return;
+  hcDebugCount = 0;
+  DBG("[B] HC raw=%luus rawcm=%.1f dist=%.1f valid=%d base=%.1f "
+      "appr=%d near=%d steps=%u run=%u warm=%d person=%d relay1=%d\n",
+      (unsigned long)hcLastEchoUs,
+      hcHaveRaw ? hcLastRawCm : -1.0f,
+      hcDistanceCm, hcValid ? 1 : 0, hcBaselineCm,
+      mirrorApproachNow ? 1 : 0, mirrorNearNow ? 1 : 0,
+      (unsigned)hcClosingSteps, (unsigned)hcNearRun,
+      mirrorWarmupNow ? 1 : 0, personDetected ? 1 : 0, relay1On ? 1 : 0);
+}
+
 void updateAutoRelay1() {
   uint32_t now = millis();
 
@@ -1719,22 +1773,36 @@ void updateAutoRelay1() {
     hcFarSinceMs = 0;
     personClearSinceMs = 0;
     hcNearRun = 0;
-    hcClosingSeen = false;
+    hcClosingSteps = 0;
+    hcStableCount = 0;
+    hcWarmupStartMs = now;      // restart the warm-up when the mirror is re-enabled
+    mirrorApproachNow = false;
+    mirrorNearNow = false;
+    mirrorWarmupNow = true;
     applyRelay1();
+    logHcDiag();
     return;
   }
 
-  // Learn the empty-room background distance from valid readings so a static
-  // echo (floor, wall, reflections) is never mistaken for a person. It tracks
-  // the average noise but stops following as soon as the reading is clearly
-  // closer than the background (an approaching person). Frozen while confirmed.
+  // Learn the resting background distance so a static echo (floor, wall,
+  // reflections, or a small object that is simply there) is never mistaken for
+  // a person. The background is only allowed to move while the reading is
+  // STABLE, and it may move in EITHER direction - this is what stops a wrong
+  // background value (e.g. one learned too far during boot) from turning the
+  // mirror on by itself forever. It is frozen while a person is confirmed.
   if (hcValid && !personDetected) {
+    if (fabsf(hcDistanceCm - hcLastMedianCm) <= HC_STABLE_STEP_CM) {
+      if (hcStableCount < 255) hcStableCount++;
+    } else {
+      hcStableCount = 0;
+    }
     if (hcBaselineCm <= 0.0f) {
       hcBaselineCm = hcDistanceCm;
-    } else if (hcDistanceCm >= hcBaselineCm - HC_BASELINE_BAND_CM) {
+    } else if (hcStableCount >= HC_STABLE_SAMPLES) {
       hcBaselineCm += (hcDistanceCm - hcBaselineCm) * HC_BASELINE_ALPHA;
     }
   }
+  hcLastMedianCm = hcDistanceCm;
 
   // A person must be clearly closer than the background, not just below the
   // fixed on-threshold, otherwise ambient readings hovering around the
@@ -1742,6 +1810,32 @@ void updateAutoRelay1() {
   bool approach = (hcBaselineCm <= 0.0f) ||
                   (hcDistanceCm < hcBaselineCm - HC_NEAR_DROP_CM);
   bool nearNow  = hcValid && approach && (hcDistanceCm < settings.mirrorOnCm);
+
+  mirrorApproachNow = approach;
+  mirrorNearNow = nearNow;
+
+  // Warm-up: right after boot (or after the mirror is re-enabled) the readings
+  // are still settling. Keep learning the background but do NOT detect, and
+  // drop any approach history so a settling ramp cannot look like a person.
+  mirrorWarmupNow = (uint32_t)(now - hcWarmupStartMs) < HC_WARMUP_MS;
+  if (mirrorWarmupNow) {
+    hcNearSinceMs = 0;
+    hcFarSinceMs = 0;
+    personClearSinceMs = 0;
+    hcNearRun = 0;
+    hcClosingSteps = 0;
+    personDetected = false;
+    autoRelay1On = false;
+    applyRelay1();
+    logHcDiag();
+    return;
+  }
+
+  // Forget the approach as soon as the reading returns to the background, so
+  // every detection needs a fresh approach from the background.
+  if (!hcValid || hcDistanceCm >= hcBaselineCm - HC_BASELINE_BAND_CM) {
+    hcClosingSteps = 0;
+  }
 
   uint32_t confirmMs = settings.mirrorOnConfirmMs;
   if (confirmMs < HC_MIN_ON_CONFIRM_MS) confirmMs = HC_MIN_ON_CONFIRM_MS;
@@ -1753,7 +1847,6 @@ void updateAutoRelay1() {
     hcNearSinceMs = 0;
     hcFarSinceMs = 0;
     hcNearRun = 0;
-    hcClosingSeen = false;
     if (personDetected) {
       if (personClearSinceMs == 0) personClearSinceMs = now;
       if ((uint32_t)(now - personClearSinceMs) >= HC_OFF_DELAY_MS) {
@@ -1770,11 +1863,11 @@ void updateAutoRelay1() {
     if (hcNearSinceMs == 0) hcNearSinceMs = now;
     if (!personDetected &&
         hcNearRun >= HC_NEAR_RUN_SAMPLES &&
-        hcClosingSeen &&
+        hcClosingSteps >= HC_CLOSE_STEPS &&
         (uint32_t)(now - hcNearSinceMs) >= confirmMs) {
       personDetected = true;
-      DBG("[B] Person confirmed present (%.1f cm, background %.1f cm)\n",
-          hcDistanceCm, hcBaselineCm);
+      DBG("[B] Person confirmed present (%.1f cm, background %.1f cm, %u approach steps)\n",
+          hcDistanceCm, hcBaselineCm, (unsigned)hcClosingSteps);
     }
   } else if (approach && hcDistanceCm <= settings.mirrorOffCm) {
     // Still clearly closer than the background (hysteresis band): keep the
@@ -1784,11 +1877,9 @@ void updateAutoRelay1() {
     personClearSinceMs = 0;
   } else {
     // Not clearly a person: background-level reading or beyond the off
-    // distance. Start / continue the off-delay and forget the approach, so a
-    // fresh approach is required for the next detection.
+    // distance. Start / continue the off-delay.
     hcNearSinceMs = 0;
     hcNearRun = 0;
-    hcClosingSeen = false;
     hcFarSinceMs = now;
     if (personDetected) {
       if (personClearSinceMs == 0) personClearSinceMs = now;
@@ -1832,6 +1923,7 @@ void updateAutoRelay1() {
   }
 
   applyRelay1();
+  logHcDiag();
 }
 
 /* ==========================================================================
@@ -2174,7 +2266,14 @@ String buildStateJson() {
 
   j += ",\"hcsr04Valid\":";  j += hcValid ? "true" : "false";
   j += ",\"hcsr04Distance\":"; j += jsonFloatOrNull(haveHcReading, hcDistanceCm, 1);
+  j += ",\"hcsr04RawCm\":"; j += jsonFloatOrNull(hcHaveRaw, hcLastRawCm, 1);
+  j += ",\"hcsr04EchoUs\":"; j += String(hcLastEchoUs);
   j += ",\"mirrorBackgroundCm\":"; j += jsonFloatOrNull(hcBaselineCm > 0.0f, hcBaselineCm, 1);
+  j += ",\"mirrorApproach\":"; j += mirrorApproachNow ? "true" : "false";
+  j += ",\"mirrorNear\":";   j += mirrorNearNow ? "true" : "false";
+  j += ",\"mirrorWarmup\":"; j += mirrorWarmupNow ? "true" : "false";
+  j += ",\"mirrorClosingSteps\":"; j += String((unsigned)hcClosingSteps);
+  j += ",\"mirrorNearRun\":"; j += String((unsigned)hcNearRun);
   j += ",\"personDetected\":"; j += personDetected ? "true" : "false";
   j += ",\"relay1\":";       j += relay1On ? "true" : "false";
   j += ",\"mirrorOverride\":"; j += mirrorOverride ? "true" : "false";
@@ -3152,6 +3251,7 @@ void setup() {
 
   // 6) Timers.
   hcNextSampleMs = millis() + 300;
+  hcWarmupStartMs = millis();      // allow the HC-SR04 background to settle first
   lastOledMs = 0;
   historyLastSampleMs = millis();
   lastSettingsPushMs = 0;
@@ -3182,6 +3282,14 @@ void setup() {
                 settings.mirrorEnabled ? "enabled" : "disabled",
                 settings.mirrorOnCm, settings.mirrorOffCm,
                 (unsigned)settings.mirrorInvalidHoldoffMs);
+  Serial.printf("Person gate: >= %.0f cm closer than background, %u approach steps, "
+                "%u near readings, %lu ms confirm, %lu ms warm-up\n",
+                HC_NEAR_DROP_CM, (unsigned)HC_CLOSE_STEPS,
+                (unsigned)HC_NEAR_RUN_SAMPLES,
+                (unsigned long)HC_MIN_ON_CONFIRM_MS,
+                (unsigned long)HC_WARMUP_MS);
+  Serial.println("HC diagnostics: one 'HC raw=... dist=... base=...' line every "
+                 "2 samples (see below)");
   Serial.printf("History: %s, every %u s, retain %u days (%lu lines)\n",
                 settings.historyEnabled ? "enabled" : "disabled",
                 (unsigned)settings.historyIntervalSec,

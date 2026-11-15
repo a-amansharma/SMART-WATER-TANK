@@ -371,23 +371,34 @@ with the shared calibration, which catches an old or reversed calibration on A.
 ### Mirror Light (Relay 1)
 
 - HC-SR04 detects a **large object (a person)** closer than 100 cm → Relay 1 ON.
-- **Background rejection:** the firmware learns the empty-room background
-  distance (floor, wall, or reflections, e.g. ~105 cm). A reading only counts as
-  a person when it is at least **25 cm closer than that background**, so an
-  ambient echo hovering around the 100 cm threshold no longer turns the light on
-  by itself. The background tracks slow ambient drift but stops following as
-  soon as a reading is clearly closer, and is frozen while a person is
-  confirmed.
-- **Large-object (approach) gate:** a small/static object and a random noise
-  echo both fail this test — the firmware only counts a detection when it has
-  actually seen the object **close in** (the distance getting steadily smaller),
-  i.e. something big moving toward the mirror. A small object sitting in the
-  beam (or a one-off spurious echo) never approaches, so it is ignored.
+- **Background rejection:** the firmware learns the resting background distance
+  (floor, wall, reflections, or a small object that is simply there). A reading
+  only counts as a person when it is at least **25 cm closer than that
+  background**. The background may re-learn in **either direction** (only from
+  stable readings), so a value learned wrongly during boot can never leave the
+  mirror light stuck on, and it is frozen while a person is confirmed.
+- **Large-object (approach) gate:** the firmware only counts a detection when it
+  has seen the object **close in repeatedly** — at least **2 approach steps**
+  (each step = the reading getting at least 2 cm closer). A small/static object
+  gives at most one step (the moment it appears), and a one-off noise echo gives
+  none, so neither can turn the light on. A person walking toward the mirror
+  produces several steps.
+- **Warm-up:** detection is disabled for the first **4 s** after boot (and after
+  the mirror is re-enabled) while the background settles, so the initial
+  readings cannot trigger the light.
 - **Noise rejection:** readings below 12 cm are treated as invalid spurious
   echoes; a sudden change of more than 35 cm from the last accepted distance is
   ignored until it repeats 3 times; and a detection needs **5 consecutive
   accepted near readings plus a minimum 1000 ms confirm time**. Short bursts and
   glitches no longer turn the light on.
+- **Live diagnostics:** the serial monitor (115200 baud) prints one line every
+  2 samples —
+  `HC raw=…us rawcm=… dist=… valid=… base=… appr=… near=… steps=… run=… warm=… person=… relay1=…`
+  — and the same values (`hcsr04Distance`, `hcsr04RawCm`, `hcsr04EchoUs`,
+  `mirrorBackgroundCm`, `mirrorApproach`, `mirrorNear`, `mirrorClosingSteps`,
+  `mirrorNearRun`, `mirrorWarmup`, `personDetected`, `relay1`) are in
+  `/api/state` and shown under the Mirror tile on the dashboard. Use these to
+  see exactly why the light is (or is not) turning on.
 - Person farther than 105 cm (or no longer clearly closer than the background)
   → Relay 1 OFF after a 1 s hold, so a brief loss of detection does not switch
   the mirror light off instantly. Moving back within range during that second
@@ -578,7 +589,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,182,174 bytes (90 %) | 55,992 bytes (17 %) |
+| ESP32_B | 1,184,250 bytes (90 %) | 56,016 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -689,7 +700,7 @@ sampling interval, not wall-clock time.
 | Buzzer never reaches full alert | If the tank tops out below 95 %, the sensor cannot see the real full level; fix the mounting or lower the full calibration. |
 | Percentage disagrees with distance | Check the serial log for `percent/distance disagree`; A is running an old calibration. |
 | Mirror Light flickers | Keep HC-SR04 away from reflective surfaces; check its 5 V supply. |
-| Mirror Light turns on with nobody there | Check `mirrorBackgroundCm` and `hcsr04Distance` in `/api/state`; a small object or static echo only counts if it is seen approaching, so if it still triggers the background is being learned too close — move the sensor away from reflections or lower `mirrorOnCm`. |
+| Mirror Light turns on with nobody there | Watch the serial `HC …` line or `/api/state`: if `base` is far from `dist` and `appr=1` while `steps` keeps growing, something is really moving in the beam; if `dist` sits below `base-25` with `steps` stuck, the background is being learned too close — move the sensor away from reflections or lower `mirrorOnCm`. |
 | Mirror Light stays on | A person is within 105 cm, phone manual ON is active, or override is on. |
 | Relay works backwards | Change `RELAY_ACTIVE_HIGH`. |
 | Buzzer never sounds | NPN pinout, 1 kΩ base resistor, buzzer polarity, `BUZZER_IS_ACTIVE`. |
@@ -702,20 +713,28 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: stricter mirror person detection (ESP32_B only)
+### Latest: mirror detection hardening + live HC-SR04 diagnostics (ESP32_B only)
 
-- **Fixed the HC-SR04 mirror light auto-triggering with nobody there.** The
-  person detector now requires a **large object (person)**, not a small object
-  or a noise echo.
+- **Root cause found:** the learned background could get stuck at a wrong
+  (too far) value and was never allowed to re-learn downward, so a constant
+  near reading was permanently treated as "a person approaching" and held the
+  mirror light on. The background now re-learns in **either direction**, but
+  only from **stable** readings (so a walking person is not absorbed).
 - **Bigger approach:** the object must be at least **25 cm closer** than the
   learned background (was 18 cm).
-- **Approach gate (new):** the firmware only confirms a person if it has seen
-  the object **close in** (readings getting steadily smaller). A small/static
-  object or a one-off noise echo never approaches, so it is ignored.
+- **Multi-step approach gate (new):** a detection needs **2 approach steps**
+  (each step = the reading getting ≥ 2 cm closer). A small/static object gives
+  at most one step and a noise echo gives none; a walking person gives several.
+- **Warm-up (new):** detection is disabled for the first **4 s** after boot (and
+  after the mirror is re-enabled) so settling readings cannot trigger the light.
 - **Longer sustain:** **5** consecutive near readings (was 3) and a **1000 ms**
   minimum confirm time (was 600 ms).
 - **Stricter valid distance:** readings below **12 cm** (was 10 cm) are treated
   as spurious echoes.
+- **Live diagnostics added:** the serial monitor (115200) prints a line every 2
+  samples with the raw echo, filtered distance, background and every gate, and
+  the same values are exposed in `/api/state` and shown under the Mirror tile on
+  the dashboard. This lets the real sensor behaviour be observed and tuned.
 - No change to ESP32_A or the wiring.
 
 ### Earlier: calibration + probe/LED rework
