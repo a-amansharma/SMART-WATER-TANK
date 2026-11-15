@@ -397,8 +397,11 @@ with the shared calibration, which catches an old or reversed calibration on A.
   — and the same values (`hcsr04Distance`, `hcsr04RawCm`, `hcsr04EchoUs`,
   `mirrorBackgroundCm`, `mirrorApproach`, `mirrorNear`, `mirrorClosingSteps`,
   `mirrorNearRun`, `mirrorWarmup`, `personDetected`, `relay1`) are in
-  `/api/state` and shown under the Mirror tile on the dashboard. Use these to
-  see exactly why the light is (or is not) turning on.
+  `/api/state` and shown under the Mirror tile on the dashboard. Without a USB
+  serial connection, open the **live web page at `http://192.168.4.1/hc`**
+  (fed by `/api/hc`), which shows the same pipeline plus a rolling log of the
+  last 48 samples. Use these to see exactly why the light is (or is not)
+  turning on.
 - Person farther than 105 cm (or no longer clearly closer than the background)
   → Relay 1 OFF after a 1 s hold, so a brief loss of detection does not switch
   the mirror light off instantly. Moving back within range during that second
@@ -589,7 +592,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,184,250 bytes (90 %) | 56,016 bytes (17 %) |
+| ESP32_B | 1,193,102 bytes (91 %) | 56,976 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -607,6 +610,24 @@ ESP32_B serves the embedded dashboard at `http://192.168.4.1/`.
 - Motor buttons are press-and-hold and release automatically when the page loses
   focus or closes.
 - Buzzer TEST (5 s) and STOP buttons work without a page reload.
+- A **HC-SR04 ↗** link in the header opens the live sensor page (below).
+
+### Live HC-SR04 page — `http://192.168.4.1/hc`
+
+Because the ESP32_B serial port is not always reachable, the same sensor data is
+available on the web. Open `http://192.168.4.1/hc` (or tap **HC-SR04 ↗** on the
+dashboard) while connected to the `Smart Water Tank` AP. The page polls
+`/api/hc` ~4×/sec and shows:
+
+- **Distance / Raw / Background / Echo** cards (filtered distance, raw
+  pre-filter distance, learned background, raw echo width in µs).
+- Status chips: `valid`, `approach`, `near`, `warm-up`, `steps n/2`, `run n/5`,
+  `person`, `relay1`.
+- A rolling table of the last 48 samples (raw, dist, base, valid, appr, near,
+  steps, run, person, relay1).
+
+Use it to see exactly why the mirror light does or does not turn on. This is the
+recommended way to tune the mirror detection when no USB serial is available.
 
 The dashboard has no separate Admin screen. Use the Admin API endpoints below
 from a browser, `curl`, or a small script.
@@ -617,7 +638,9 @@ from a browser, `curl`, or a small script.
 
 | Method | Path | Body | Purpose |
 |---|---|---|---|
+| GET | `/hc` | — | Live HC-SR04 diagnostic page (auto-refreshing). |
 | GET | `/api/state` | — | Current water, relay, buzzer, motor, and sensor state. |
+| GET | `/api/hc` | — | HC-SR04 pipeline JSON (current values + last 48 samples). |
 | POST | `/api/mirror-light` | `{"on":true}` | Mirror Light ON/OFF. |
 | POST | `/api/bulb` | `{"on":true}` | Bulb ON/OFF. |
 | POST | `/api/buzzer/test` | `{}` | 5-second buzzer test. |
@@ -734,7 +757,10 @@ sampling interval, not wall-clock time.
 - **Live diagnostics added:** the serial monitor (115200) prints a line every 2
   samples with the raw echo, filtered distance, background and every gate, and
   the same values are exposed in `/api/state` and shown under the Mirror tile on
-  the dashboard. This lets the real sensor behaviour be observed and tuned.
+  the dashboard. A dedicated **live web page at `http://192.168.4.1/hc`** (JSON
+  at `/api/hc`) shows the same pipeline plus a rolling log of the last 48
+  samples, so the sensor can be watched and tuned from a phone with no USB
+  serial connection.
 - No change to ESP32_A or the wiring.
 
 ### Earlier: calibration + probe/LED rework

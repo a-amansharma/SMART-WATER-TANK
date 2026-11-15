@@ -396,6 +396,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .credit{font-size:10px;color:var(--muted);font-weight:700}
 .connection{display:flex;align-items:center;gap:7px;padding:8px 12px;border-radius:20px;background:#e8f8ee;border:1px solid #b8e3c8;color:#087c4a;font-size:11px;font-weight:900}
 .connection.offline{background:#fff1f3;border-color:#efc0c7;color:#c52c40}
+.hc-link{padding:8px 12px;border-radius:20px;background:#eef2ff;border:1px solid #c7d2fe;color:#3730a3;font-size:11px;font-weight:900;text-decoration:none;white-space:nowrap}
 .dot{width:9px;height:9px;border-radius:50%;background:#16a66a}
 .offline .dot{background:#df3c4f}
 .card{background:#fff;border:1px solid var(--line);border-radius:20px}
@@ -464,6 +465,7 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
   <div class="logo" aria-hidden="true"><img src="data:image/png;base64,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" width="200" height="200" alt=""></div>
   <div><div class="brand-title">Smart Water Tank</div><div class="credit">ESP32_B Local Dashboard</div></div>
  </div>
+ <a class="hc-link" href="/hc" title="Live HC-SR04 sensor data">HC-SR04 &#8599;</a>
  <div class="connection offline" id="connection"><span class="dot"></span><span id="connectionText">OFFLINE</span></div>
 </header>
 <section class="card tank" id="tankCard">
@@ -690,6 +692,112 @@ pollState();
 </html>)WTDASH";
 
 /* ==========================================================================
+   HC-SR04 LIVE DIAGNOSTIC PAGE  (http://192.168.4.1/hc)
+   A small self-contained page that polls /api/hc and shows the raw sensor
+   pipeline so the mirror detection can be watched and tuned without a USB
+   serial connection.
+   ========================================================================== */
+static const char HC_HTML[] PROGMEM = R"WTHC(<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32_B · HC-SR04</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0f141b;color:#e7edf5;padding:14px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:#8ea0b5;font-size:12px;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px}
+.card{background:#182130;border:1px solid #24314a;border-radius:10px;padding:9px 11px}
+.card .k{color:#8ea0b5;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.card .v{font-size:22px;font-weight:600;margin-top:2px}
+.big{font-size:30px}
+.on{color:#4ade80}.off{color:#64748b}.warn{color:#fbbf24}.bad{color:#f87171}
+.row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.chip{border:1px solid #24314a;border-radius:999px;padding:4px 10px;font-size:12px;color:#8ea0b5}
+.chip.a{border-color:#4ade80;color:#4ade80}
+.chip.n{border-color:#38bdf8;color:#38bdf8}
+.chip.p{border-color:#f87171;color:#f87171;background:#3a1620}
+.chip.r{border-color:#fbbf24;color:#fbbf24}
+table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+th,td{padding:3px 6px;text-align:right;border-bottom:1px solid #1e2a3d}
+th{color:#8ea0b5;font-weight:500;position:sticky;top:0;background:#0f141b}
+td:first-child,th:first-child{text-align:left}
+.wrap{max-height:46vh;overflow:auto;border:1px solid #24314a;border-radius:10px}
+.note{color:#8ea0b5;font-size:12px;margin-top:10px}
+.err{color:#f87171}
+</style></head><body>
+<h1>HC-SR04 live diagnostics</h1>
+<div class="sub">ESP32_B · updates ~4×/sec · <span id="conn" class="off">connecting…</span></div>
+
+<div class="grid">
+ <div class="card"><div class="k">Distance</div><div class="v big" id="dist">–</div></div>
+ <div class="card"><div class="k">Raw</div><div class="v" id="raw">–</div></div>
+ <div class="card"><div class="k">Background</div><div class="v" id="base">–</div></div>
+ <div class="card"><div class="k">Echo</div><div class="v" id="echo">–</div></div>
+</div>
+
+<div class="row" id="chips"></div>
+
+<div class="wrap"><table>
+ <thead><tr><th>time</th><th>raw</th><th>dist</th><th>base</th><th>valid</th><th>appr</th><th>near</th><th>steps</th><th>run</th><th>person</th><th>relay1</th></tr></thead>
+ <tbody id="log"></tbody>
+</table></div>
+
+<div class="note">Watch this while standing still (should stay CLEAR) and while walking toward the sensor.
+Tell me: what is <b>dist</b> vs <b>base</b> with nobody there, and how <b>steps</b>/<b>person</b> change as you walk up.
+Thresholds: must be ≥ <span id="drop">?</span> cm closer than background, ≥ <span id="minSteps">?</span> approach steps,
+≥ <span id="minRun">?</span> near readings, <span id="confirm">?</span> ms confirm, <span id="warmup">?</span> ms warm-up.</div>
+
+<script>
+(function(){
+'use strict';
+var $=function(id){return document.getElementById(id);};
+function f(v,d){return (typeof v==='number'&&isFinite(v))?v.toFixed(d===undefined?1:d):'–';}
+function fmt(ms){var s=ms/1000;return s.toFixed(1)+'s';}
+function render(s){
+ $('conn').textContent='live'; $('conn').className='on';
+ $('dist').textContent=f(s.dist,1)+' cm';
+ $('dist').className='v big '+(s.person?'on':(s.near?'warn':'off'));
+ $('raw').textContent=f(s.raw,1)+' cm';
+ $('base').textContent=f(s.base,1)+' cm';
+ $('echo').textContent=(s.echoUs||0)+' µs';
+ $('drop').textContent=s.dropCm; $('minSteps').textContent=s.minSteps;
+ $('minRun').textContent=s.minRun; $('confirm').textContent=s.confirmMs;
+ $('warmup').textContent=s.warmupMs;
+ var c=[];
+ c.push('<span class="chip '+(s.valid?'a':'')+'">valid '+(s.valid?'1':'0')+'</span>');
+ c.push('<span class="chip '+(s.appr?'a':'')+'">approach '+(s.appr?'1':'0')+'</span>');
+ c.push('<span class="chip '+(s.near?'n':'')+'">near '+(s.near?'1':'0')+'</span>');
+ c.push('<span class="chip '+(s.warm?'r':'')+'">warm-up '+(s.warm?'1':'0')+'</span>');
+ c.push('<span class="chip">steps '+s.steps+'/'+s.minSteps+'</span>');
+ c.push('<span class="chip">run '+s.run+'/'+s.minRun+'</span>');
+ c.push('<span class="chip '+(s.person?'p':'')+'">person '+(s.person?'YES':'no')+'</span>');
+ c.push('<span class="chip '+(s.relay1?'r':'')+'">relay1 '+(s.relay1?'ON':'off')+'</span>');
+ $('chips').innerHTML=c.join('');
+ var rows='';
+ var log=s.log||[];
+ for(var i=log.length-1;i>=0;i--){
+  var e=log[i];
+  var F=e.f;
+  rows+='<tr><td>'+fmt(e.t)+'</td><td>'+f(e.raw,0)+'</td><td>'+f(e.d,0)+'</td><td>'+f(e.b,0)+'</td>'+
+        '<td>'+((F&1)?'1':'0')+'</td><td>'+((F&2)?'1':'0')+'</td><td>'+((F&4)?'1':'0')+'</td>'+
+        '<td>'+e.s+'</td><td>'+e.r+'</td><td>'+((F&8)?'<b class="bad">Y</b>':'0')+'</td><td>'+((F&16)?'ON':'0')+'</td></tr>';
+ }
+ $('log').innerHTML=rows;
+}
+function fail(){ $('conn').textContent='ESP32_B unreachable'; $('conn').className='err'; }
+function poll(){
+ fetch('/api/hc',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.json();})
+  .then(render).catch(fail);
+}
+poll(); setInterval(poll,250);
+})();
+</script>
+</body></html>)WTHC";
+
+/* ==========================================================================
    GLOBAL STATE
    ========================================================================== */
 
@@ -769,6 +877,21 @@ float    hcLastRawCm = 0.0f;    // last raw distance before filtering (diagnosti
 bool     hcHaveRaw = false;     // a raw echo has been captured (diagnostics)
 bool     hcNewSample = false;   // a fresh sample is ready to log (diagnostics)
 uint16_t hcDebugCount = 0;      // diagnostic line divider
+
+// --- HC-SR04 live diagnostic log (served by the /hc web page) ---
+static const uint8_t HC_LOG_N = 48;   // last N samples kept for the web page
+struct HcLogEntry {
+  uint32_t ms;
+  float    rawCm;
+  float    distCm;
+  float    baseCm;
+  uint8_t  flags;    // bit0 valid, bit1 approach, bit2 near, bit3 person, bit4 relay1
+  uint8_t  steps;
+  uint8_t  run;
+};
+HcLogEntry hcLog[HC_LOG_N];
+uint8_t  hcLogHead = 0;   // next write index
+uint8_t  hcLogCount = 0;  // number of stored entries (<= HC_LOG_N)
 // Live mirror-detection state exposed to the dashboard/API for debugging.
 bool     mirrorApproachNow = false;
 bool     mirrorNearNow = false;
@@ -1750,6 +1873,21 @@ void serviceHcSensor() {
 void logHcDiag() {
   if (!hcNewSample) return;
   hcNewSample = false;
+
+  // Record every sample for the live /hc web page (not decimated).
+  HcLogEntry &e = hcLog[hcLogHead];
+  e.ms = millis();
+  e.rawCm = hcHaveRaw ? hcLastRawCm : -1.0f;
+  e.distCm = hcDistanceCm;
+  e.baseCm = hcBaselineCm;
+  e.flags = (uint8_t)((hcValid ? 0x01 : 0) | (mirrorApproachNow ? 0x02 : 0) |
+                      (mirrorNearNow ? 0x04 : 0) | (personDetected ? 0x08 : 0) |
+                      (relay1On ? 0x10 : 0));
+  e.steps = hcClosingSteps;
+  e.run = hcNearRun;
+  hcLogHead = (hcLogHead + 1) % HC_LOG_N;
+  if (hcLogCount < HC_LOG_N) hcLogCount++;
+
   if (++hcDebugCount < HC_DEBUG_EVERY) return;
   hcDebugCount = 0;
   DBG("[B] HC raw=%luus rawcm=%.1f dist=%.1f valid=%d base=%.1f "
@@ -2464,6 +2602,64 @@ void handleState() {
     return;
   }
   sendJsonState();
+}
+
+void handleHcPage() {
+  server.sendHeader("Cache-Control", "no-store");
+  server.send_P(200, "text/html", HC_HTML);
+}
+
+// Compact JSON for the live /hc diagnostics page: the current HC-SR04 pipeline
+// plus the last HC_LOG_N samples.
+void handleHcApi() {
+  if (server.method() != HTTP_GET) {
+    server.sendHeader("Allow", "GET");
+    sendApiError(405, "use GET");
+    return;
+  }
+
+  String j;
+  j.reserve(1600);
+  j += "{";
+  j += "\"dist\":"; j += jsonFloatOrNull(haveHcReading, hcDistanceCm, 1);
+  j += ",\"raw\":"; j += jsonFloatOrNull(hcHaveRaw, hcLastRawCm, 1);
+  j += ",\"echoUs\":"; j += String(hcLastEchoUs);
+  j += ",\"valid\":"; j += hcValid ? "true" : "false";
+  j += ",\"base\":"; j += jsonFloatOrNull(hcBaselineCm > 0.0f, hcBaselineCm, 1);
+  j += ",\"appr\":"; j += mirrorApproachNow ? "true" : "false";
+  j += ",\"near\":"; j += mirrorNearNow ? "true" : "false";
+  j += ",\"warm\":"; j += mirrorWarmupNow ? "true" : "false";
+  j += ",\"steps\":"; j += String((unsigned)hcClosingSteps);
+  j += ",\"run\":"; j += String((unsigned)hcNearRun);
+  j += ",\"person\":"; j += personDetected ? "true" : "false";
+  j += ",\"relay1\":"; j += relay1On ? "true" : "false";
+  j += ",\"onCm\":"; j += String(settings.mirrorOnCm, 1);
+  j += ",\"offCm\":"; j += String(settings.mirrorOffCm, 1);
+  j += ",\"dropCm\":"; j += String(HC_NEAR_DROP_CM, 0);
+  j += ",\"minSteps\":"; j += String((unsigned)HC_CLOSE_STEPS);
+  j += ",\"minRun\":"; j += String((unsigned)HC_NEAR_RUN_SAMPLES);
+  j += ",\"confirmMs\":"; j += String((unsigned)HC_MIN_ON_CONFIRM_MS);
+  j += ",\"warmupMs\":"; j += String((unsigned long)HC_WARMUP_MS);
+
+  uint32_t nowMs = millis();
+  j += ",\"log\":[";
+  for (uint8_t i = 0; i < hcLogCount; i++) {
+    uint8_t idx = (uint8_t)((hcLogHead + HC_LOG_N - hcLogCount + i) % HC_LOG_N);
+    HcLogEntry &e = hcLog[idx];
+    if (i) j += ",";
+    j += "{\"t\":";  j += String((uint32_t)(nowMs - e.ms));
+    j += ",\"raw\":"; j += String(e.rawCm, 1);
+    j += ",\"d\":";   j += String(e.distCm, 1);
+    j += ",\"b\":";   j += String(e.baseCm, 1);
+    j += ",\"f\":";   j += String((unsigned)e.flags);
+    j += ",\"s\":";   j += String((unsigned)e.steps);
+    j += ",\"r\":";   j += String((unsigned)e.run);
+    j += "}";
+  }
+  j += "]}";
+
+  server.sendHeader("Cache-Control", "no-store");
+  server.send(200, "application/json", j);
 }
 
 void handleMirrorLight() {
@@ -3207,7 +3403,9 @@ void setup() {
   // 5) Web server.
   server.on("/", HTTP_GET, handleRoot);
   server.on("/index.html", HTTP_GET, handleRoot);
+  server.on("/hc", HTTP_GET, handleHcPage);
   server.on("/api/state", HTTP_ANY, handleState);
+  server.on("/api/hc", HTTP_ANY, handleHcApi);
   server.on("/api/mirror-light", HTTP_ANY, handleMirrorLight);
   server.on("/api/bulb", HTTP_ANY, handleBulb);
   server.on("/api/buzzer/stop", HTTP_ANY, handleBuzzerStop);
