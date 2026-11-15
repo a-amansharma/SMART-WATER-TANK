@@ -370,22 +370,16 @@ with the shared calibration, which catches an old or reversed calibration on A.
 
 ### Mirror Light (Relay 1)
 
-- HC-SR04 detects a **large object (a person)** closer than 100 cm → Relay 1 ON.
+- HC-SR04 detects a **large object (a person)** closer than 100 cm → Relay 1 ON
+  **immediately** (no confirm delay). The very first trusted reading inside the
+  on-distance lights the mirror, so a person walking up to ~1 m sees it glow at
+  once.
 - **Background rejection:** the firmware learns the resting background distance
   (floor, wall, reflections, or a small object that is simply there). A reading
-  only counts as a person when it is at least **25 cm closer than that
+  only counts as a person when it is at least **10 cm closer than that
   background**. The background may re-learn in **either direction** (only from
   stable readings), so a value learned wrongly during boot can never leave the
   mirror light stuck on, and it is frozen while a person is confirmed.
-- **Large-object (approach) gate:** the firmware only counts a detection when it
-  has seen the object **close in repeatedly** — at least **2 approach steps**
-  (each step = the reading getting at least 2 cm closer). A small/static object
-  gives at most one step (the moment it appears), and a one-off noise echo gives
-  none, so neither can turn the light on. A person walking toward the mirror
-  produces several steps.
-- **Warm-up:** detection is disabled for the first **4 s** after boot (and after
-  the mirror is re-enabled) while the background settles, so the initial
-  readings cannot trigger the light.
 - **Smoothness (flicker) gate — the fix for the false triggers:** the recent
   echoes are kept in a sliding window and the firmware counts how many times the
   reading **changes direction** across it. A real object returns a smooth echo:
@@ -398,10 +392,13 @@ with the shared calibration, which catches an old or reversed calibration on A.
   trusted.) A trusted reading also updates the learned distance, so the display
   and background stay correct; only *detection* is skipped.
 - **Noise rejection:** readings below 12 cm are treated as invalid spurious
-  echoes; the distance is the **median of the window** (so one bad echo cannot
-  swing it); and a detection needs **5 consecutive trusted near readings plus a
-  minimum 1200 ms confirm time**. Short bursts and glitches no longer turn the
-  light on.
+  echoes, and the distance is the **median of the window** (so one bad echo
+  cannot swing it). Only smooth, trusted readings can raise the light, so a
+  one-off noise burst or the empty-room flicker is ignored. There is no
+  approach-step or confirm-time requirement any more — detection is immediate.
+- **Warm-up:** detection is disabled for the first **1.5 s** after boot (and
+  after the mirror is re-enabled) while the background settles, so the initial
+  readings cannot trigger the light.
 - **Live diagnostics:** the serial monitor (115200 baud) prints one line every
   2 samples —
   `HC raw=…us rawcm=… dist=… valid=… stable=… rev=… spread=… base=… appr=… near=… steps=… run=… warm=… person=… relay1=…`
@@ -418,8 +415,10 @@ with the shared calibration, which catches an old or reversed calibration on A.
   → Relay 1 OFF after a 1 s hold, so a brief loss of detection does not switch
   the mirror light off instantly. Moving back within range during that second
   cancels the turn-off.
-- Invalid HC-SR04 reading → Relay 1 OFF after the same 1 s hold (sensor dropout
-  is not treated as an immediate "person gone").
+- Invalid or untrusted (flickering) HC-SR04 reading → Relay 1 OFF after the same
+  1 s hold (a dropout or a brief flicker while the person leaves is not treated
+  as an immediate "person gone", and a trusted near reading during that second
+  cancels the pending turn-off).
 - The sensor keeps sampling continuously (every 250 ms); the 1 s delay only
   applies to switching Relay 1 off, not to detection speed.
 - Phone ON/OFF works at any time.
@@ -604,7 +603,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,193,282 bytes (91 %) | 56,992 bytes (17 %) |
+| ESP32_B | 1,192,926 bytes (91 %) | 56,992 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -635,8 +634,8 @@ dashboard) while connected to the `Smart Water Tank` AP. The page polls
   distance, raw pre-filter distance, window direction reversals, window spread,
   learned background, raw echo width in µs). The **Reversals** card turns green
   when the window is smooth enough to be trusted.
-- Status chips: `valid`, `stable`, `approach`, `near`, `warm-up`, `steps n/2`,
-  `run n/5`, `person`, `relay1`.
+- Status chips: `valid`, `stable`, `approach`, `near`, `warm-up`, `steps n`,
+  `run n`, `person`, `relay1`.
 - A rolling table of the last 48 samples (raw, dist, base, valid, stbl, appr,
   near, steps, run, person, relay1).
 
@@ -706,8 +705,8 @@ sampling interval, not wall-clock time.
 
 1. Power ESP32_B with no mains load connected. Confirm relays are OFF.
 2. Connect to `Smart Water Tank` and open `http://192.168.4.1/`.
-3. Confirm the OLED shows `NO LINK` before ESP32_A starts.
-4. Power ESP32_A and confirm the OLED changes to `CONNECTED`.
+3. Confirm the OLED footer shows a **cross** (✗) before ESP32_A starts.
+4. Power ESP32_A and confirm the OLED footer changes to a **tick** (✓).
 5. Move the water sensor and watch the percentage change.
 6. Short ESP32_A GPIO 4 to GND: the BLUE LED lights and the dashboard shows a
    blue `TOP LEVEL` capsule. Short GPIO 15 to GND: the RED LED lights and the
@@ -715,10 +714,10 @@ sampling interval, not wall-clock time.
    after you release the probe, and nothing blinks.
 7. With no probe active, tap **BLUE LED** then **RED LED** under the Motor
    control buttons. Each LED should light and stay lit until tapped again.
-8. Walk toward the HC-SR04 from beyond 100 cm: Mirror Light should turn ON once
-   you are clearly closer than the learned background. A small object placed in
-   the beam (or a hand held still) should **not** turn it on — the firmware only
-   counts a big object that is seen approaching.
+8. Walk toward the HC-SR04 from beyond 100 cm: Mirror Light should turn ON
+   **immediately** once you are within ~1 m and clearly closer than the learned
+   background. A small object placed in the beam (or a hand held still) should
+   **not** turn it on, and the empty-room echo flicker must never turn it on.
 9. Move beyond 105 cm. Mirror Light should turn OFF after about 1 second.
 10. Test the Bulb toggle.
 11. Press TEST BUZZER, then stop it early with STOP BUZZER and with the physical
@@ -750,7 +749,32 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: mirror flicker fix + OLED layout (ESP32_B only)
+### Latest: immediate mirror trigger + OLED rework (ESP32_B only)
+
+- **Immediate detection:** the approach-step gate, the near-run gate and the
+  1200 ms confirm time are **removed**. The mirror now lights on the **first
+  trusted reading** that is within `mirrorOnCm` (100 cm) and at least **10 cm
+  closer** than the learned background, so a person walking up to ~1 m sees it
+  glow with no delay. It still turns **off 1 s** after the person leaves.
+- **Background drop lowered** from 25 cm to **10 cm** so a person anywhere inside
+  ~1 m triggers, while a static object the background has absorbed still does not
+  hold the light on. The background is now learned only from **trusted (smooth)**
+  readings.
+- **Flicker handling:** an untrusted/flickering reading (or a sensor dropout) now
+  starts the same **1 s** off-delay as a far reading instead of pausing detection,
+  so the mirror reliably turns off after the person leaves even if the empty echo
+  flickers. A trusted near reading during that second cancels the pending off.
+- **Warm-up shortened** from 4 s to **1.5 s**.
+- **OLED reworked:** the vertical level bar is **removed**; the big percentage is
+  **centered** on the panel; the litre value uses a slightly smaller FreeSans
+  Bold face and **everything sits on the bottom line**. The ESP-NOW link is shown
+  as a hand-drawn **tick (connected)** or **cross (not connected)** instead of
+  text.
+- **Diagnostics/boot line updated** to describe the immediate gate; `/hc` note
+  and chips updated (dropped the step/confirm/warm-up references).
+- No change to ESP32_A or the wiring.
+
+### Earlier: mirror flicker fix + OLED layout (ESP32_B only)
 
 - **False-trigger root cause:** with nobody in front, the empty-room echo
   **flickers** (the reading jumps around), and those flicker dips were being
@@ -762,7 +786,7 @@ sampling interval, not wall-clock time.
   the learned background — only *detection* is skipped.
 - The median is now taken over a **6-sample window** (was 5) and the old 35 cm
   jump gate was removed (the median plus the reversal gate handle noise better).
-- Confirm time raised to **1200 ms**.
+- Confirm time raised to **1200 ms** (later removed — detection is now immediate).
 - **Live diagnostics extended:** `stable`, `rev` (reversals) and `spread` are now
   in the serial line, `/api/state` and `/api/hc`; the `/hc` page shows a
   **Reversals** card and a `stbl` column so the flicker can be watched directly.
@@ -770,7 +794,8 @@ sampling interval, not wall-clock time.
   footer now use the **same FreeSans Bold family** (smoother curves than the old
   pixel font); the litre value is drawn slightly larger; and a slim **vertical
   level bar** on the right edge spans the full height — an empty outline at 0 %
-  filling from the bottom up to a full box at 100 %.
+  filling from the bottom up to a full box at 100 %. *(Superseded: the level bar
+  was later removed, the percentage centered, and the footer tidied — see Latest.)*
 - No change to ESP32_A or the wiring.
 
 ### Earlier: mirror detection hardening + live HC-SR04 diagnostics (ESP32_B only)

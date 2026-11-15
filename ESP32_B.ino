@@ -111,10 +111,11 @@ static const uint32_t HC_MIN_ECHO_US         = 100;
 static const uint32_t HC_MAX_ECHO_US         = 25000;
 static const float    HC_DETECT_ON_CM        = 100.0f;
 static const float    HC_DETECT_OFF_CM       = 105.0f;  // hysteresis
-// A real person is a LARGE object, so it must be clearly closer than the
-// learned background distance (floor/wall echo). Small objects and ambient
-// echoes that only dip a little below the background are ignored.
-static const float    HC_NEAR_DROP_CM        = 25.0f;   // was 18 - bigger approach required
+// A person must be a bit closer than the learned background distance
+// (floor/wall echo) so that a static object sitting in the beam (which the
+// background absorbs) does not keep the mirror on. Kept small so a person
+// anywhere inside ~1 m still triggers.
+static const float    HC_NEAR_DROP_CM        = 10.0f;
 static const float    HC_BASELINE_BAND_CM    = 8.0f;    // only track readings this close to the background
 static const float    HC_BASELINE_ALPHA      = 0.05f;   // background tracking rate
 // Noise rejection: reject sudden jumps and require a sustained approach.
@@ -132,19 +133,18 @@ static const uint8_t  HC_FILTER_SAMPLES      = 6;       // sliding window of rec
 static const uint8_t  HC_MIN_VALID_SAMPLES   = 5;       // need at least this many valid echoes
 static const float    HC_REVERSAL_CM         = 4.0f;    // a direction change this big = a reversal
 static const uint8_t  HC_MAX_REVERSALS       = 1;       // more reversals than this = flicker (ignored)
-// A large object must stay in the beam for several consecutive samples over a
-// sustained time, AND it must be seen closing in (approaching) repeatedly.
-// Small/static objects and random noise echoes do neither, so they are ignored.
-static const uint8_t  HC_NEAR_RUN_SAMPLES    = 5;       // consecutive stable near readings required
-static const uint32_t HC_MIN_ON_CONFIRM_MS   = 1200;    // minimum confirm time
+// Detection is IMMEDIATE: the very first trusted reading inside the on-distance
+// lights the mirror. (These are kept only for the live diagnostics counters.)
+static const uint8_t  HC_NEAR_RUN_SAMPLES    = 1;       // trusted near readings required
+static const uint32_t HC_MIN_ON_CONFIRM_MS   = 0;       // no confirm delay
 static const float    HC_CLOSE_STEP_CM       = 2.0f;    // a reading this much closer = one approach step
-static const uint8_t  HC_CLOSE_STEPS         = 2;       // approach steps required (static object gives only 1)
+static const uint8_t  HC_CLOSE_STEPS         = 0;       // approach steps required
 // The background is only re-learned from STABLE readings, and detection is
 // disabled for a short warm-up so the first readings can settle. Together these
 // stop a wrong "background" from turning the mirror on by itself.
 static const uint8_t  HC_STABLE_SAMPLES      = 4;       // stable readings before the background may re-learn
 static const float    HC_STABLE_STEP_CM      = 2.0f;    // "stable" = reading moves less than this
-static const uint32_t HC_WARMUP_MS           = 4000;    // no detection while the background settles
+static const uint32_t HC_WARMUP_MS           = 1500;    // no detection while the background settles
 static const uint8_t  HC_DEBUG_EVERY         = 2;       // serial diagnostic line every N samples
 static const uint32_t HC_ON_CONFIRM_MS        = 400;
 static const uint32_t HC_OFF_CONFIRM_MS       = 800;
@@ -763,10 +763,9 @@ td:first-child,th:first-child{text-align:left}
 </table></div>
 
 <div class="note">Watch this while standing still (should stay CLEAR) and while walking toward the sensor.
-Tell me: what is <b>dist</b> vs <b>base</b> with nobody there, and how <b>steps</b>/<b>person</b> change as you walk up.
-Thresholds: must be ≥ <span id="drop">?</span> cm closer than background, ≥ <span id="minSteps">?</span> approach steps,
-≥ <span id="minRun">?</span> near readings, <span id="confirm">?</span> ms confirm, <span id="warmup">?</span> ms warm-up,
-and the reading window must be smooth (≤ <span id="maxRev">?</span> direction reversals of ≥ <span id="revCm">?</span> cm).</div>
+Tell me: what is <b>dist</b> vs <b>base</b> with nobody there, and how <b>rev</b>/<b>stable</b>/<b>person</b> change as you walk up.
+The mirror lights <b>immediately</b> when a smooth reading (≤ <span id="maxRev">?</span> direction reversals of ≥ <span id="revCm">?</span> cm)
+is within <span id="onCm">?</span> cm and at least <span id="drop">?</span> cm closer than the background, then turns off <b>1 s</b> after the person leaves.</div>
 
 <script>
 (function(){
@@ -784,18 +783,16 @@ function render(s){
  $('spread').textContent=f(s.spread,1)+' cm';
  $('base').textContent=f(s.base,1)+' cm';
  $('echo').textContent=(s.echoUs||0)+' µs';
- $('drop').textContent=s.dropCm; $('minSteps').textContent=s.minSteps;
- $('minRun').textContent=s.minRun; $('confirm').textContent=s.confirmMs;
- $('warmup').textContent=s.warmupMs; $('maxRev').textContent=s.maxRev;
- $('revCm').textContent=s.revCm;
+ $('drop').textContent=s.dropCm; $('onCm').textContent=s.onCm;
+ $('maxRev').textContent=s.maxRev; $('revCm').textContent=s.revCm;
  var c=[];
  c.push('<span class="chip '+(s.valid?'a':'')+'">valid '+(s.valid?'1':'0')+'</span>');
  c.push('<span class="chip '+(s.stable?'a':'')+'">stable '+(s.stable?'1':'0')+'</span>');
  c.push('<span class="chip '+(s.appr?'a':'')+'">approach '+(s.appr?'1':'0')+'</span>');
  c.push('<span class="chip '+(s.near?'n':'')+'">near '+(s.near?'1':'0')+'</span>');
  c.push('<span class="chip '+(s.warm?'r':'')+'">warm-up '+(s.warm?'1':'0')+'</span>');
- c.push('<span class="chip">steps '+s.steps+'/'+s.minSteps+'</span>');
- c.push('<span class="chip">run '+s.run+'/'+s.minRun+'</span>');
+ c.push('<span class="chip">steps '+s.steps+'</span>');
+ c.push('<span class="chip">run '+s.run+'</span>');
  c.push('<span class="chip '+(s.person?'p':'')+'">person '+(s.person?'YES':'no')+'</span>');
  c.push('<span class="chip '+(s.relay1?'r':'')+'">relay1 '+(s.relay1?'ON':'off')+'</span>');
  $('chips').innerHTML=c.join('');
@@ -1993,10 +1990,11 @@ void updateAutoRelay1() {
   // Learn the resting background distance so a static echo (floor, wall,
   // reflections, or a small object that is simply there) is never mistaken for
   // a person. The background is only allowed to move while the reading is
-  // STABLE, and it may move in EITHER direction - this is what stops a wrong
-  // background value (e.g. one learned too far during boot) from turning the
-  // mirror on by itself forever. It is frozen while a person is confirmed.
-  if (hcValid && !personDetected) {
+  // STABLE and TRUSTED, and it may move in EITHER direction - this is what
+  // stops a wrong background value (e.g. one learned too far during boot) from
+  // turning the mirror on by itself forever. It is frozen while a person is
+  // confirmed.
+  if (hcValid && hcStableNow && !personDetected) {
     if (fabsf(hcDistanceCm - hcLastMedianCm) <= HC_STABLE_STEP_CM) {
       if (hcStableCount < 255) hcStableCount++;
     } else {
@@ -2046,9 +2044,6 @@ void updateAutoRelay1() {
     hcClosingSteps = 0;
   }
 
-  uint32_t confirmMs = settings.mirrorOnConfirmMs;
-  if (confirmMs < HC_MIN_ON_CONFIRM_MS) confirmMs = HC_MIN_ON_CONFIRM_MS;
-
   // Detect a person on/off. When the person leaves (far reading or a lost
   // echo), Relay 1 stays on for HC_OFF_DELAY_MS (1 s) before it is switched
   // off. Re-detection during that window cancels the pending off.
@@ -2065,26 +2060,17 @@ void updateAutoRelay1() {
         DBG("[B] Person cleared after sensor dropout (1 s hold)\n");
       }
     }
-  } else if (!hcStableNow) {
-    // Flicker: the echo is jumping around, so it is not trustworthy. Pause
-    // detection WITHOUT changing the current person state - a brief flicker
-    // while a person is present must not drop the mirror, and flicker in an
-    // empty room (the original false trigger) can never raise it.
-    hcNearSinceMs = 0;
-    hcNearRun = 0;
-    hcFarSinceMs = now;
   } else if (nearNow) {
     hcFarSinceMs = 0;
     personClearSinceMs = 0;               // person is back: cancel off-delay
     if (hcNearRun < 255) hcNearRun++;
     if (hcNearSinceMs == 0) hcNearSinceMs = now;
-    if (!personDetected &&
-        hcNearRun >= HC_NEAR_RUN_SAMPLES &&
-        hcClosingSteps >= HC_CLOSE_STEPS &&
-        (uint32_t)(now - hcNearSinceMs) >= confirmMs) {
+    if (!personDetected) {
+      // IMMEDIATE: the first trusted reading inside the on-distance lights the
+      // mirror at once - no confirm delay.
       personDetected = true;
-      DBG("[B] Person confirmed present (%.1f cm, background %.1f cm, %u approach steps)\n",
-          hcDistanceCm, hcBaselineCm, (unsigned)hcClosingSteps);
+      DBG("[B] Person detected immediately (%.1f cm, background %.1f cm)\n",
+          hcDistanceCm, hcBaselineCm);
     }
   } else if (approach && hcDistanceCm <= settings.mirrorOffCm) {
     // Still clearly closer than the background (hysteresis band): keep the
@@ -2324,6 +2310,22 @@ void initOled() {
   display.sendBuffer();
 }
 
+// Hand-drawn ESP-NOW link symbol for the OLED footer: a tick when the link is
+// up, a cross when it is down. (cx, cy) is the centre of the symbol.
+void drawLinkIcon(int16_t cx, int16_t cy, bool ok) {
+  if (ok) {
+    display.drawLine(cx - 5, cy + 1, cx - 1, cy + 5);
+    display.drawLine(cx - 4, cy,     cx,     cy + 4);
+    display.drawLine(cx - 1, cy + 5, cx + 6, cy - 5);
+    display.drawLine(cx,     cy + 4, cx + 7, cy - 6);
+  } else {
+    display.drawLine(cx - 4, cy - 5, cx + 4, cy + 5);
+    display.drawLine(cx - 3, cy - 5, cx + 5, cy + 5);
+    display.drawLine(cx - 4, cy + 5, cx + 4, cy - 5);
+    display.drawLine(cx - 3, cy + 5, cx + 5, cy - 5);
+  }
+}
+
 void drawOled() {
   if (!oledReady) return;
   if ((uint32_t)(millis() - lastOledMs) < OLED_REFRESH_MS) return;
@@ -2347,36 +2349,14 @@ void drawOled() {
   display.setDrawColor(1);
   display.setFontMode(1);
 
-  // --- Right-edge vertical level bar ---------------------------------------
-  // A slim rectangle spanning the full height at the right edge: just an
-  // outline at 0 %, filled from the bottom up at 100 %. It is drawn first so
-  // the text can be kept to its left.
-  const int16_t BAR_W = 9;
-  const int16_t barX  = OLED_WIDTH - BAR_W;      // 119 .. 127
-  const int16_t barY  = 0;
-  const int16_t barH  = OLED_HEIGHT;             // full height (top to bottom)
-  const int16_t textRight = barX - 2;            // text must stay left of this
-
-  float pct = haveValidWater ? lastValidPercent : 0.0f;
-  if (pct < 0.0f)   pct = 0.0f;
-  if (pct > 100.0f) pct = 100.0f;
-
-  display.drawFrame(barX, barY, BAR_W, barH);
-  int16_t innerH = barH - 2;
-  int16_t fillH  = (int16_t)lroundf((float)innerH * pct / 100.0f);
-  if (fillH > innerH) fillH = innerH;
-  if (fillH > 0) {
-    display.drawBox(barX + 1, barY + 1 + (innerH - fillH), BAR_W - 2, fillH);
-  }
-
   char pctNum[8];
   if (haveValidWater) snprintf(pctNum, sizeof(pctNum), "%d", (int)lroundf(lastValidPercent));
   else                snprintf(pctNum, sizeof(pctNum), "--");
 
   if (show & OLED_SHOW_PERCENT) {
-    // FreeSans Bold digits, LEFT aligned. A wider/bolder face makes the curves
-    // read smoother on this 1-bit panel; the custom '%' is sized so "NNN%"
-    // still fits in the space left of the level bar.
+    // FreeSans Bold digits, CENTERED on the panel. A wider/bolder face makes
+    // the curves read smoother on this 1-bit display; the custom '%' sits right
+    // after the number.
     const uint8_t *numFont = u8g2_font_fub42_tn;
     int16_t baseline = 46;
     int16_t areaH = 44;
@@ -2401,19 +2381,18 @@ void drawOled() {
       numW += (int16_t)display.getStrWidth(ch) + extra;
     }
 
-    // Custom '%' symbol width, shrunk so the whole "NNN%" fits the text area.
+    // Custom '%' symbol width, shrunk so the whole "NNN%" fits the panel.
     int16_t signW = (areaH * 3) / 4;
     if (signW > 29) signW = 29;
-    if (numW + gap + signW > textRight) {
-      signW = textRight - numW - gap;
+    if (numW + gap + signW > OLED_WIDTH) {
+      signW = OLED_WIDTH - numW - gap;
       if (signW < 8) signW = 8;
     }
 
-    int16_t x = 0;                                // LEFT aligned
-    if (x + numW + gap + signW > textRight) {
-      x = textRight - (numW + gap + signW);
-      if (x < 0) x = 0;
-    }
+    // CENTER the whole "NNN%" block horizontally.
+    int16_t totalW = numW + gap + signW;
+    int16_t x = (OLED_WIDTH - totalW) / 2;
+    if (x < 0) x = 0;
 
     // Draw digits twice with 1px horizontal offset for wider/bolder look.
     for (int pass = 0; pass < 2; pass++) {
@@ -2454,31 +2433,27 @@ void drawOled() {
   if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
   else                snprintf(litres, sizeof(litres), "--L");
 
-  // Footer, LEFT aligned. It uses the SAME FreeSans Bold family as the big
-  // percentage, so every glyph on the panel matches and the curves render with
-  // more pixels (smoother) than the old blocky pixel font. The litre value is
-  // drawn one notch larger than the rest of the footer ("a very little increase
-  // of the litre digit") but still in the same family.
-  const uint8_t *footFont  = u8g2_font_fub11_tf;
-  const uint8_t *litreFont = u8g2_font_fub14_tf;
-  if (settings.oledBottomSize >= 2) {
-    footFont  = u8g2_font_fub14_tf;
-    litreFont = u8g2_font_fub14_tf;   // cap at 14 px so it clears the big number
-  }
+  // Footer: everything on the bottom line. The litre value is a little smaller
+  // than before and uses the same FreeSans Bold family as the big percentage.
+  // The ESP-NOW link is shown as a hand-drawn tick (connected) or cross (not
+  // connected) instead of text.
+  const uint8_t *footFont = u8g2_font_fub11_tf;
+  if (settings.oledBottomSize >= 2) footFont = u8g2_font_fub14_tf;
+  display.setFont(footFont);
 
   int16_t fx = 0;
   if (show & OLED_SHOW_BOTTOM_L) {
-    display.setFont(litreFont);
     display.drawStr(fx, 63, litres);
-    fx += (int16_t)display.getStrWidth(litres) + 3;
+    fx += (int16_t)display.getStrWidth(litres) + 5;
   }
-  display.setFont(footFont);
   if ((show & OLED_SHOW_DISTANCE) && haveValidWater) {
     char dist[16];
     snprintf(dist, sizeof(dist), "%.0fcm", lastValidDistanceCm);
     display.drawStr(fx, 63, dist);
-  } else if (show & OLED_SHOW_LINK) {
-    display.drawStr(fx, 63, linkNow ? "CONNECTED" : "NO LINK");
+    fx += (int16_t)display.getStrWidth(dist) + 5;
+  }
+  if (show & OLED_SHOW_LINK) {
+    drawLinkIcon(fx + 6, 57, linkNow);
   } else if (show & OLED_SHOW_STATUS) {
     display.drawStr(fx, 63, linkNow ? "LIVE" : "STALE");
   }
@@ -3605,14 +3580,14 @@ void setup() {
                 settings.mirrorEnabled ? "enabled" : "disabled",
                 settings.mirrorOnCm, settings.mirrorOffCm,
                 (unsigned)settings.mirrorInvalidHoldoffMs);
-  Serial.printf("Person gate: >= %.0f cm closer than background, %u approach steps, "
-                "%u near readings, %lu ms confirm, %lu ms warm-up, "
-                "window smooth <= %u direction reversals (>= %.0f cm)\n",
-                HC_NEAR_DROP_CM, (unsigned)HC_CLOSE_STEPS,
-                (unsigned)HC_NEAR_RUN_SAMPLES,
-                (unsigned long)HC_MIN_ON_CONFIRM_MS,
-                (unsigned long)HC_WARMUP_MS,
-                (unsigned)HC_MAX_REVERSALS, HC_REVERSAL_CM);
+  Serial.printf("Person gate: IMMEDIATE - first smooth reading within %.0f cm that is "
+                ">= %.0f cm closer than background lights the mirror; off %lu ms after "
+                "the person leaves. Smooth = <= %u direction reversals (>= %.0f cm). "
+                "Warm-up %lu ms\n",
+                settings.mirrorOnCm, HC_NEAR_DROP_CM,
+                (unsigned long)HC_OFF_DELAY_MS,
+                (unsigned)HC_MAX_REVERSALS, HC_REVERSAL_CM,
+                (unsigned long)HC_WARMUP_MS);
   Serial.println("HC diagnostics: one 'HC raw=... dist=... stable=... rev=... spread=...' "
                  "line every 2 samples (see below)");
   Serial.printf("History: %s, every %u s, retain %u days (%lu lines)\n",
