@@ -473,19 +473,27 @@ is not saved across a reboot.
 
 ### OLED screen (SSD1306 128×64)
 
-The panel is fully configurable from the dashboard **ADMIN** panel (see
-[Admin panel](#admin-panel--tap-admin-in-the-header)). Default layout:
+The layout is **fixed and simple** — there is nothing to configure on the
+dashboard:
 
-| Item | Default position | Notes |
-|---|---|---|
-| Big percentage | centre | six selectable font sizes |
-| Litres value | top-right | footer font size 1–4 |
-| ESP-NOW link | top-left | tick (connected) / cross (no link) |
-| Distance | bottom-left | off by default |
-| Status text (LIVE) | bottom-right | off by default |
+```text
+┌──────────────────────────────┐
+│ 250L                      ✓  │   status bar: litres (left) + link tick/cross (right)
+├──────────────────────────────┤   thin horizontal divider
+│                              │
+│            62%               │   big percentage, centred below the divider
+│                              │
+└──────────────────────────────┘
+```
 
-Contrast (1–255) and colour invert are also adjustable. All OLED settings are
-stored in ESP32_B NVS and survive a reboot.
+- **Status bar** (top, small smooth text): the litre value on the left and the
+  ESP-NOW link as a hand-drawn **tick** (connected) / **cross** (no link) on the
+  right.
+- **Divider**: a 1 px horizontal line across the panel.
+- **Percentage**: the big level reading, centred in the lower region.
+
+Contrast and colour-invert are fixed defaults in the firmware; the display is not
+adjustable from the web page.
 
 ---
 
@@ -619,7 +627,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,217,810 bytes (92 %) | 57,000 bytes (17 %) |
+| ESP32_B | 1,195,462 bytes (91 %) | 56,992 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -644,21 +652,16 @@ ESP32_B serves the embedded dashboard at `http://192.168.4.1/`.
 ### Admin panel — tap **ADMIN** in the header
 
 The panel talks to `/api/admin/settings` (GET to read, POST to change) and
-applies changes live — no reboot. It currently covers:
+applies changes live — no reboot. It covers:
 
-- **OLED screen** — for each item (percentage, litres, ESP-NOW tick/cross,
-  distance, status text) you can show/hide it and place it anywhere on a **3×3
-  grid** (top / middle / bottom × left / centre / right). There are **font-size
-  steppers** for the big percentage (1–6) and the footer text (1–4), a contrast
-  slider, an invert toggle, and a **Reset OLED layout** button. The default
-  layout is percentage centred, litres top-right, tick/cross top-left.
 - **Mirror light (Relay 1)** — enable, on-distance, off-distance, and an optional
   auto-off time in minutes (0 = off).
 - **Buzzer** — enable, alert level %, re-arm level %, and max alert time.
 
-Changes to the OLED, mirror, and buzzer are local to ESP32_B and are saved to
-NVS, so they survive a reboot. Only the tank/water calibration fields are pushed
-to ESP32_A.
+The OLED layout is **not** in the panel — it is fixed (see
+[OLED screen](#oled-screen-ssd1306-12864)). Mirror and buzzer changes are local to
+ESP32_B and saved to NVS, so they survive a reboot. Only the tank/water
+calibration fields are pushed to ESP32_A.
 
 ### Live HC-SR04 page — `http://192.168.4.1/hc`
 
@@ -717,16 +720,9 @@ curl -X POST http://192.168.4.1/api/mirror-light \
 curl -X POST http://192.168.4.1/api/admin/settings \
   -H 'Content-Type: application/json' \
   -d '{"tankCapacityL":750,"fullDistanceCm":18,"emptyDistanceCm":85}'
-
-# Move the OLED litre value to the top-right and grow the percentage font
-curl -X POST http://192.168.4.1/api/admin/settings \
-  -H 'Content-Type: application/json' \
-  -d '{"oledLitreAlign":2,"oledPercentSize":6}'
 ```
 
-`oledShow` is a bitmask: `1` percentage, `4` ESP-NOW tick/cross, `8` litres,
-`16` status text, `32` distance. The `oled*Align` fields are nine-way anchors
-`0`=top-left … `8`=bottom-right (row-major).
+The OLED layout is fixed and has no settings of its own.
 
 Settings are saved to NVS on ESP32_B. Water settings are forwarded to ESP32_A
 and also persisted in ESP32_A NVS.
@@ -751,8 +747,8 @@ sampling interval, not wall-clock time.
 
 1. Power ESP32_B with no mains load connected. Confirm relays are OFF.
 2. Connect to `Smart Water Tank` and open `http://192.168.4.1/`.
-3. Confirm the OLED shows a **cross** (✗) in the **top-left corner** before
-   ESP32_A starts.
+3. Confirm the OLED shows a **cross** (✗) at the **top-right** of the status bar
+   before ESP32_A starts.
 4. Power ESP32_A and confirm the OLED cross changes to a **tick** (✓).
 5. Move the water sensor and watch the percentage change.
 6. Short ESP32_A GPIO 4 to GND: the BLUE LED lights and the dashboard shows a
@@ -796,25 +792,29 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: OLED layout control + Admin panel (ESP32_B only)
+### Latest: simple fixed OLED + Admin keeps Mirror/Buzzer (ESP32_B only)
 
-- **OLED placement is now fully configurable.** Every item (percentage, litres,
-  ESP-NOW tick/cross, distance, status text) has its own **nine-way anchor**
-  (top / middle / bottom × left / centre / right), so anything can be moved to a
-  corner or centred. New default: **tick/cross top-left**, **litres top-right**,
-  percentage centred.
-- **Font sizes are selectable:** the big percentage maps to six FreeSans Bold
-  sizes (`fub17`…`fub49`) and the footer text to four (`fub11`…`fub20`), with
-  +/− steppers in the panel.
+- **The OLED layout is now fixed and simple** — nothing to configure:
+  a small status bar on top (litres left, ESP-NOW **tick/cross** right), a thin
+  horizontal divider, and the big percentage centred below it.
+- **All OLED settings are removed from the Admin panel.** The panel now keeps
+  only **Mirror light** and **Buzzer**. The per-item nine-way anchors, font-size
+  steppers, contrast slider, invert toggle, and reset button are gone, and the
+  `oled*Align` fields were dropped from the settings struct/API. (The Admin
+  capsule itself stays, just left of the online capsule.)
+- `B_SETTINGS_VERSION` bumped 6 → 7 so the fixed defaults apply once. ESP32_A and
+  the wiring are unchanged.
+
+### Earlier: OLED layout control + Admin panel (ESP32_B only)
+
+- **OLED placement became configurable.** Every item (percentage, litres,
+  ESP-NOW tick/cross, distance, status text) had its own **nine-way anchor**
+  (top / middle / bottom × left / centre / right), font-size steppers, contrast,
+  and invert. *(Superseded by the fixed layout above.)*
 - **New ADMIN capsule** on the dashboard (just left of the online capsule) opens
   a settings panel that talks to `/api/admin/settings` and applies changes live:
-  - **OLED** — show/hide + 3×3 position for each item, percent/footer font size,
-    contrast, invert, and a reset button.
   - **Mirror light** — enable, on/off distance, auto-off minutes.
   - **Buzzer** — enable, alert %, re-arm %, max alert time.
-- New settings fields: `oledPctAlign`, `oledLitreAlign`, `oledLinkAlign`,
-  `oledDistAlign`, `oledStatusAlign` (0–8). Settings version bumped to 6 so the
-  new defaults take effect once. ESP32_A and the wiring are unchanged.
 
 ### Earlier: immediate mirror trigger + OLED rework (ESP32_B only)
 

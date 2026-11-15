@@ -167,7 +167,7 @@ static const uint32_t BUZZER_BEEP_PERIOD_MS  = 200;  // 5 beeps per second
 static const uint32_t BUZZER_BEEP_ON_MS      = 80;
 
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
-#define B_SETTINGS_VERSION 6u          // bumped: OLED anchors + size fields added
+#define B_SETTINGS_VERSION 7u          // bumped: OLED layout back to a fixed design
 
 // History storage limits. Samples are CSV lines in LittleFS; old lines are
 // compacted automatically so the log stays bounded.
@@ -186,18 +186,6 @@ static const uint32_t BUZZER_BEEP_ON_MS      = 80;
 #define OLED_SHOW_BOTTOM_L  0x08u
 #define OLED_SHOW_STATUS    0x10u
 #define OLED_SHOW_DISTANCE  0x20u
-
-// OLED nine-way anchor positions (row-major: top, middle, bottom x left,
-// centre, right). Used to place each field anywhere on the 128x64 panel.
-#define OLED_ANCHOR_TL 0
-#define OLED_ANCHOR_TC 1
-#define OLED_ANCHOR_TR 2
-#define OLED_ANCHOR_ML 3
-#define OLED_ANCHOR_MC 4
-#define OLED_ANCHOR_MR 5
-#define OLED_ANCHOR_BL 6
-#define OLED_ANCHOR_BC 7
-#define OLED_ANCHOR_BR 8
 
 // Protocol constants (must match ESP32_A.ino).
 #define PROTOCOL_VERSION 2u
@@ -366,12 +354,7 @@ struct __attribute__((packed)) AppSettings {
   uint8_t  oledBottomSize;
   uint8_t  oledContrast;
   uint8_t  oledInvert;
-  uint8_t  oledPctAlign;     // nine-way anchor for the big percentage
-  uint8_t  oledLitreAlign;   // nine-way anchor for the litre value
-  uint8_t  oledLinkAlign;    // nine-way anchor for the ESP-NOW tick/cross
-  uint8_t  oledDistAlign;    // nine-way anchor for the distance text
-  uint8_t  oledStatusAlign;  // nine-way anchor for the LIVE/STALE text
-  uint8_t  reserved4[3];
+  uint8_t  reserved4[2];
   // History / admin.
   uint16_t historyIntervalSec;
   uint8_t  historyRetentionDays;
@@ -440,14 +423,6 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .adm-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px dashed #e6edf4}
 .adm-row:first-of-type{border-top:none}
 .adm-row>label{font-size:13px;font-weight:800;color:#26374c}
-.adm-elem{border-top:1px dashed #e6edf4;padding:8px 0;display:flex;flex-direction:column;gap:6px}
-.adm-elem-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.adm-elem-head .nm{font-size:13px;font-weight:800;color:#26374c}
-.oled-grid{display:grid;grid-template-columns:repeat(3,26px);grid-auto-rows:26px;gap:4px}
-.oled-grid button{border:1px solid #cfd9e4;background:#f4f8fb;border-radius:6px;cursor:pointer;padding:0;font-size:0;position:relative}
-.oled-grid button:after{content:"";position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:2px;background:#c3ceda;transform:translate(-50%,-50%)}
-.oled-grid button.on{border-color:#0e9a63;background:#e6f7ef}
-.oled-grid button.on:after{background:#0e9a63}
 .stepper{display:flex;align-items:center;gap:8px}
 .stepper button{width:32px;height:32px;border-radius:9px;border:1px solid #cfd9e4;background:#f4f8fb;font-size:17px;font-weight:900;color:#33475e;cursor:pointer;line-height:1}
 .stepper button:active{transform:scale(.95)}
@@ -456,14 +431,12 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .adm-toggle:after{content:"";display:block;width:24px;height:24px;border-radius:50%;background:#fff;transition:.16s}
 .adm-toggle.on{background:#19b66f;border-color:#0b8a59}
 .adm-toggle.on:after{transform:translateX(26px)}
-.adm-actions{display:flex;gap:8px;flex-wrap:wrap;padding-top:4px}
 .adm-btn{border:1px solid #cfd9e4;background:#f4f8fb;color:#33475e;border-radius:10px;padding:9px 12px;font-size:12px;font-weight:900;cursor:pointer}
 .adm-btn.primary{background:#1697d8;border-color:#0b6a9e;color:#fff}
 .adm-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px;border-top:1px solid var(--line);background:#f7fbff}
 .adm-hint{font-size:11px;font-weight:800;color:var(--muted)}
 .adm-hint.ok{color:#0e9a63}
 .adm-hint.err{color:#df3c4f}
-input[type=range]{width:150px}
 .dot{width:9px;height:9px;border-radius:50%;background:#16a66a}
 .offline .dot{background:#df3c4f}
 .card{background:#fff;border:1px solid var(--line);border-radius:20px}
@@ -772,17 +745,9 @@ $('buzzerStop').addEventListener('click',async()=>{ if(buzzerBusy) return; buzze
 $('ledTestBlue').addEventListener('click',async()=>{ if(ledBlueBusy) return; ledBlueBusy=true; try{ await sendCommand('/api/led/test',{led:'blue',on:!(current&&current.indBlueTest===true)}); }finally{ ledBlueBusy=false; } });
 $('ledTestRed').addEventListener('click',async()=>{ if(ledRedBusy) return; ledRedBusy=true; try{ await sendCommand('/api/led/test',{led:'red',on:!(current&&current.indRedTest===true)}); }finally{ ledRedBusy=false; } });
 
-// ---- Admin panel: OLED + mirror + buzzer settings ----------------------
+// ---- Admin panel: mirror + buzzer settings -----------------------------
 const adminOverlay=$('adminOverlay'), adminBtn=$('adminBtn'), adminBody=$('adminBody'), adminHint=$('adminHint');
 let adm=null, admBusy=false;
-
-const OLED_ELEMENTS=[
- {bit:1,  align:'oledPctAlign',    label:'Percentage %'},
- {bit:8,  align:'oledLitreAlign',  label:'Litres value'},
- {bit:4,  align:'oledLinkAlign',   label:'ESP-NOW tick / cross'},
- {bit:32, align:'oledDistAlign',   label:'Distance text'},
- {bit:16, align:'oledStatusAlign', label:'Status text (LIVE)'}
-];
 
 function admHintMsg(msg,cls){ adminHint.textContent=msg; adminHint.className='adm-hint'+(cls?' '+cls:''); }
 function mkEl(tag,cls,txt){ const e=document.createElement(tag); if(cls)e.className=cls; if(txt!=null)e.textContent=txt; return e; }
@@ -828,12 +793,6 @@ function stepVal(o,dir){
  if(v<lo)v=lo; if(v>hi)v=hi;
  postSettings({[o.f]:v*scale});
 }
-function rangeRow(label,o){
- const row=mkEl('div','adm-row'); row.appendChild(mkEl('label',null,label));
- const inp=document.createElement('input'); inp.type='range'; inp.min=o.min; inp.max=o.max; inp.value=Number(adm[o.f]);
- inp.addEventListener('change',()=>postSettings({[o.f]:Number(inp.value)}));
- row.appendChild(inp); return row;
-}
 function toggleRow(label,field){
  const row=mkEl('div','adm-row'); row.appendChild(mkEl('label',null,label));
  const b=mkEl('button','adm-toggle'+(adm[field]?' on':'')); b.setAttribute('aria-pressed',adm[field]?'true':'false');
@@ -844,36 +803,6 @@ function toggleRow(label,field){
 function buildAdmin(){
  if(!adm) return;
  adminBody.innerHTML='';
-
- // --- OLED ---
- const sec=mkEl('section','adm-sec');
- sec.appendChild(mkEl('h3',null,'OLED screen'));
- sec.appendChild(mkEl('p','adm-note','Tick an item to show it, then tap where it should sit on the 3×3 grid. The panel updates live.'));
- OLED_ELEMENTS.forEach(el=>{
-  const row=mkEl('div','adm-elem');
-  const head=mkEl('div','adm-elem-head');
-  head.appendChild(mkEl('span','nm',el.label));
-  const on=!!(adm.oledShow & el.bit);
-  const tog=mkEl('button','adm-toggle'+(on?' on':'')); tog.setAttribute('aria-pressed',on?'true':'false');
-  tog.addEventListener('click',()=>postSettings({oledShow:(adm.oledShow ^ el.bit)}));
-  head.appendChild(tog);
-  const grid=mkEl('div','oled-grid');
-  for(let a=0;a<9;a++){
-   const b=mkEl('button',(adm[el.align]===a)?'on':''); b.title='Position '+a;
-   b.addEventListener('click',()=>postSettings({[el.align]:a}));
-   grid.appendChild(b);
-  }
-  row.appendChild(head); row.appendChild(grid); sec.appendChild(row);
- });
- sec.appendChild(stepperRow('Percent size',{f:'oledPercentSize',min:1,max:6,step:1}));
- sec.appendChild(stepperRow('Footer size',{f:'oledBottomSize',min:1,max:4,step:1}));
- sec.appendChild(rangeRow('Contrast',{f:'oledContrast',min:1,max:255}));
- sec.appendChild(toggleRow('Invert colours','oledInvert'));
- const act=mkEl('div','adm-actions');
- const rb=mkEl('button','adm-btn','Reset OLED layout');
- rb.addEventListener('click',()=>postSettings({oledShow:13,oledPctAlign:4,oledLitreAlign:2,oledLinkAlign:0,oledDistAlign:6,oledStatusAlign:8,oledPercentSize:5,oledBottomSize:1}));
- act.appendChild(rb); sec.appendChild(act);
- adminBody.appendChild(sec);
 
  // --- Mirror light ---
  const mir=mkEl('section','adm-sec');
@@ -1243,16 +1172,11 @@ void defaultSettings(AppSettings &c) {
   c.buzzerBeepOnMs = BUZZER_BEEP_ON_MS;
 
   c.oledShow = OLED_SHOW_PERCENT | OLED_SHOW_LINK | OLED_SHOW_BOTTOM_L;
-  c.oledPercentSize = 5;                 // -> fub42_tn (same look as before)
+  c.oledPercentSize = 5;
   c.oledLitresSize = 2;
-  c.oledBottomSize = 1;                  // -> fub11_tf footer
+  c.oledBottomSize = 1;
   c.oledContrast = 255;
   c.oledInvert = 0;
-  c.oledPctAlign = OLED_ANCHOR_MC;       // percentage centered
-  c.oledLitreAlign = OLED_ANCHOR_TR;     // litres top-right
-  c.oledLinkAlign = OLED_ANCHOR_TL;      // ESP-NOW tick/cross top-left
-  c.oledDistAlign = OLED_ANCHOR_BL;      // distance bottom-left
-  c.oledStatusAlign = OLED_ANCHOR_BR;    // LIVE/STALE bottom-right
 
   c.historyIntervalSec = 300;
   c.historyRetentionDays = 4;
@@ -1325,11 +1249,6 @@ void clampSettings(AppSettings &c) {
   c.oledBottomSize = constrain(c.oledBottomSize, 1, 4);
   c.oledContrast = constrain(c.oledContrast, 1, 255);
   c.oledInvert = c.oledInvert ? 1 : 0;
-  c.oledPctAlign = (uint8_t)constrain((int)c.oledPctAlign, 0, 8);
-  c.oledLitreAlign = (uint8_t)constrain((int)c.oledLitreAlign, 0, 8);
-  c.oledLinkAlign = (uint8_t)constrain((int)c.oledLinkAlign, 0, 8);
-  c.oledDistAlign = (uint8_t)constrain((int)c.oledDistAlign, 0, 8);
-  c.oledStatusAlign = (uint8_t)constrain((int)c.oledStatusAlign, 0, 8);
 
   c.historyIntervalSec = constrain(c.historyIntervalSec, HISTORY_MIN_INTERVAL_SEC, HISTORY_MAX_INTERVAL_SEC);
   c.historyRetentionDays = constrain(c.historyRetentionDays, 1, 30);
@@ -2525,55 +2444,6 @@ void initOled() {
   display.sendBuffer();
 }
 
-// Map the stored percent size (1..6) to a FreeSans Bold digit font. These are
-// the "_tn" fonts (digits + a few symbols); the '%' is drawn by hand.
-const uint8_t *oledPercentFont(uint8_t size) {
-  switch (size) {
-    case 1:  return u8g2_font_fub17_tn;
-    case 2:  return u8g2_font_fub25_tn;
-    case 3:  return u8g2_font_fub30_tn;
-    case 4:  return u8g2_font_fub35_tn;
-    case 5:  return u8g2_font_fub42_tn;
-    default: return u8g2_font_fub49_tn;
-  }
-}
-
-// Map the stored footer size (1..4) to a FreeSans Bold full-ASCII font.
-const uint8_t *oledFooterFont(uint8_t size) {
-  switch (size) {
-    case 1:  return u8g2_font_fub11_tf;
-    case 2:  return u8g2_font_fub14_tf;
-    case 3:  return u8g2_font_fub17_tf;
-    default: return u8g2_font_fub20_tf;
-  }
-}
-
-// Nine-way placement: given a block of size (w,h), return its top-left corner.
-void oledPlace(uint8_t anchor, int16_t w, int16_t h, int16_t &x, int16_t &y) {
-  uint8_t col = anchor % 3;   // 0 left, 1 centre, 2 right
-  uint8_t row = anchor / 3;   // 0 top, 1 middle, 2 bottom
-  if (col == 0)      x = 0;
-  else if (col == 1) x = (OLED_WIDTH - w) / 2;
-  else               x = OLED_WIDTH - w;
-  if (row == 0)      y = 0;
-  else if (row == 1) y = (OLED_HEIGHT - h) / 2;
-  else               y = OLED_HEIGHT - h;
-  if (x < 0) x = 0;
-  if (y < 0) y = 0;
-}
-
-// Draw a string at a nine-way anchor. The font must already be selected.
-void oledDrawText(uint8_t anchor, const char *s) {
-  int16_t w   = (int16_t)display.getStrWidth(s);
-  int16_t asc = (int16_t)display.getAscent();
-  int16_t desc = (int16_t)display.getDescent();
-  int16_t h   = asc - desc;
-  if (h < 1) h = 1;
-  int16_t x, y;
-  oledPlace(anchor, w, h, x, y);
-  display.drawStr(x, y + asc, s);
-}
-
 // Hand-drawn ESP-NOW link symbol: a tick when the link is up, a cross when it
 // is down. (cx, cy) is the centre of the symbol.
 void drawLinkIcon(int16_t cx, int16_t cy, bool ok) {
@@ -2590,13 +2460,16 @@ void drawLinkIcon(int16_t cx, int16_t cy, bool ok) {
   }
 }
 
+// Fixed, simple OLED layout:
+//   - a thin status bar on top: litres on the left, ESP-NOW tick/cross right
+//   - a 1 px horizontal divider under the bar
+//   - the big percentage centred in the space below the divider
 void drawOled() {
   if (!oledReady) return;
   if ((uint32_t)(millis() - lastOledMs) < OLED_REFRESH_MS) return;
   lastOledMs = millis();
 
   bool linkNow = computeLinkOnline();
-  uint8_t show = settings.oledShow;
 
   static uint8_t appliedContrast = 0;
   static int8_t appliedInvert = -1;
@@ -2613,106 +2486,84 @@ void drawOled() {
   display.setDrawColor(1);
   display.setFontMode(1);
 
+  // ---- Status bar: small smooth text + link tick/cross ------------------
+  display.setFont(u8g2_font_fub11_tf);
+  char litres[12];
+  if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
+  else                snprintf(litres, sizeof(litres), "--L");
+  display.drawStr(2, 11, litres);
+  drawLinkIcon(OLED_WIDTH - 8, 6, linkNow);
+
+  // ---- Thin horizontal divider -----------------------------------------
+  display.drawHLine(0, 15, OLED_WIDTH);
+
+  // ---- Big percentage, centred below the divider -----------------------
   char pctNum[8];
   if (haveValidWater) snprintf(pctNum, sizeof(pctNum), "%d", (int)lroundf(lastValidPercent));
   else                snprintf(pctNum, sizeof(pctNum), "--");
 
-  if (show & OLED_SHOW_PERCENT) {
-    // FreeSans Bold digits placed at a nine-way anchor. A wider/bolder face
-    // makes the curves read smoother on this 1-bit display; the custom '%' sits
-    // right after the number.
-    display.setFont(oledPercentFont(settings.oledPercentSize));
-    int16_t asc   = (int16_t)display.getAscent();
-    int16_t desc  = (int16_t)display.getDescent();
-    int16_t areaH = asc - desc;
-    if (areaH < 8) areaH = 8;
+  display.setFont(u8g2_font_fub42_tn);
+  int16_t asc   = (int16_t)display.getAscent();
+  int16_t desc  = (int16_t)display.getDescent();
+  int16_t areaH = asc - desc;
+  if (areaH < 8) areaH = 8;
 
-    int16_t gap = (areaH >= 40) ? 2 : 4;
-    int16_t extra = (areaH >= 40) ? 0 : (int16_t)strlen(pctNum) * 2;
+  const int16_t gap = 2;
 
-    // Use the real per-glyph advance for the number width: getStrWidth() on
-    // the whole string includes side bearings that are not drawn when each
-    // glyph is placed individually.
-    int16_t numW = 0;
-    for (size_t i = 0; pctNum[i]; i++) {
-      char ch[2] = {pctNum[i], 0};
-      numW += (int16_t)display.getStrWidth(ch) + extra;
-    }
-
-    // Custom '%' symbol width, shrunk so the whole "NNN%" fits the panel.
-    int16_t signW = (areaH * 3) / 4;
-    if (signW > 29) signW = 29;
-    if (numW + gap + signW > OLED_WIDTH) {
-      signW = OLED_WIDTH - numW - gap;
-      if (signW < 8) signW = 8;
-    }
-
-    // Place the whole "NNN%" block at the configured anchor.
-    int16_t totalW = numW + gap + signW;
-    int16_t x, yTop;
-    oledPlace(settings.oledPctAlign, totalW, areaH, x, yTop);
-    int16_t baseline = yTop + asc;
-
-    // Draw digits twice with 1px horizontal offset for wider/bolder look.
-    for (int pass = 0; pass < 2; pass++) {
-      int16_t cx = x + pass;
-      for (size_t i = 0; pctNum[i]; i++) {
-        char ch[2] = {pctNum[i], 0};
-        display.drawStr(cx, baseline, ch);
-        cx += (int16_t)display.getStrWidth(ch) + extra;
-      }
-    }
-
-    // Custom '%' symbol: bold, wide slash + two heavy hollow dots.
-    int16_t sx = x + numW + gap;
-    int16_t topY = yTop + 2;
-    if (topY < 1) topY = 1;
-    int16_t bottomY = yTop + areaH - 3;
-    if (bottomY > 63) bottomY = 63;
-    int16_t r = (areaH >= 40) ? 6 : (areaH >= 36) ? 5 : 4;
-    if (r > signW / 2) r = signW / 2;
-    if (r < 2) r = 2;
-    int16_t x1 = sx + r + 1;
-    int16_t y1 = topY + r;
-    int16_t x2 = sx + signW - r - 1;
-    int16_t y2 = bottomY - r;
-    // 4 px diagonal on the big size, 3 px on the smaller ones.
-    int16_t tMax = (areaH >= 40) ? 2 : 1;
-    for (int t = -1; t <= tMax; t++) {
-      display.drawLine(x1 + t, y2, x2 + t, y1);
-    }
-    // Concentric rings give the dots a bold weight.
-    int16_t ringMin = r - ((areaH >= 40) ? 2 : 1);
-    for (int rr = r; rr >= ringMin; rr--) {
-      display.drawCircle(x1, y1, rr, U8G2_DRAW_ALL);
-      display.drawCircle(x2, y2, rr, U8G2_DRAW_ALL);
-    }
+  // Use the real per-glyph advance for the number width: getStrWidth() on the
+  // whole string includes side bearings that are not drawn when each glyph is
+  // placed individually.
+  int16_t numW = 0;
+  for (size_t i = 0; pctNum[i]; i++) {
+    char ch[2] = {pctNum[i], 0};
+    numW += (int16_t)display.getStrWidth(ch);
   }
 
-  char litres[10];
-  if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
-  else                snprintf(litres, sizeof(litres), "--L");
+  // Custom '%' symbol width, shrunk so the whole "NNN%" fits the panel.
+  int16_t signW = (areaH * 3) / 4;
+  if (signW > 29) signW = 29;
+  if (numW + gap + signW > OLED_WIDTH) {
+    signW = OLED_WIDTH - numW - gap;
+    if (signW < 8) signW = 8;
+  }
 
-  // Each remaining field is drawn independently at its own nine-way anchor, so
-  // the litre value, distance, link symbol and status text can be placed in any
-  // corner. The ESP-NOW link is a hand-drawn tick (connected) / cross (not).
-  display.setFont(oledFooterFont(settings.oledBottomSize));
-  if (show & OLED_SHOW_BOTTOM_L) {
-    oledDrawText(settings.oledLitreAlign, litres);
+  // Centre the whole "NNN%" block in the region below the divider (y=16..63).
+  int16_t totalW = numW + gap + signW;
+  int16_t x = (OLED_WIDTH - totalW) / 2;
+  if (x < 0) x = 0;
+  const int16_t regionTop = 16;
+  const int16_t regionH = OLED_HEIGHT - regionTop;
+  int16_t yTop = regionTop + (regionH - areaH) / 2;
+  if (yTop < regionTop) yTop = regionTop;
+  int16_t baseline = yTop + asc;
+
+  int16_t numX = x;
+  for (size_t i = 0; pctNum[i]; i++) {
+    char ch[2] = {pctNum[i], 0};
+    display.drawStr(numX, baseline, ch);
+    numX += (int16_t)display.getStrWidth(ch);
   }
-  if ((show & OLED_SHOW_DISTANCE) && haveValidWater) {
-    char dist[16];
-    snprintf(dist, sizeof(dist), "%.0fcm", lastValidDistanceCm);
-    oledDrawText(settings.oledDistAlign, dist);
+
+  // Custom '%' symbol: bold, wide slash + two heavy hollow dots.
+  int16_t sx = x + numW + gap;
+  int16_t topY = yTop + 2;
+  if (topY < 1) topY = 1;
+  int16_t bottomY = yTop + areaH - 3;
+  if (bottomY > 63) bottomY = 63;
+  int16_t r = (areaH >= 40) ? 6 : (areaH >= 36) ? 5 : 4;
+  if (r > signW / 2) r = signW / 2;
+  if (r < 2) r = 2;
+  int16_t x1 = sx + r + 1;
+  int16_t y1 = topY + r;
+  int16_t x2 = sx + signW - r - 1;
+  int16_t y2 = bottomY - r;
+  for (int t = -1; t <= 2; t++) {
+    display.drawLine(x1 + t, y2, x2 + t, y1);
   }
-  if (show & OLED_SHOW_LINK) {
-    const int16_t S = 13;                       // tick/cross is 13 px across
-    int16_t ix, iy;
-    oledPlace(settings.oledLinkAlign, S, S, ix, iy);
-    drawLinkIcon(ix + S / 2, iy + S / 2, linkNow);
-  }
-  if (show & OLED_SHOW_STATUS) {
-    oledDrawText(settings.oledStatusAlign, linkNow ? "LIVE" : "STALE");
+  int16_t ringMin = r - 2;
+  for (int rr = r; rr >= ringMin; rr--) {
+    display.drawCircle(x1, y1, rr, U8G2_DRAW_ALL);
+    display.drawCircle(x2, y2, rr, U8G2_DRAW_ALL);
   }
 
   display.sendBuffer();
@@ -3195,11 +3046,6 @@ String buildAdminJson() {
   j += ",\"oledBottomSize\":"; j += String((unsigned)settings.oledBottomSize);
   j += ",\"oledContrast\":"; j += String((unsigned)settings.oledContrast);
   j += ",\"oledInvert\":"; j += settings.oledInvert ? "true" : "false";
-  j += ",\"oledPctAlign\":"; j += String((unsigned)settings.oledPctAlign);
-  j += ",\"oledLitreAlign\":"; j += String((unsigned)settings.oledLitreAlign);
-  j += ",\"oledLinkAlign\":"; j += String((unsigned)settings.oledLinkAlign);
-  j += ",\"oledDistAlign\":"; j += String((unsigned)settings.oledDistAlign);
-  j += ",\"oledStatusAlign\":"; j += String((unsigned)settings.oledStatusAlign);
 
   j += ",\"historyIntervalSec\":"; j += String((unsigned)settings.historyIntervalSec);
   j += ",\"historyRetentionDays\":"; j += String((unsigned)settings.historyRetentionDays);
@@ -3314,11 +3160,6 @@ void handleAdminSettings() {
   if (jsonIntField(body, "oledBottomSize", n)) settings.oledBottomSize = (uint8_t)constrain(n, 1L, 4L);
   if (jsonIntField(body, "oledContrast", n)) settings.oledContrast = (uint8_t)constrain(n, 1L, 255L);
   if (jsonBoolField(body, "oledInvert", b)) settings.oledInvert = b ? 1 : 0;
-  if (jsonIntField(body, "oledPctAlign", n)) settings.oledPctAlign = (uint8_t)constrain(n, 0L, 8L);
-  if (jsonIntField(body, "oledLitreAlign", n)) settings.oledLitreAlign = (uint8_t)constrain(n, 0L, 8L);
-  if (jsonIntField(body, "oledLinkAlign", n)) settings.oledLinkAlign = (uint8_t)constrain(n, 0L, 8L);
-  if (jsonIntField(body, "oledDistAlign", n)) settings.oledDistAlign = (uint8_t)constrain(n, 0L, 8L);
-  if (jsonIntField(body, "oledStatusAlign", n)) settings.oledStatusAlign = (uint8_t)constrain(n, 0L, 8L);
 
   if (jsonIntField(body, "historyIntervalSec", n)) settings.historyIntervalSec = (uint16_t)constrain(n, (long)HISTORY_MIN_INTERVAL_SEC, (long)HISTORY_MAX_INTERVAL_SEC);
   if (jsonIntField(body, "historyRetentionDays", n)) settings.historyRetentionDays = (uint8_t)constrain(n, 1L, 30L);
