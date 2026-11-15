@@ -119,13 +119,24 @@ static const float    HC_BASELINE_BAND_CM    = 8.0f;    // only track readings t
 static const float    HC_BASELINE_ALPHA      = 0.05f;   // background tracking rate
 // Noise rejection: reject sudden jumps and require a sustained approach.
 static const float    HC_MIN_VALID_CM        = 12.0f;   // ignore near-zero spurious echoes
-static const float    HC_JUMP_CM             = 35.0f;   // max change accepted in one sample
-static const uint8_t  HC_JUMP_CONFIRM        = 3;       // ...unless it repeats this many times
+// STABILITY GATE - the main defence against the flicker that caused the mirror
+// light to trigger by itself. A real object returns a SMOOTH echo: as a person
+// walks in the readings change steadily in ONE direction, and once they stop
+// the readings hold still. Noise/flicker instead jumps back and forth. So the
+// gate counts DIRECTION REVERSALS across the recent window and only trusts a
+// window that changes direction at most HC_MAX_REVERSALS times. A steady object
+// gives 0 reversals and a walking person gives 0 too, while flicker gives many.
+// (Using reversals rather than raw spread means a person walking in quickly -
+// whose readings cover a wide range - is still trusted.)
+static const uint8_t  HC_FILTER_SAMPLES      = 6;       // sliding window of recent echoes
+static const uint8_t  HC_MIN_VALID_SAMPLES   = 5;       // need at least this many valid echoes
+static const float    HC_REVERSAL_CM         = 4.0f;    // a direction change this big = a reversal
+static const uint8_t  HC_MAX_REVERSALS       = 1;       // more reversals than this = flicker (ignored)
 // A large object must stay in the beam for several consecutive samples over a
 // sustained time, AND it must be seen closing in (approaching) repeatedly.
 // Small/static objects and random noise echoes do neither, so they are ignored.
-static const uint8_t  HC_NEAR_RUN_SAMPLES    = 5;       // consecutive near readings required
-static const uint32_t HC_MIN_ON_CONFIRM_MS   = 1000;    // minimum confirm time
+static const uint8_t  HC_NEAR_RUN_SAMPLES    = 5;       // consecutive stable near readings required
+static const uint32_t HC_MIN_ON_CONFIRM_MS   = 1200;    // minimum confirm time
 static const float    HC_CLOSE_STEP_CM       = 2.0f;    // a reading this much closer = one approach step
 static const uint8_t  HC_CLOSE_STEPS         = 2;       // approach steps required (static object gives only 1)
 // The background is only re-learned from STABLE readings, and detection is
@@ -140,7 +151,6 @@ static const uint32_t HC_OFF_CONFIRM_MS       = 800;
 // Once the person is gone, keep Relay 1 (mirror light) on for one more second
 // before switching it off. The HC-SR04 keeps sampling the whole time.
 static const uint32_t HC_OFF_DELAY_MS         = 1000;
-static const uint8_t  HC_FILTER_SAMPLES      = 5;
 static const float    SOUND_CM_PER_US        = 0.0343f;
 
 static const uint32_t STATUS_TX_PERIOD_MS    = 1000;
@@ -595,6 +605,11 @@ function render(s){
  if(bg!==null) info+=' · bg '+bg.toFixed(0);
  const raw=num(s.hcsr04RawCm);
  if(raw!==null) info+=' · raw '+raw.toFixed(0);
+ const sp=num(s.hcsr04SpreadCm);
+ if(sp!==null) info+=' · sp '+sp.toFixed(1);
+ const rv=num(s.hcsr04Reversals);
+ if(rv!==null) info+=' · rev '+rv;
+ info+=' · '+(s.hcsr04Stable===true?'STBL':'unstable');
  info+=' · ap '+(s.mirrorApproach?'1':'0')+' near '+(s.mirrorNear?'1':'0')+' steps '+(s.mirrorClosingSteps!=null?s.mirrorClosingSteps:'-')+' run '+(s.mirrorNearRun!=null?s.mirrorNearRun:'-');
  if(s.mirrorWarmup===true) info+=' · WARM-UP';
  if(!linkOk) info+=' · A LINK DOWN';
@@ -734,6 +749,8 @@ td:first-child,th:first-child{text-align:left}
 <div class="grid">
  <div class="card"><div class="k">Distance</div><div class="v big" id="dist">–</div></div>
  <div class="card"><div class="k">Raw</div><div class="v" id="raw">–</div></div>
+ <div class="card"><div class="k">Reversals</div><div class="v" id="rev">–</div></div>
+ <div class="card"><div class="k">Spread</div><div class="v" id="spread">–</div></div>
  <div class="card"><div class="k">Background</div><div class="v" id="base">–</div></div>
  <div class="card"><div class="k">Echo</div><div class="v" id="echo">–</div></div>
 </div>
@@ -741,14 +758,15 @@ td:first-child,th:first-child{text-align:left}
 <div class="row" id="chips"></div>
 
 <div class="wrap"><table>
- <thead><tr><th>time</th><th>raw</th><th>dist</th><th>base</th><th>valid</th><th>appr</th><th>near</th><th>steps</th><th>run</th><th>person</th><th>relay1</th></tr></thead>
+ <thead><tr><th>time</th><th>raw</th><th>dist</th><th>base</th><th>valid</th><th>stbl</th><th>appr</th><th>near</th><th>steps</th><th>run</th><th>person</th><th>relay1</th></tr></thead>
  <tbody id="log"></tbody>
 </table></div>
 
 <div class="note">Watch this while standing still (should stay CLEAR) and while walking toward the sensor.
 Tell me: what is <b>dist</b> vs <b>base</b> with nobody there, and how <b>steps</b>/<b>person</b> change as you walk up.
 Thresholds: must be ≥ <span id="drop">?</span> cm closer than background, ≥ <span id="minSteps">?</span> approach steps,
-≥ <span id="minRun">?</span> near readings, <span id="confirm">?</span> ms confirm, <span id="warmup">?</span> ms warm-up.</div>
+≥ <span id="minRun">?</span> near readings, <span id="confirm">?</span> ms confirm, <span id="warmup">?</span> ms warm-up,
+and the reading window must be smooth (≤ <span id="maxRev">?</span> direction reversals of ≥ <span id="revCm">?</span> cm).</div>
 
 <script>
 (function(){
@@ -761,13 +779,18 @@ function render(s){
  $('dist').textContent=f(s.dist,1)+' cm';
  $('dist').className='v big '+(s.person?'on':(s.near?'warn':'off'));
  $('raw').textContent=f(s.raw,1)+' cm';
+ $('rev').textContent=s.rev+' / '+s.maxRev;
+ $('rev').className='v '+(s.rev<=s.maxRev?'on':'bad');
+ $('spread').textContent=f(s.spread,1)+' cm';
  $('base').textContent=f(s.base,1)+' cm';
  $('echo').textContent=(s.echoUs||0)+' µs';
  $('drop').textContent=s.dropCm; $('minSteps').textContent=s.minSteps;
  $('minRun').textContent=s.minRun; $('confirm').textContent=s.confirmMs;
- $('warmup').textContent=s.warmupMs;
+ $('warmup').textContent=s.warmupMs; $('maxRev').textContent=s.maxRev;
+ $('revCm').textContent=s.revCm;
  var c=[];
  c.push('<span class="chip '+(s.valid?'a':'')+'">valid '+(s.valid?'1':'0')+'</span>');
+ c.push('<span class="chip '+(s.stable?'a':'')+'">stable '+(s.stable?'1':'0')+'</span>');
  c.push('<span class="chip '+(s.appr?'a':'')+'">approach '+(s.appr?'1':'0')+'</span>');
  c.push('<span class="chip '+(s.near?'n':'')+'">near '+(s.near?'1':'0')+'</span>');
  c.push('<span class="chip '+(s.warm?'r':'')+'">warm-up '+(s.warm?'1':'0')+'</span>');
@@ -782,7 +805,7 @@ function render(s){
   var e=log[i];
   var F=e.f;
   rows+='<tr><td>'+fmt(e.t)+'</td><td>'+f(e.raw,0)+'</td><td>'+f(e.d,0)+'</td><td>'+f(e.b,0)+'</td>'+
-        '<td>'+((F&1)?'1':'0')+'</td><td>'+((F&2)?'1':'0')+'</td><td>'+((F&4)?'1':'0')+'</td>'+
+        '<td>'+((F&1)?'1':'0')+'</td><td>'+((F&32)?'1':'0')+'</td><td>'+((F&2)?'1':'0')+'</td><td>'+((F&4)?'1':'0')+'</td>'+
         '<td>'+e.s+'</td><td>'+e.r+'</td><td>'+((F&8)?'<b class="bad">Y</b>':'0')+'</td><td>'+((F&16)?'ON':'0')+'</td></tr>';
  }
  $('log').innerHTML=rows;
@@ -864,9 +887,13 @@ uint32_t hcNextSampleMs = 0;
 float    hcRing[HC_FILTER_SAMPLES];
 bool     hcRingValid[HC_FILTER_SAMPLES];
 uint8_t  hcRingHead = 0;
+uint8_t  hcRingValidCount = 0;  // valid echoes currently in the window
 float    hcDistanceCm = 0.0f;
 float    hcBaselineCm = 0.0f;   // learned empty-room background distance (0 = not yet learned)
-uint8_t  hcJumpCount = 0;       // consecutive rejected jumps (noise rejection)
+float    hcSpreadCm = 0.0f;     // spread of the current window (diagnostics)
+uint8_t  hcReversals = 0;       // direction reversals in the current window (diagnostics)
+bool     hcStableNow = false;   // window is smooth enough to trust (stability gate)
+bool     hcPrevTrusted = false; // previous window was trusted (approach-step chaining)
 uint8_t  hcNearRun = 0;         // consecutive accepted near readings
 uint8_t  hcClosingSteps = 0;    // consecutive approach steps seen (readings getting closer)
 float    hcLastMedianCm = 0.0f; // previous accepted distance (stability + approach detection)
@@ -885,7 +912,7 @@ struct HcLogEntry {
   float    rawCm;
   float    distCm;
   float    baseCm;
-  uint8_t  flags;    // bit0 valid, bit1 approach, bit2 near, bit3 person, bit4 relay1
+  uint8_t  flags;    // bit0 valid, bit1 approach, bit2 near, bit3 person, bit4 relay1, bit5 stable
   uint8_t  steps;
   uint8_t  run;
 };
@@ -1721,12 +1748,17 @@ void IRAM_ATTR hcEchoISR() {
   }
 }
 
-float medianOfValidHc() {
+// Median of the valid echoes in the window. Also returns a robust spread (the
+// range of the middle values, ignoring one outlier on each side) which is
+// reported as a diagnostic; the trust decision itself uses direction reversals
+// (see countHcReversals()).
+float medianOfValidHc(float *spreadOut) {
   float vals[HC_FILTER_SAMPLES];
   uint8_t n = 0;
   for (uint8_t i = 0; i < HC_FILTER_SAMPLES; i++) {
     if (hcRingValid[i]) vals[n++] = hcRing[i];
   }
+  if (spreadOut) *spreadOut = 0.0f;
   if (n == 0) return -1.0f;
 
   for (uint8_t i = 1; i < n; i++) {
@@ -1738,65 +1770,100 @@ float medianOfValidHc() {
     }
     vals[j + 1] = key;
   }
+
+  if (spreadOut) {
+    if (n >= 4)      *spreadOut = vals[n - 2] - vals[1];  // ignore min & max
+    else if (n >= 2) *spreadOut = vals[n - 1] - vals[0];
+  }
+
   if (n & 1) return vals[n / 2];
   return (vals[n / 2 - 1] + vals[n / 2]) * 0.5f;
 }
 
+// Count how many times the reading changes direction across the window (oldest
+// -> newest, skipping dropped echoes). A person walking in, or standing still,
+// changes in one direction or not at all (0 reversals); the flicker/noise that
+// used to trip the mirror changes direction again and again (many reversals).
+uint8_t countHcReversals() {
+  int8_t  dir = 0;
+  uint8_t reversals = 0;
+  float   prev = 0.0f;
+  bool    havePrev = false;
+  for (uint8_t i = 0; i < HC_FILTER_SAMPLES; i++) {
+    uint8_t idx = (uint8_t)((hcRingHead + i) % HC_FILTER_SAMPLES);
+    if (!hcRingValid[idx]) continue;
+    float v = hcRing[idx];
+    if (havePrev) {
+      float d = v - prev;
+      if (fabsf(d) >= HC_REVERSAL_CM) {
+        int8_t nd = (d > 0.0f) ? 1 : -1;
+        if (dir != 0 && nd != dir) reversals++;
+        dir = nd;
+      }
+    }
+    prev = v;
+    havePrev = true;
+  }
+  return reversals;
+}
+
 void pushHcSample(float cm, bool valid) {
-  // No echo / out-of-range: drop the filter history. Do NOT switch the relay
-  // off here - updateAutoRelay1() applies the 1 s off-delay so a single lost
-  // echo cannot turn the mirror light off early.
-  if (!valid) {
-    for (uint8_t i = 0; i < HC_FILTER_SAMPLES; i++) hcRingValid[i] = false;
-    hcRingHead = 0;
+  // Keep a sliding window of the last few echoes. A sample with no echo simply
+  // marks its slot invalid; it does NOT wipe the whole window (a single dropped
+  // echo should not blind the sensor). Do NOT switch the relay off here -
+  // updateAutoRelay1() applies the 1 s off-delay.
+  uint8_t head = hcRingHead;
+  if (hcRingValid[head]) hcRingValidCount--;
+  hcRing[head] = cm;
+  hcRingValid[head] = valid;
+  if (valid) hcRingValidCount++;
+  hcRingHead = (head + 1) % HC_FILTER_SAMPLES;
+
+  // Not enough valid echoes yet -> no trustworthy distance.
+  if (hcRingValidCount < HC_MIN_VALID_SAMPLES) {
     hcValid = false;
+    hcStableNow = false;
+    hcPrevTrusted = false;
     hcNearSinceMs = 0;
     hcFarSinceMs = millis();
-    hcJumpCount = 0;
     hcNearRun = 0;
     hcNewSample = true;
     return;
   }
 
-  hcRing[hcRingHead] = cm;
-  hcRingValid[hcRingHead] = true;
-  hcRingHead = (hcRingHead + 1) % HC_FILTER_SAMPLES;
-
-  float med = medianOfValidHc();
+  float spread = 0.0f;
+  float med = medianOfValidHc(&spread);
+  hcSpreadCm = spread;
   if (med < 0.0f) {
     hcValid = false;
+    hcStableNow = false;
+    hcPrevTrusted = false;
     hcNewSample = true;
     return;
   }
 
-  // Jump gate: a sudden large change from the last accepted distance is treated
-  // as noise and ignored until it repeats HC_JUMP_CONFIRM times. This rejects
-  // short spurious bursts (crosstalk, ringing) without slowing a real person,
-  // whose distance changes smoothly.
-  if (hcValid && fabsf(med - hcDistanceCm) > HC_JUMP_CM) {
-    if (hcJumpCount < 255) hcJumpCount++;
-    if (hcJumpCount < HC_JUMP_CONFIRM) {
-      haveHcReading = true;
-      lastValidHcMs = millis();
-      return;                              // keep the previous accepted distance
-    }
-  } else {
-    hcJumpCount = 0;
-  }
+  // STABILITY GATE: a smooth echo (person walking in, or standing still) is
+  // trusted; a flickering one is not. Untrusted readings still update the
+  // displayed/learned distance, but they are never used for detection, so the
+  // flicker that used to turn the mirror on by itself is ignored.
+  hcReversals = countHcReversals();
+  hcStableNow = (hcReversals <= HC_MAX_REVERSALS);
 
   float prevCm = hcDistanceCm;
-  bool  hadPrev = haveHcReading;
+  bool  hadPrev = haveHcReading && hcPrevTrusted;
   hcDistanceCm = med;
   hcValid = true;
   haveHcReading = true;
+  hcPrevTrusted = hcStableNow;
   lastValidHcMs = millis();
   hcNewSample = true;
 
   // A real person approaching the mirror produces readings that get steadily
   // closer. Count each approach step: a small/static object gives at most one
   // step (the moment it appears) while a walking person gives several, so only
-  // a big approaching object can reach HC_CLOSE_STEPS.
-  if (hadPrev && med <= prevCm - HC_CLOSE_STEP_CM) {
+  // a big approaching object can reach HC_CLOSE_STEPS. Only TRUSTED readings
+  // are chained, so flicker cannot manufacture approach steps.
+  if (hadPrev && hcStableNow && med <= prevCm - HC_CLOSE_STEP_CM) {
     if (hcClosingSteps < 255) hcClosingSteps++;
   }
 }
@@ -1882,7 +1949,7 @@ void logHcDiag() {
   e.baseCm = hcBaselineCm;
   e.flags = (uint8_t)((hcValid ? 0x01 : 0) | (mirrorApproachNow ? 0x02 : 0) |
                       (mirrorNearNow ? 0x04 : 0) | (personDetected ? 0x08 : 0) |
-                      (relay1On ? 0x10 : 0));
+                      (relay1On ? 0x10 : 0) | (hcStableNow ? 0x20 : 0));
   e.steps = hcClosingSteps;
   e.run = hcNearRun;
   hcLogHead = (hcLogHead + 1) % HC_LOG_N;
@@ -1890,11 +1957,12 @@ void logHcDiag() {
 
   if (++hcDebugCount < HC_DEBUG_EVERY) return;
   hcDebugCount = 0;
-  DBG("[B] HC raw=%luus rawcm=%.1f dist=%.1f valid=%d base=%.1f "
+  DBG("[B] HC raw=%luus rawcm=%.1f dist=%.1f valid=%d stable=%d rev=%u spread=%.1f base=%.1f "
       "appr=%d near=%d steps=%u run=%u warm=%d person=%d relay1=%d\n",
       (unsigned long)hcLastEchoUs,
       hcHaveRaw ? hcLastRawCm : -1.0f,
-      hcDistanceCm, hcValid ? 1 : 0, hcBaselineCm,
+      hcDistanceCm, hcValid ? 1 : 0, hcStableNow ? 1 : 0, (unsigned)hcReversals,
+      hcSpreadCm, hcBaselineCm,
       mirrorApproachNow ? 1 : 0, mirrorNearNow ? 1 : 0,
       (unsigned)hcClosingSteps, (unsigned)hcNearRun,
       mirrorWarmupNow ? 1 : 0, personDetected ? 1 : 0, relay1On ? 1 : 0);
@@ -1944,10 +2012,12 @@ void updateAutoRelay1() {
 
   // A person must be clearly closer than the background, not just below the
   // fixed on-threshold, otherwise ambient readings hovering around the
-  // threshold would keep triggering detection.
-  bool approach = (hcBaselineCm <= 0.0f) ||
-                  (hcDistanceCm < hcBaselineCm - HC_NEAR_DROP_CM);
-  bool nearNow  = hcValid && approach && (hcDistanceCm < settings.mirrorOnCm);
+  // threshold would keep triggering detection. Only SMOOTH (trusted) readings
+  // may raise the mirror, so the empty-room flicker is ignored entirely.
+  bool trusted  = hcValid && hcStableNow;
+  bool approach = trusted && ((hcBaselineCm <= 0.0f) ||
+                  (hcDistanceCm < hcBaselineCm - HC_NEAR_DROP_CM));
+  bool nearNow  = trusted && approach && (hcDistanceCm < settings.mirrorOnCm);
 
   mirrorApproachNow = approach;
   mirrorNearNow = nearNow;
@@ -1969,9 +2039,10 @@ void updateAutoRelay1() {
     return;
   }
 
-  // Forget the approach as soon as the reading returns to the background, so
-  // every detection needs a fresh approach from the background.
-  if (!hcValid || hcDistanceCm >= hcBaselineCm - HC_BASELINE_BAND_CM) {
+  // Forget the approach as soon as the reading returns to the background (or
+  // stops being trustworthy), so every detection needs a fresh approach from
+  // the background.
+  if (!trusted || hcDistanceCm >= hcBaselineCm - HC_BASELINE_BAND_CM) {
     hcClosingSteps = 0;
   }
 
@@ -1994,6 +2065,14 @@ void updateAutoRelay1() {
         DBG("[B] Person cleared after sensor dropout (1 s hold)\n");
       }
     }
+  } else if (!hcStableNow) {
+    // Flicker: the echo is jumping around, so it is not trustworthy. Pause
+    // detection WITHOUT changing the current person state - a brief flicker
+    // while a person is present must not drop the mirror, and flicker in an
+    // empty room (the original false trigger) can never raise it.
+    hcNearSinceMs = 0;
+    hcNearRun = 0;
+    hcFarSinceMs = now;
   } else if (nearNow) {
     hcFarSinceMs = 0;
     personClearSinceMs = 0;               // person is back: cancel off-delay
@@ -2268,15 +2347,36 @@ void drawOled() {
   display.setDrawColor(1);
   display.setFontMode(1);
 
+  // --- Right-edge vertical level bar ---------------------------------------
+  // A slim rectangle spanning the full height at the right edge: just an
+  // outline at 0 %, filled from the bottom up at 100 %. It is drawn first so
+  // the text can be kept to its left.
+  const int16_t BAR_W = 9;
+  const int16_t barX  = OLED_WIDTH - BAR_W;      // 119 .. 127
+  const int16_t barY  = 0;
+  const int16_t barH  = OLED_HEIGHT;             // full height (top to bottom)
+  const int16_t textRight = barX - 2;            // text must stay left of this
+
+  float pct = haveValidWater ? lastValidPercent : 0.0f;
+  if (pct < 0.0f)   pct = 0.0f;
+  if (pct > 100.0f) pct = 100.0f;
+
+  display.drawFrame(barX, barY, BAR_W, barH);
+  int16_t innerH = barH - 2;
+  int16_t fillH  = (int16_t)lroundf((float)innerH * pct / 100.0f);
+  if (fillH > innerH) fillH = innerH;
+  if (fillH > 0) {
+    display.drawBox(barX + 1, barY + 1 + (innerH - fillH), BAR_W - 2, fillH);
+  }
+
   char pctNum[8];
   if (haveValidWater) snprintf(pctNum, sizeof(pctNum), "%d", (int)lroundf(lastValidPercent));
   else                snprintf(pctNum, sizeof(pctNum), "--");
 
   if (show & OLED_SHOW_PERCENT) {
-    // Draw number + custom '%' fully inside frame above footer (y ~0..51).
-    // FreeSans Bold is much wider and heavier than the old logisoso face:
-    // the largest size uses fub42, where "100" is 91 px wide and 44 px tall
-    // (the old font was 62 x 38 px), filling almost the whole 128 px panel.
+    // FreeSans Bold digits, LEFT aligned. A wider/bolder face makes the curves
+    // read smoother on this 1-bit panel; the custom '%' is sized so "NNN%"
+    // still fits in the space left of the level bar.
     const uint8_t *numFont = u8g2_font_fub42_tn;
     int16_t baseline = 46;
     int16_t areaH = 44;
@@ -2289,22 +2389,31 @@ void drawOled() {
     }
 
     display.setFont(numFont);
-    int16_t signW = (areaH * 3) / 4;              // wide custom percent symbol
-    if (signW > 29) signW = 29;                   // keep "100%" inside 128 px
     int16_t gap = (areaH >= 40) ? 2 : 4;
     int16_t extra = (areaH >= 40) ? 0 : (int16_t)strlen(pctNum) * 2;
 
     // Use the real per-glyph advance for the number width: getStrWidth() on
     // the whole string includes side bearings that are not drawn when each
-    // glyph is placed individually, and that difference overflowed the panel.
+    // glyph is placed individually.
     int16_t numW = 0;
     for (size_t i = 0; pctNum[i]; i++) {
       char ch[2] = {pctNum[i], 0};
       numW += (int16_t)display.getStrWidth(ch) + extra;
     }
-    int16_t totalW = numW + gap + signW;
-    int16_t x = (OLED_WIDTH - totalW) / 2;
-    if (x < 0) x = 0;
+
+    // Custom '%' symbol width, shrunk so the whole "NNN%" fits the text area.
+    int16_t signW = (areaH * 3) / 4;
+    if (signW > 29) signW = 29;
+    if (numW + gap + signW > textRight) {
+      signW = textRight - numW - gap;
+      if (signW < 8) signW = 8;
+    }
+
+    int16_t x = 0;                                // LEFT aligned
+    if (x + numW + gap + signW > textRight) {
+      x = textRight - (numW + gap + signW);
+      if (x < 0) x = 0;
+    }
 
     // Draw digits twice with 1px horizontal offset for wider/bolder look.
     for (int pass = 0; pass < 2; pass++) {
@@ -2323,6 +2432,7 @@ void drawOled() {
     int16_t bottomY = topY + areaH - 3;
     if (bottomY > 49) bottomY = 49;
     int16_t r = (areaH >= 40) ? 6 : (areaH >= 36) ? 5 : 4;
+    if (r > signW / 2) r = signW / 2;
     int16_t x1 = sx + r + 1;
     int16_t y1 = topY + r;
     int16_t x2 = sx + signW - r - 1;
@@ -2332,7 +2442,7 @@ void drawOled() {
     for (int t = -1; t <= tMax; t++) {
       display.drawLine(x1 + t, y2, x2 + t, y1);
     }
-    // Three concentric rings on the big size give the dots a bold weight.
+    // Concentric rings give the dots a bold weight.
     int16_t ringMin = r - ((areaH >= 40) ? 2 : 1);
     for (int rr = r; rr >= ringMin; rr--) {
       display.drawCircle(x1, y1, rr, U8G2_DRAW_ALL);
@@ -2344,26 +2454,33 @@ void drawOled() {
   if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
   else                snprintf(litres, sizeof(litres), "--L");
 
-  // Slightly larger footer text, kept at bottom.
-  const uint8_t *bottomFont = u8g2_font_6x10_tf;
-  if (settings.oledBottomSize >= 4)      bottomFont = u8g2_font_9x15B_tf;
-  else if (settings.oledBottomSize == 3) bottomFont = u8g2_font_8x13B_tf;
-  else if (settings.oledBottomSize == 2) bottomFont = u8g2_font_7x13B_tf;
-  display.setFont(bottomFont);
+  // Footer, LEFT aligned. It uses the SAME FreeSans Bold family as the big
+  // percentage, so every glyph on the panel matches and the curves render with
+  // more pixels (smoother) than the old blocky pixel font. The litre value is
+  // drawn one notch larger than the rest of the footer ("a very little increase
+  // of the litre digit") but still in the same family.
+  const uint8_t *footFont  = u8g2_font_fub11_tf;
+  const uint8_t *litreFont = u8g2_font_fub14_tf;
+  if (settings.oledBottomSize >= 2) {
+    footFont  = u8g2_font_fub14_tf;
+    litreFont = u8g2_font_fub14_tf;   // cap at 14 px so it clears the big number
+  }
 
+  int16_t fx = 0;
+  if (show & OLED_SHOW_BOTTOM_L) {
+    display.setFont(litreFont);
+    display.drawStr(fx, 63, litres);
+    fx += (int16_t)display.getStrWidth(litres) + 3;
+  }
+  display.setFont(footFont);
   if ((show & OLED_SHOW_DISTANCE) && haveValidWater) {
     char dist[16];
     snprintf(dist, sizeof(dist), "%.0fcm", lastValidDistanceCm);
-    display.drawStr(0, 63, dist);
+    display.drawStr(fx, 63, dist);
   } else if (show & OLED_SHOW_LINK) {
-    display.drawStr(0, 63, linkNow ? "CONNECTED" : "NO LINK");
+    display.drawStr(fx, 63, linkNow ? "CONNECTED" : "NO LINK");
   } else if (show & OLED_SHOW_STATUS) {
-    display.drawStr(0, 63, linkNow ? "LIVE" : "STALE");
-  }
-  if (show & OLED_SHOW_BOTTOM_L) {
-    int16_t x = OLED_WIDTH - (int16_t)display.getStrWidth(litres);
-    if (x < 0) x = 0;
-    display.drawStr(x, 63, litres);
+    display.drawStr(fx, 63, linkNow ? "LIVE" : "STALE");
   }
 
   display.sendBuffer();
@@ -2403,6 +2520,9 @@ String buildStateJson() {
   else                  j += "-1";
 
   j += ",\"hcsr04Valid\":";  j += hcValid ? "true" : "false";
+  j += ",\"hcsr04Stable\":"; j += hcStableNow ? "true" : "false";
+  j += ",\"hcsr04SpreadCm\":"; j += String(hcSpreadCm, 1);
+  j += ",\"hcsr04Reversals\":"; j += String((unsigned)hcReversals);
   j += ",\"hcsr04Distance\":"; j += jsonFloatOrNull(haveHcReading, hcDistanceCm, 1);
   j += ",\"hcsr04RawCm\":"; j += jsonFloatOrNull(hcHaveRaw, hcLastRawCm, 1);
   j += ",\"hcsr04EchoUs\":"; j += String(hcLastEchoUs);
@@ -2625,6 +2745,9 @@ void handleHcApi() {
   j += ",\"raw\":"; j += jsonFloatOrNull(hcHaveRaw, hcLastRawCm, 1);
   j += ",\"echoUs\":"; j += String(hcLastEchoUs);
   j += ",\"valid\":"; j += hcValid ? "true" : "false";
+  j += ",\"stable\":"; j += hcStableNow ? "true" : "false";
+  j += ",\"spread\":"; j += String(hcSpreadCm, 1);
+  j += ",\"rev\":"; j += String((unsigned)hcReversals);
   j += ",\"base\":"; j += jsonFloatOrNull(hcBaselineCm > 0.0f, hcBaselineCm, 1);
   j += ",\"appr\":"; j += mirrorApproachNow ? "true" : "false";
   j += ",\"near\":"; j += mirrorNearNow ? "true" : "false";
@@ -2640,6 +2763,8 @@ void handleHcApi() {
   j += ",\"minRun\":"; j += String((unsigned)HC_NEAR_RUN_SAMPLES);
   j += ",\"confirmMs\":"; j += String((unsigned)HC_MIN_ON_CONFIRM_MS);
   j += ",\"warmupMs\":"; j += String((unsigned long)HC_WARMUP_MS);
+  j += ",\"maxRev\":"; j += String((unsigned)HC_MAX_REVERSALS);
+  j += ",\"revCm\":"; j += String(HC_REVERSAL_CM, 1);
 
   uint32_t nowMs = millis();
   j += ",\"log\":[";
@@ -3481,13 +3606,15 @@ void setup() {
                 settings.mirrorOnCm, settings.mirrorOffCm,
                 (unsigned)settings.mirrorInvalidHoldoffMs);
   Serial.printf("Person gate: >= %.0f cm closer than background, %u approach steps, "
-                "%u near readings, %lu ms confirm, %lu ms warm-up\n",
+                "%u near readings, %lu ms confirm, %lu ms warm-up, "
+                "window smooth <= %u direction reversals (>= %.0f cm)\n",
                 HC_NEAR_DROP_CM, (unsigned)HC_CLOSE_STEPS,
                 (unsigned)HC_NEAR_RUN_SAMPLES,
                 (unsigned long)HC_MIN_ON_CONFIRM_MS,
-                (unsigned long)HC_WARMUP_MS);
-  Serial.println("HC diagnostics: one 'HC raw=... dist=... base=...' line every "
-                 "2 samples (see below)");
+                (unsigned long)HC_WARMUP_MS,
+                (unsigned)HC_MAX_REVERSALS, HC_REVERSAL_CM);
+  Serial.println("HC diagnostics: one 'HC raw=... dist=... stable=... rev=... spread=...' "
+                 "line every 2 samples (see below)");
   Serial.printf("History: %s, every %u s, retain %u days (%lu lines)\n",
                 settings.historyEnabled ? "enabled" : "disabled",
                 (unsigned)settings.historyIntervalSec,

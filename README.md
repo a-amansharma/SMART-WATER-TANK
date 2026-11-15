@@ -386,15 +386,27 @@ with the shared calibration, which catches an old or reversed calibration on A.
 - **Warm-up:** detection is disabled for the first **4 s** after boot (and after
   the mirror is re-enabled) while the background settles, so the initial
   readings cannot trigger the light.
+- **Smoothness (flicker) gate — the fix for the false triggers:** the recent
+  echoes are kept in a sliding window and the firmware counts how many times the
+  reading **changes direction** across it. A real object returns a smooth echo:
+  a person walking in changes steadily in one direction and a person standing
+  still does not change at all, so both give **0–1 reversals** and are trusted.
+  The empty-room flicker that used to turn the light on by itself jumps back and
+  forth, giving many reversals, so those readings are marked **untrusted** and
+  can never raise the mirror. (Reversals are used instead of raw spread so that a
+  person walking in quickly — whose readings cover a wide range — is still
+  trusted.) A trusted reading also updates the learned distance, so the display
+  and background stay correct; only *detection* is skipped.
 - **Noise rejection:** readings below 12 cm are treated as invalid spurious
-  echoes; a sudden change of more than 35 cm from the last accepted distance is
-  ignored until it repeats 3 times; and a detection needs **5 consecutive
-  accepted near readings plus a minimum 1000 ms confirm time**. Short bursts and
-  glitches no longer turn the light on.
+  echoes; the distance is the **median of the window** (so one bad echo cannot
+  swing it); and a detection needs **5 consecutive trusted near readings plus a
+  minimum 1200 ms confirm time**. Short bursts and glitches no longer turn the
+  light on.
 - **Live diagnostics:** the serial monitor (115200 baud) prints one line every
   2 samples —
-  `HC raw=…us rawcm=… dist=… valid=… base=… appr=… near=… steps=… run=… warm=… person=… relay1=…`
+  `HC raw=…us rawcm=… dist=… valid=… stable=… rev=… spread=… base=… appr=… near=… steps=… run=… warm=… person=… relay1=…`
   — and the same values (`hcsr04Distance`, `hcsr04RawCm`, `hcsr04EchoUs`,
+  `hcsr04Valid`, `hcsr04Stable`, `hcsr04Reversals`, `hcsr04SpreadCm`,
   `mirrorBackgroundCm`, `mirrorApproach`, `mirrorNear`, `mirrorClosingSteps`,
   `mirrorNearRun`, `mirrorWarmup`, `personDetected`, `relay1`) are in
   `/api/state` and shown under the Mirror tile on the dashboard. Without a USB
@@ -592,7 +604,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,193,102 bytes (91 %) | 56,976 bytes (17 %) |
+| ESP32_B | 1,193,282 bytes (91 %) | 56,992 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -619,12 +631,14 @@ available on the web. Open `http://192.168.4.1/hc` (or tap **HC-SR04 ↗** on th
 dashboard) while connected to the `Smart Water Tank` AP. The page polls
 `/api/hc` ~4×/sec and shows:
 
-- **Distance / Raw / Background / Echo** cards (filtered distance, raw
-  pre-filter distance, learned background, raw echo width in µs).
-- Status chips: `valid`, `approach`, `near`, `warm-up`, `steps n/2`, `run n/5`,
-  `person`, `relay1`.
-- A rolling table of the last 48 samples (raw, dist, base, valid, appr, near,
-  steps, run, person, relay1).
+- **Distance / Raw / Reversals / Spread / Background / Echo** cards (filtered
+  distance, raw pre-filter distance, window direction reversals, window spread,
+  learned background, raw echo width in µs). The **Reversals** card turns green
+  when the window is smooth enough to be trusted.
+- Status chips: `valid`, `stable`, `approach`, `near`, `warm-up`, `steps n/2`,
+  `run n/5`, `person`, `relay1`.
+- A rolling table of the last 48 samples (raw, dist, base, valid, stbl, appr,
+  near, steps, run, person, relay1).
 
 Use it to see exactly why the mirror light does or does not turn on. This is the
 recommended way to tune the mirror detection when no USB serial is available.
@@ -723,7 +737,7 @@ sampling interval, not wall-clock time.
 | Buzzer never reaches full alert | If the tank tops out below 95 %, the sensor cannot see the real full level; fix the mounting or lower the full calibration. |
 | Percentage disagrees with distance | Check the serial log for `percent/distance disagree`; A is running an old calibration. |
 | Mirror Light flickers | Keep HC-SR04 away from reflective surfaces; check its 5 V supply. |
-| Mirror Light turns on with nobody there | Watch the serial `HC …` line or `/api/state`: if `base` is far from `dist` and `appr=1` while `steps` keeps growing, something is really moving in the beam; if `dist` sits below `base-25` with `steps` stuck, the background is being learned too close — move the sensor away from reflections or lower `mirrorOnCm`. |
+| Mirror Light turns on with nobody there | The empty-room echo is flickering. Watch `/hc` or the serial `HC …` line: while nobody is present `stable` should read **0** and `rev` should be **high** (the flicker is being rejected). If `stable=1` and `person=YES` with nobody there, tell me the `dist`/`base`/`rev` values so the gate can be tuned. |
 | Mirror Light stays on | A person is within 105 cm, phone manual ON is active, or override is on. |
 | Relay works backwards | Change `RELAY_ACTIVE_HIGH`. |
 | Buzzer never sounds | NPN pinout, 1 kΩ base resistor, buzzer polarity, `BUZZER_IS_ACTIVE`. |
@@ -736,7 +750,30 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: mirror detection hardening + live HC-SR04 diagnostics (ESP32_B only)
+### Latest: mirror flicker fix + OLED layout (ESP32_B only)
+
+- **False-trigger root cause:** with nobody in front, the empty-room echo
+  **flickers** (the reading jumps around), and those flicker dips were being
+  treated as a person. Fixed with a **smoothness (reversal) gate**: the last 6
+  echoes are kept in a sliding window and the firmware counts direction changes.
+  A person walking in (steady one-way change) or standing still gives **0–1
+  reversals** and is trusted; flicker gives many and is marked **untrusted**, so
+  it can never raise the mirror. Untrusted readings still update the display and
+  the learned background — only *detection* is skipped.
+- The median is now taken over a **6-sample window** (was 5) and the old 35 cm
+  jump gate was removed (the median plus the reversal gate handle noise better).
+- Confirm time raised to **1200 ms**.
+- **Live diagnostics extended:** `stable`, `rev` (reversals) and `spread` are now
+  in the serial line, `/api/state` and `/api/hc`; the `/hc` page shows a
+  **Reversals** card and a `stbl` column so the flicker can be watched directly.
+- **OLED layout:** all text is **left aligned**; the big percentage and the
+  footer now use the **same FreeSans Bold family** (smoother curves than the old
+  pixel font); the litre value is drawn slightly larger; and a slim **vertical
+  level bar** on the right edge spans the full height — an empty outline at 0 %
+  filling from the bottom up to a full box at 100 %.
+- No change to ESP32_A or the wiring.
+
+### Earlier: mirror detection hardening + live HC-SR04 diagnostics (ESP32_B only)
 
 - **Root cause found:** the learned background could get stuck at a wrong
   (too far) value and was never allowed to re-learn downward, so a constant
