@@ -11,8 +11,9 @@
     * receive water level, touch states and START/STOP commands from ESP32_A
     * send sensor/status information back to ESP32_A
     * 750 L tank percentage/volume model, full-tank buzzer
-    * topmost (GPIO 4) probe -> BLUE LED, overflow (GPIO 15) probe -> RED LED
-      (both steady, 2 s deadband), and dashboard capsules
+    * BLUE LED (GPIO 16) glows while the level is gradually filling; RED LED
+      (GPIO 17) blinks in sync with the buzzer beeps. The A-side level probes
+      are no longer used.
     * HC-SR04 person detection -> Relay 1 automatic mirror light
     * phone Mirror Light control, 3 s button manual override, Relay 2, RF
     * 0.96" I2C OLED, Wi-Fi AP "Smart Water Tank", local dashboard
@@ -91,8 +92,8 @@ static const char OTA_PASSWORD[] = "dks12345";  // >>> CHANGE before deployment
 #define PIN_BTN_BUZZER_STOP 4    // other side of button to GND; INPUT_PULLUP
 #define BUTTON_ACTIVE_LOW   true
 
-#define PIN_IND_BLUE       16   // TOPMOST (GPIO 4) indicator (NPN/MOSFET driver)
-#define PIN_IND_RED        17   // OVERFLOW (GPIO 15) indicator
+#define PIN_IND_BLUE       16   // BLUE indicator (filling glow) (NPN/MOSFET driver)
+#define PIN_IND_RED        17   // RED indicator (blinks in sync with the buzzer)
 #define IND_ACTIVE_HIGH    true
 
 #define PIN_RF_START       18   // to isolated remote-button switching circuit
@@ -161,13 +162,21 @@ static const uint32_t BUTTON_LONG_PRESS_MS   = 3000;
 static const float    FULL_LEVEL_PERCENT     = 95.0f; // buzzer alert threshold
 static const uint8_t  FULL_CONFIRM_READINGS  = 2;
 static const float    REARM_PERCENT          = 92.0f;
-static const uint32_t BUZZER_ALERT_MAX_MS    = 40000;
+static const uint32_t BUZZER_ALERT_MAX_MS    = 30000;  // buzzer auto-stops after 30 s
 static const uint32_t BUZZER_TEST_MS         = 5000;
 static const uint32_t BUZZER_BEEP_PERIOD_MS  = 200;  // 5 beeps per second
 static const uint32_t BUZZER_BEEP_ON_MS      = 80;
 
+// Fill detection (blue LED). Water fills slowly, so only gradual small rises
+// count. A single jump >= FILL_MAX_STEP_PCT is a spike and is ignored.
+static const float    FILL_RISE_PCT          = 2.0f;   // total rise that marks "filling"
+static const float    FILL_MIN_STEP_PCT      = 0.2f;   // ignore sub-noise changes
+static const float    FILL_MAX_STEP_PCT      = 5.0f;   // single jump this big = spike
+static const uint32_t FILL_DEADBAND_MS       = 1000;   // evaluate at most once per second
+static const uint32_t FILL_STABLE_MS         = 3000;   // stop after this much stability
+
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
-#define B_SETTINGS_VERSION 7u          // bumped: OLED layout back to a fixed design
+#define B_SETTINGS_VERSION 8u          // bumped: 30 s buzzer auto-stop default
 
 // History storage limits. Samples are CSV lines in LittleFS; old lines are
 // compacted automatically so the log stays bounded.
@@ -458,7 +467,6 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .capsule{font-size:10px;font-weight:900;letter-spacing:.6px;border-radius:999px;padding:6px 10px;border:1px solid #dbe3eb;background:#f3f7fa;color:#65768a}
 .capsule.hidden{display:none}
 .capsule.filling.active{color:#fff;border-color:#2eb7f0;background:#1697d8}
-.capsule.overflowing.active{color:#fff;border-color:#f27182;background:#e03a52}
 .capsule.stable{color:#087c4a;border-color:#b9e6cd;background:#e9f9f0}
 .capsule.stable.offline{color:#bd2d40;border-color:#efbdc4;background:#fff0f2}
 .distance{font-size:10px;color:#6f8195;font-weight:700;text-align:right}
@@ -521,8 +529,7 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
  <div class="scale"><span>0 L · EMPTY</span><span id="scaleFull">750 L · FULL</span></div>
  <div class="tank-bottom">
   <div class="touch-capsules">
-   <span class="capsule filling hidden" id="fillCapsule">TOP LEVEL</span>
-   <span class="capsule overflowing hidden" id="overflowCapsule">OVERFLOWING</span>
+   <span class="capsule filling hidden" id="fillCapsule">FILLING</span>
    <span class="capsule stable" id="stableCapsule">STABLE</span>
   </div>
   <span class="distance" id="distance">Sensor distance: —</span>
@@ -589,7 +596,7 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
 const $=id=>document.getElementById(id);
 const tankCard=$('tankCard'), connection=$('connection'), connectionText=$('connectionText');
 const percentEl=$('percent'), litresEl=$('litres'), barEl=$('bar'), distanceEl=$('distance');
-const fillCapsule=$('fillCapsule'), overflowCapsule=$('overflowCapsule'), stableCapsule=$('stableCapsule');
+const fillCapsule=$('fillCapsule'), stableCapsule=$('stableCapsule');
 const motorStatusEl=$('motorStatus');
 const relay1Btn=$('relay1'), relay2Btn=$('relay2'), mirrorTile=$('mirrorTile'), bulbTile=$('bulbTile');
 const r1state=$('r1state'), r2state=$('r2state'), mirrorInfo=$('mirrorInfo'), buzzerStateEl=$('buzzerState');
@@ -597,7 +604,7 @@ const startBtn=$('motorStart'), stopBtn=$('motorStop');
 const ledRedBtn=$('ledTestRed'), ledBlueBtn=$('ledTestBlue');
 
 const POLL_MS=700, POLL_TIMEOUT_MS=2500;
-let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,draining:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,hcsr04RawCm:null,mirrorBackgroundCm:null,mirrorApproach:false,mirrorNear:false,mirrorWarmup:false,mirrorClosingSteps:0,mirrorNearRun:0,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,indBlueTest:false,indRedTest:false,capacityL:750};
+let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,hcsr04RawCm:null,mirrorBackgroundCm:null,mirrorApproach:false,mirrorNear:false,mirrorWarmup:false,mirrorClosingSteps:0,mirrorNearRun:0,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,indBlueTest:false,indRedTest:false,capacityL:750};
 let reachable=false, failures=0, inFlight=false, pollTimer=null;
 let mirrorBusy=false, bulbBusy=false, buzzerBusy=false, ledBlueBusy=false, ledRedBusy=false;
 const motor={start:{btn:startBtn,held:false,pointerId:null},stop:{btn:stopBtn,held:false,pointerId:null}};
@@ -633,10 +640,9 @@ function render(s){
   distanceEl.textContent=linkOk?'Waiting for valid water data…':'ESP-NOW link to ESP32_A unavailable';
  }
 
- const filling=(s.filling===true), overflowing=(s.draining===true);
+ const filling=(s.filling===true);
  fillCapsule.classList.toggle('hidden',!filling); fillCapsule.classList.toggle('active',filling);
- overflowCapsule.classList.toggle('hidden',!overflowing); overflowCapsule.classList.toggle('active',overflowing);
- stableCapsule.classList.toggle('hidden',filling||overflowing);
+ stableCapsule.classList.toggle('hidden',filling);
  stableCapsule.classList.toggle('offline',!linkOk);
  stableCapsule.textContent=linkOk?'STABLE':'NO A LINK';
 
@@ -988,8 +994,15 @@ bool     lastPacketValid = false;
 float    lastValidPercent = 0.0f;
 float    lastValidDistanceCm = 0.0f;
 uint16_t lastValidLitres = 0;
+// --- Filling detection (blue LED) ---
+// fillingActive is true while the level is rising gradually. It is computed on
+// ESP32_B from the percentage (the A-side level probes are no longer used).
 bool     fillingActive = false;
-bool     drainingActive = false;
+float    fillLastPercent = 0.0f;
+float    fillRefPercent = 0.0f;    // baseline for the current rise window
+uint32_t fillLastRiseMs = 0;
+uint32_t fillLastEvalMs = 0;
+bool     fillHaveRef = false;
 uint32_t lastValidRxMs = 0;
 uint32_t lastAnyRxMs = 0;
 uint32_t lastSeq = 0;
@@ -1002,6 +1015,7 @@ uint8_t  aProtocolVersion = PROTOCOL_VERSION;
 bool     buzzerAlerting = false;      // level-based full-tank alert
 bool     buzzerTesting = false;
 bool     buzzerArmed = true;
+bool     buzzerOutputOn = false;      // current beep phase (RED LED follows this)
 uint32_t buzzerStartMs = 0;
 uint32_t buzzerTestStartMs = 0;
 uint8_t  fullConfirmCount = 0;
@@ -1104,8 +1118,7 @@ bool     prevBlue = false;
 bool     prevRed = false;
 
 // --- Indicator LED test overrides (dashboard test buttons) ---
-// While a flag is true the matching indicator LED is forced ON, regardless of
-// the topmost/overflow probe state or a lost ESP-NOW link. Toggle from the
+// While a flag is true the matching indicator LED is forced ON. Toggle from the
 // dashboard.
 bool     indBlueTestOn = false;
 bool     indRedTestOn  = false;
@@ -1647,6 +1660,7 @@ void writeIndicatorPin(uint8_t pin, bool on) {
 void setBuzzerOutput(bool on) {
   // Active buzzer (e.g. TMB12A05): GPIO13 -> 1k -> NPN base, emitter GND,
   // collector -> buzzer(-), buzzer(+) -> +5V. HIGH on GPIO turns NPN on => beep.
+  buzzerOutputOn = on;   // the RED LED mirrors this so it blinks with the beeps
   pinMode(PIN_BUZZER, OUTPUT);
   noTone(PIN_BUZZER);
   if (!BUZZER_IS_ACTIVE) {
@@ -2332,11 +2346,10 @@ uint32_t motorRemainingMs(bool startChannel) {
    ========================================================================== */
 
 void updateIndicators(bool linkOnlineNow) {
-  // GPIO 4 topmost probe  -> BLUE LED (steady)
-  // GPIO 15 overflow probe -> RED LED  (steady)
-  // Both LEDs follow A's 2 s deadband; no LED ever blinks.
+  // BLUE LED: steady ON while the level is gradually filling (see
+  // serviceFillDetect). RED LED: blinks in sync with the buzzer beeps.
   bool blue = indBlueTestOn || (linkOnlineNow && fillingActive);
-  bool red  = indRedTestOn  || (linkOnlineNow && drainingActive);
+  bool red  = indRedTestOn  || buzzerOutputOn;
   if (blue != prevBlue) {
     writeIndicatorPin(PIN_IND_BLUE, blue);
     prevBlue = blue;
@@ -2361,7 +2374,7 @@ void serviceLink() {
 
   if (prevLinkOnline && !linkNow) {
     fillingActive = false;
-    drainingActive = false;
+    fillHaveRef = false;
     // Do not force the pins off here: updateIndicators() still applies any
     // active LED test override from the dashboard.
     logEvent(6, 0);
@@ -2374,6 +2387,54 @@ void serviceLink() {
   prevOnline = waterNow;
   prevLinkOnline = linkNow;
   updateIndicators(linkNow);
+}
+
+// Detect gradual filling from the percentage and drive the BLUE LED:
+//   - evaluated at most once per second (1 s deadband)
+//   - only small, gradual rises count; a single jump >= FILL_MAX_STEP_PCT is a
+//     spike (water fills slowly) and is ignored
+//   - the LED turns on once the level has risen FILL_RISE_PCT above the window
+//     baseline, and turns off after the level has been stable for FILL_STABLE_MS
+void serviceFillDetect() {
+  if (!haveValidWater || !computeLinkOnline()) {
+    fillingActive = false;
+    fillHaveRef = false;
+    return;
+  }
+
+  uint32_t now = millis();
+  if ((uint32_t)(now - fillLastEvalMs) < FILL_DEADBAND_MS) return;
+  fillLastEvalMs = now;
+
+  float p = lastValidPercent;
+  if (!fillHaveRef) {
+    fillHaveRef = true;
+    fillRefPercent = p;
+    fillLastPercent = p;
+    fillLastRiseMs = now;
+    return;
+  }
+
+  float step = p - fillLastPercent;
+  if (step >= FILL_MAX_STEP_PCT) {
+    // A single large jump is a spike: ignore it and re-baseline.
+    fillRefPercent = p;
+  } else if (step >= FILL_MIN_STEP_PCT) {
+    fillLastRiseMs = now;
+    if (p - fillRefPercent >= FILL_RISE_PCT && !fillingActive) {
+      fillingActive = true;
+      DBGLN("[B] Filling detected -> BLUE LED");
+    }
+  } else if (step <= -FILL_MIN_STEP_PCT) {
+    if (p < fillRefPercent) fillRefPercent = p;   // falling resets the window
+  }
+  fillLastPercent = p;
+
+  if ((uint32_t)(now - fillLastRiseMs) >= FILL_STABLE_MS) {
+    if (fillingActive) DBGLN("[B] Filling stopped (level stable)");
+    fillingActive = false;
+    fillRefPercent = p;                            // new baseline
+  }
 }
 
 /* ==========================================================================
@@ -2445,25 +2506,25 @@ void initOled() {
 }
 
 // Hand-drawn ESP-NOW link symbol: a tick when the link is up, a cross when it
-// is down. (cx, cy) is the centre of the symbol.
+// is down. (cx, cy) is the centre of the symbol. Sized to sit in the small
+// status bar next to the 8 px text.
 void drawLinkIcon(int16_t cx, int16_t cy, bool ok) {
   if (ok) {
-    display.drawLine(cx - 5, cy + 1, cx - 1, cy + 5);
-    display.drawLine(cx - 4, cy,     cx,     cy + 4);
-    display.drawLine(cx - 1, cy + 5, cx + 6, cy - 5);
-    display.drawLine(cx,     cy + 4, cx + 7, cy - 6);
+    display.drawLine(cx - 4, cy + 0, cx - 1, cy + 3);
+    display.drawLine(cx - 3, cy - 1, cx,     cy + 2);
+    display.drawLine(cx - 1, cy + 3, cx + 4, cy - 4);
+    display.drawLine(cx,     cy + 2, cx + 5, cy - 5);
   } else {
-    display.drawLine(cx - 4, cy - 5, cx + 4, cy + 5);
-    display.drawLine(cx - 3, cy - 5, cx + 5, cy + 5);
-    display.drawLine(cx - 4, cy + 5, cx + 4, cy - 5);
-    display.drawLine(cx - 3, cy + 5, cx + 5, cy - 5);
+    display.drawLine(cx - 3, cy - 4, cx + 3, cy + 4);
+    display.drawLine(cx - 2, cy - 4, cx + 4, cy + 4);
+    display.drawLine(cx - 3, cy + 4, cx + 3, cy - 4);
+    display.drawLine(cx - 2, cy + 4, cx + 4, cy - 4);
   }
 }
 
 // Fixed, simple OLED layout:
-//   - a thin status bar on top: ESP-NOW tick/cross left, litres right
-//   - a 1 px horizontal divider under the bar
-//   - the big percentage centred in the space below the divider
+//   - a small status bar on top: tick/cross left, litres right
+//   - the big percentage centred in the space below
 void drawOled() {
   if (!oledReady) return;
   if ((uint32_t)(millis() - lastOledMs) < OLED_REFRESH_MS) return;
@@ -2486,19 +2547,16 @@ void drawOled() {
   display.setDrawColor(1);
   display.setFontMode(1);
 
-  // ---- Status bar: link tick/cross (left) + litres (right) --------------
-  display.setFont(u8g2_font_fub11_tf);
-  drawLinkIcon(8, 6, linkNow);
+  // ---- Status bar: small smooth text, tick/cross (left) + litres (right) --
+  display.setFont(u8g2_font_helvB08_tf);
+  drawLinkIcon(7, 5, linkNow);
   char litres[12];
   if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
   else                snprintf(litres, sizeof(litres), "--L");
   int16_t lw = (int16_t)display.getStrWidth(litres);
-  display.drawStr(OLED_WIDTH - 2 - lw, 11, litres);
+  display.drawStr(OLED_WIDTH - 2 - lw, 9, litres);
 
-  // ---- Thin horizontal divider -----------------------------------------
-  display.drawHLine(0, 15, OLED_WIDTH);
-
-  // ---- Big percentage, centred below the divider -----------------------
+  // ---- Big percentage --------------------------------------------------
   char pctNum[8];
   if (haveValidWater) snprintf(pctNum, sizeof(pctNum), "%d", (int)lroundf(lastValidPercent));
   else                snprintf(pctNum, sizeof(pctNum), "--");
@@ -2528,11 +2586,11 @@ void drawOled() {
     if (signW < 8) signW = 8;
   }
 
-  // Centre the whole "NNN%" block in the region below the divider (y=16..63).
+  // Centre the whole "NNN%" block in the space below the status bar.
   int16_t totalW = numW + gap + signW;
   int16_t x = (OLED_WIDTH - totalW) / 2;
   if (x < 0) x = 0;
-  const int16_t regionTop = 16;
+  const int16_t regionTop = 13;
   const int16_t regionH = OLED_HEIGHT - regionTop;
   int16_t yTop = regionTop + (regionH - areaH) / 2;
   if (yTop < regionTop) yTop = regionTop;
@@ -2598,7 +2656,6 @@ String buildStateJson() {
   else                j += "null";
   j += ",\"distance\":";     j += jsonFloatOrNull(haveValidWater, lastValidDistanceCm, 1);
   j += ",\"filling\":";      j += fillingActive ? "true" : "false";
-  j += ",\"draining\":";     j += drainingActive ? "true" : "false";
   j += ",\"linkAgeMs\":";
   if (lastAnyRxMs != 0) j += String((uint32_t)(millis() - lastAnyRxMs));
   else                  j += "-1";
@@ -3401,21 +3458,9 @@ void handleWaterPacket(const RxItem &item) {
   lastAUptimeMs = uptimeMs;
   haveSeq = true;
   lastFlags = flags;
-  bool prevFilling = fillingActive;
-  bool prevDraining = drainingActive;
-  fillingActive = (filling != 0);
-  drainingActive = (draining != 0);
-
-  // GPIO 4 topmost probe -> BLUE LED; GPIO 15 overflow probe -> RED LED. Both
-  // LEDs are steady and follow the 2 s deadband applied on ESP32_A.
-  if (fillingActive && !prevFilling) {
-    DBGLN("[B] TOPMOST probe: water at top level -> BLUE LED");
-  } else if (!fillingActive && prevFilling) {
-    DBGLN("[B] TOPMOST probe clear");
-  }
-  if (drainingActive && !prevDraining) {
-    DBGLN("[B] OVERFLOW probe: water overflowing -> RED LED");
-  }
+  // The A-side level probes (filling/draining flags) are no longer used. The
+  // BLUE LED is driven by serviceFillDetect() and the RED LED follows the
+  // buzzer beeps.
 
   if (version >= 2) {
     lastAValidEchoes = validEchoes;
@@ -3725,6 +3770,7 @@ void loop() {
   ArduinoOTA.handle();
   serviceEspNowQueue();
   serviceLink();
+  serviceFillDetect();
   serviceHcSensor();
   updateAutoRelay1();
   serviceMotorSafety();

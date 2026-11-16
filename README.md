@@ -118,7 +118,7 @@ Sensor ECHO ---- R1 1 kΩ ----+---- ESP32 GPIO
 
 This gives approximately `5 × 2 / (1 + 2) = 3.33 V` at the GPIO.
 
-### Probes on ESP32_A
+### Probes on ESP32_A (currently unused)
 
 ```text
 ESP32_A GPIO 4  ---- TOPMOST level probe / tilt switch ---- GND
@@ -128,12 +128,11 @@ ESP32_A GPIO 15 ---- OVERFLOW probe / switch ------------- GND
 - Open circuit = inactive (internal pull-up holds GPIO HIGH).
 - Closed circuit to GND = active (GPIO reads LOW). Both probes are submerged
   sensors, so a submerged probe reads LOW.
-- **GPIO 4 (topmost):** when water reaches the topmost level, ESP32_B lights the
-  **BLUE LED**. The LED stays lit for **2 s** after the probe releases (deadband),
-  so brief flicker/bounce is ignored, then it turns off smoothly.
-- **GPIO 15 (overflow):** when water reaches the overflow probe, ESP32_B lights
-  the **RED LED**, with the same **2 s** deadband.
-- **No LED ever blinks** — both indicators are steady.
+- **These probes are no longer used by ESP32_B.** The indicator LEDs are now
+  driven locally: the **BLUE LED** glows while the level is gradually filling and
+  the **RED LED** blinks in sync with the buzzer (see
+  [Indicators](#indicators)). The wiring is unchanged, so the probes can be
+  re-enabled later.
 - For long probe leads, add a 10 kΩ pull-up from the GPIO to 3.3 V and a
   100 nF capacitor from GPIO to GND close to the ESP32.
 - Keep probe wiring away from mains wiring.
@@ -434,14 +433,14 @@ with the shared calibration, which catches an old or reversed calibration on A.
 ### Buzzer
 
 - **Level-based full alert:** starts when the level reaches **95 %** for 2
-  consecutive valid readings and beeps 5×/sec for up to **40 seconds**.
+  consecutive valid readings and beeps 5×/sec for up to **30 seconds**.
 - Short press on the ESP32_B GPIO 4 button stops it; it stays silent until the
   level falls below **92 %**, then re-arms automatically.
 - A 3-second long press also stops an active alert while toggling mirror override.
 - The dashboard TEST BUZZER button runs the same pattern for **5 seconds**.
 - STOP BUZZER ends an alert or test immediately.
 - The alert stops automatically when water data becomes invalid.
-- The probes only drive the indicator LEDs; they do not trigger the buzzer.
+- The RED indicator LED **blinks in sync with the buzzer** (same 5×/sec pattern).
 
 `buzzerIntensity` is stored in settings but is not applied by this build; the
 output is plain on/off. Treat it as reserved.
@@ -458,18 +457,33 @@ output is plain on/off. Treat it as reserved.
 
 ### Indicators
 
-| Input state | ESP32_B indicator | Dashboard capsule |
+The A-side level probes are **not used** in this build. The two indicator LEDs
+are driven locally on ESP32_B:
+
+| Condition | ESP32_B indicator | Dashboard capsule |
 |---|---|---|
-| Topmost probe active (GPIO 4) | Blue LED ON (steady, 2 s deadband) | Blue `TOP LEVEL` |
-| Overflow probe active (GPIO 15) | Red LED ON (steady, 2 s deadband) | Red `OVERFLOWING` |
-| Neither probe active | Both LEDs OFF | `STABLE` |
-| ESP-NOW link lost | Both LEDs OFF | `NO A LINK` |
+| Level rising gradually (filling) | Blue LED ON (steady) | Blue `FILLING` |
+| Buzzer beeping (alert or test) | Red LED blinks in sync | — |
+| Level stable / not filling | Both LEDs OFF | `STABLE` |
+| ESP-NOW link lost | Blue LED OFF | `NO A LINK` |
+
+**Blue LED — filling detection.** Water fills slowly, so the firmware watches the
+percentage instead of the probes:
+
+- Only **small, gradual rises** count. A single jump of **≥ 5 %** in one reading
+  is treated as a spike and ignored (water does not fill that fast).
+- The reading is evaluated at most once per second (**1 s deadband**).
+- The LED turns on once the level has risen **2 %** above the window baseline,
+  and turns off after the level has been **stable for 3 s** — so there is about a
+  **4 s window** to tell "filling" from "stable".
+
+**Red LED — buzzer sync.** Whenever the buzzer beeps, the red LED blinks on the
+same 5×/sec pattern.
 
 The two small **RED LED** / **BLUE LED** buttons at the bottom of the Motor
-control box are hardware test toggles. Each one forces its indicator LED ON,
-even when the ESP-NOW link is down or the matching probe is inactive. Tap again
-to release the override and return the LED to automatic control. The override
-is not saved across a reboot.
+control box are hardware test toggles. Each one forces its indicator LED ON. Tap
+again to release the override and return the LED to automatic control. The
+override is not saved across a reboot.
 
 ### OLED screen (SSD1306 128×64)
 
@@ -478,10 +492,9 @@ dashboard:
 
 ```text
 ┌──────────────────────────────┐
-│ ✓                        250L│   status bar: link tick/cross (left) + litres (right)
-├──────────────────────────────┤   thin horizontal divider
+│ ✓                        250L│   small status bar: tick/cross (left) + litres (right)
 │                              │
-│            62%               │   big percentage, centred below the divider
+│            62%               │   big percentage, centred below
 │                              │
 └──────────────────────────────┘
 ```
@@ -489,8 +502,8 @@ dashboard:
 - **Status bar** (top, small smooth text): the ESP-NOW link as a hand-drawn
   **tick** (connected) / **cross** (no link) on the left, and the litre value on
   the right.
-- **Divider**: a 1 px horizontal line across the panel.
-- **Percentage**: the big level reading, centred in the lower region.
+- **Percentage**: the big level reading, centred in the space below. There is no
+  divider line.
 
 Contrast and colour-invert are fixed defaults in the firmware; the display is not
 adjustable from the web page.
@@ -627,7 +640,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,195,462 bytes (91 %) | 56,992 bytes (17 %) |
+| ESP32_B | 1,194,298 bytes (91 %) | 57,008 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -639,8 +652,8 @@ ESP32_B serves the embedded dashboard at `http://192.168.4.1/`.
 
 - Polls `/api/state` every 700 ms.
 - Request timeout is 2.5 s; failures back off up to 4 s.
-- Shows percentage, litres, bar, sensor distance, and TOP LEVEL / OVERFLOWING /
-  STABLE capsules.
+- Shows percentage, litres, bar, sensor distance, and a `FILLING` / `STABLE`
+  capsule (blue `FILLING` when the level is gradually rising).
 - Mirror Light and Bulb toggles follow the actual relay state.
 - Motor buttons are press-and-hold and release automatically when the page loses
   focus or closes.
@@ -751,21 +764,23 @@ sampling interval, not wall-clock time.
    before ESP32_A starts.
 4. Power ESP32_A and confirm the OLED cross changes to a **tick** (✓).
 5. Move the water sensor and watch the percentage change.
-6. Short ESP32_A GPIO 4 to GND: the BLUE LED lights and the dashboard shows a
-   blue `TOP LEVEL` capsule. Short GPIO 15 to GND: the RED LED lights and the
-   dashboard shows red `OVERFLOWING`. In both cases the LED stays on for 2 s
-   after you release the probe, and nothing blinks.
-7. With no probe active, tap **BLUE LED** then **RED LED** under the Motor
-   control buttons. Each LED should light and stay lit until tapped again.
-8. Walk toward the HC-SR04 from beyond 100 cm: Mirror Light should turn ON
+6. **Blue LED:** let the level rise slowly by ~2 % and confirm the BLUE LED
+   glows steadily and the dashboard shows a blue `FILLING` capsule. Hold the
+   level steady for ~3 s and confirm it turns off. A single sudden jump (≥ 5 %)
+   must **not** light it.
+7. **Red LED:** press TEST BUZZER and confirm the RED LED blinks in sync with the
+   beeps. It should also blink during a full-tank alert.
+8. Tap **BLUE LED** then **RED LED** under the Motor control buttons. Each LED
+   should light and stay lit until tapped again.
+9. Walk toward the HC-SR04 from beyond 100 cm: Mirror Light should turn ON
    **immediately** once you are within ~1 m and clearly closer than the learned
    background. A small object placed in the beam (or a hand held still) should
    **not** turn it on, and the empty-room echo flicker must never turn it on.
-9. Move beyond 105 cm. Mirror Light should turn OFF after about 1 second.
-10. Test the Bulb toggle.
-11. Press TEST BUZZER, then stop it early with STOP BUZZER and with the physical
-    button.
-12. Test phone START/STOP. Each press should release after 4 seconds.
+10. Move beyond 105 cm. Mirror Light should turn OFF after about 1 second.
+11. Test the Bulb toggle.
+12. Press TEST BUZZER, then stop it early with STOP BUZZER and with the physical
+    button. Confirm the buzzer also stops on its own after ~30 s if left running.
+13. Test phone START/STOP. Each press should release after 4 seconds.
 
 ### Troubleshooting
 
@@ -792,7 +807,29 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: simple fixed OLED + Admin keeps Mirror/Buzzer (ESP32_B only)
+### Latest: new LED logic + buzzer-synced RED + tidier OLED (ESP32_B only)
+
+- **Blue LED — filling detection.** The A-side level probes are **no longer
+  used**. The BLUE LED now glows steadily while the level is rising *gradually*,
+  computed locally on ESP32_B from the percentage: evaluated once per second
+  (1 s deadband), turns on once the level has risen **2 %** above the window
+  baseline, and turns off after the level has been **stable for 3 s** (~4 s total).
+  A single jump of **≥ 5 %** is treated as a spike and ignored, because water
+  fills slowly. See [Indicators](#indicators).
+- **Red LED — buzzer sync.** The RED LED now **blinks in sync with the buzzer**
+  (same 5×/sec pattern) during an alert or a test, instead of following the
+  overflow probe.
+- **Buzzer auto-stop shortened to 30 s** (was 40 s); it still stops early on a
+  short button press or STOP BUZZER. `B_SETTINGS_VERSION` bumped 7 → 8 so the new
+  default applies once.
+- **OLED tidied:** the **divider line is removed**, the header/status-bar font is
+  now a smaller **smooth** font (`helvB08`), and the link tick/cross icon is
+  slightly smaller to match. The big percentage is centred in the space below.
+- **Dashboard:** the red `OVERFLOWING` capsule and probe-driven draining state are
+  removed; the blue `FILLING` capsule is now driven by the new local filling
+  detection. Wiring and ESP32_A are unchanged.
+
+### Earlier: simple fixed OLED + Admin keeps Mirror/Buzzer (ESP32_B only)
 
 - **The OLED layout is now fixed and simple** — nothing to configure:
   a small status bar on top (ESP-NOW **tick/cross** left, litres right), a thin
