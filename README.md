@@ -130,8 +130,8 @@ ESP32_A GPIO 15 ---- OVERFLOW probe / switch ------------- GND
   sensors, so a submerged probe reads LOW.
 - **These probes are no longer used by ESP32_B.** The indicator LEDs are now
   driven locally: the **BLUE LED** glows while the level is gradually filling and
-  the **RED LED** blinks in sync with the buzzer (see
-  [Indicators](#indicators)). The wiring is unchanged, so the probes can be
+  the **RED LED** blinks in sync with the buzzer (and warns when the tank is low;
+  see [Indicators](#indicators)). The wiring is unchanged, so the probes can be
   re-enabled later.
 - For long probe leads, add a 10 kΩ pull-up from the GPIO to 3.3 V and a
   100 nF capacitor from GPIO to GND close to the ESP32.
@@ -317,10 +317,11 @@ needed so a real empty reading is not discarded.
 
 The JSN-SR04T / AJ-SR04M waterproof probe cannot measure closer than about
 **20–25 cm**. The 18 cm full point is **inside** that blind zone, so the sensor
-may not read the last part of the tank reliably. That is why the physical
-**GPIO 4 topmost probe** is the dependable "tank is full" indicator: when water
-reaches it, ESP32_B lights the **BLUE LED** (steady, with a 2 s deadband),
-independently of the ultrasonic reading.
+may not read the last part of the tank reliably. The physical **GPIO 4 topmost
+probe** still exists on ESP32_A, but **ESP32_B no longer uses the A-side probe
+flags**: the indicator LEDs are driven locally (see
+[Indicators](#indicators)), so the last few centimetres may show as slightly less
+than 100 % until the buzzer threshold is reached.
 
 If you want the percentage itself to reach 100 % reliably, the fix is mechanical
 and does **not** change any wiring:
@@ -464,6 +465,8 @@ are driven locally on ESP32_B:
 |---|---|---|
 | Level rising gradually (filling) | Blue LED ON (steady) | Blue `FILLING` |
 | Buzzer beeping (alert or test) | Red LED blinks in sync | — |
+| Level low (below 25 %) | Red LED blinks, faster as it drops | Red `LOW WATER` |
+| Level at/below 5 % | Red LED ON (solid) | Red `TANK EMPTY` |
 | Level stable / not filling | Both LEDs OFF | `STABLE` |
 | ESP-NOW link lost | Blue LED OFF | `NO A LINK` |
 
@@ -473,12 +476,25 @@ percentage instead of the probes:
 - Only **small, gradual rises** count. A single jump of **≥ 5 %** in one reading
   is treated as a spike and ignored (water does not fill that fast).
 - The reading is evaluated at most once per second (**1 s deadband**).
-- The LED turns on once the level has risen **2 %** above the window baseline,
-  and turns off after the level has been **stable for 3 s** — so there is about a
-  **4 s window** to tell "filling" from "stable".
+- The LED turns on once the level has risen **2 %** above the window baseline
+  (e.g. 45 % → 46 % → 47 %), **and** that rise must have taken at least **2 s**
+  so a single 2 % step is not mistaken for a slow fill.
+- It turns off after the level has been **stable for 3 s**.
 
 **Red LED — buzzer sync.** Whenever the buzzer beeps, the red LED blinks on the
 same 5×/sec pattern.
+
+**Red LED — low-water warning.** Independently of the buzzer, the red LED warns
+as the tank empties. The blink gets faster with each band, and at the lowest
+levels it stays on solid:
+
+| Level | Red LED |
+|---|---|
+| below 25 % | blink 1 s on / 0.3 s off |
+| below 20 % | blink 0.5 s on / 0.2 s off |
+| below 15 % | blink 0.3 s on / 0.15 s off |
+| below 10 % | blink 0.15 s on / 0.1 s off |
+| 5 % or below | **solid ON** |
 
 The two small **RED LED** / **BLUE LED** buttons at the bottom of the Motor
 control box are hardware test toggles. Each one forces its indicator LED ON. Tap
@@ -640,7 +656,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,194,222 bytes (91 %) | 57,008 bytes (17 %) |
+| ESP32_B | 1,195,342 bytes (91 %) | 57,024 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -764,23 +780,26 @@ sampling interval, not wall-clock time.
    before ESP32_A starts.
 4. Power ESP32_A and confirm the OLED cross changes to a **tick** (✓).
 5. Move the water sensor and watch the percentage change.
-6. **Blue LED:** let the level rise slowly by ~2 % and confirm the BLUE LED
-   glows steadily and the dashboard shows a blue `FILLING` capsule. Hold the
-   level steady for ~3 s and confirm it turns off. A single sudden jump (≥ 5 %)
-   must **not** light it.
+6. **Blue LED:** let the level rise slowly by ~2 % (e.g. 45 → 46 → 47 %) over a
+   few seconds and confirm the BLUE LED glows steadily and the dashboard shows a
+   blue `FILLING` capsule. Hold the level steady for ~3 s and confirm it turns
+   off. A single sudden jump (≥ 5 %) must **not** light it.
 7. **Red LED:** press TEST BUZZER and confirm the RED LED blinks in sync with the
    beeps. It should also blink during a full-tank alert.
-8. Tap **BLUE LED** then **RED LED** under the Motor control buttons. Each LED
+8. **Red low-water warning:** as the level falls below 25 % the RED LED should
+   blink (1 s on / 0.3 s off) and speed up at 20 %, 15 % and 10 %, then stay on
+   solid at 5 % or below. The dashboard shows a red `LOW WATER` (`TANK EMPTY`) capsule.
+9. Tap **BLUE LED** then **RED LED** under the Motor control buttons. Each LED
    should light and stay lit until tapped again.
-9. Walk toward the HC-SR04 from beyond 100 cm: Mirror Light should turn ON
-   **immediately** once you are within ~1 m and clearly closer than the learned
-   background. A small object placed in the beam (or a hand held still) should
-   **not** turn it on, and the empty-room echo flicker must never turn it on.
-10. Move beyond 105 cm. Mirror Light should turn OFF after about 1 second.
-11. Test the Bulb toggle.
-12. Press TEST BUZZER, then stop it early with STOP BUZZER and with the physical
+10. Walk toward the HC-SR04 from beyond 100 cm: Mirror Light should turn ON
+    **immediately** once you are within ~1 m and clearly closer than the learned
+    background. A small object placed in the beam (or a hand held still) should
+    **not** turn it on, and the empty-room echo flicker must never turn it on.
+11. Move beyond 105 cm. Mirror Light should turn OFF after about 1 second.
+12. Test the Bulb toggle.
+13. Press TEST BUZZER, then stop it early with STOP BUZZER and with the physical
     button. Confirm the buzzer also stops on its own after ~30 s if left running.
-13. Test phone START/STOP. Each press should release after 4 seconds.
+14. Test phone START/STOP. Each press should release after 4 seconds.
 
 ### Troubleshooting
 
@@ -807,7 +826,18 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: new LED logic + buzzer-synced RED + tidier OLED (ESP32_B only)
+### Latest: blue fill needs a slow rise + red low-water warning (ESP32_B only)
+
+- **Blue LED (filling).** The 2 % rise that turns the LED on must now also span at
+  least **2 s** (a "slow fill"), so a single 2 % step between readings no longer
+  triggers it. Still ignored: single jumps **≥ 5 %**. Still off after **3 s** stable.
+- **Red LED (low water).** Added a level-based warning that runs alongside the
+  buzzer sync: below **25 %** it blinks **1 s on / 0.3 s off**, then faster for
+  each band (**20 / 15 / 10 %**), and at **5 % or below** it is **solid ON**.
+- **Dashboard:** a red **`LOW WATER`** capsule (shown as **`TANK EMPTY`** at
+  ≤ 5 %) appears while the warning is active. Wiring and ESP32_A are unchanged.
+
+### Earlier: new LED logic + buzzer-synced RED + tidier OLED (ESP32_B only)
 
 - **Blue LED — filling detection.** The A-side level probes are **no longer
   used**. The BLUE LED now glows steadily while the level is rising *gradually*,

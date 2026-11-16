@@ -11,9 +11,11 @@
     * receive water level, touch states and START/STOP commands from ESP32_A
     * send sensor/status information back to ESP32_A
     * 750 L tank percentage/volume model, full-tank buzzer
-    * BLUE LED (GPIO 16) glows while the level is gradually filling; RED LED
-      (GPIO 17) blinks in sync with the buzzer beeps. The A-side level probes
-      are no longer used.
+    * BLUE LED (GPIO 16) glows while the level is gradually filling (a slow
+      ~2 % rise over a few seconds, off again once the level holds steady).
+    * RED LED (GPIO 17) has two jobs: it blinks in sync with the buzzer beeps,
+      and it warns when the tank is low (slower blink as the level drops, then
+      solid on at <= 5 %). The A-side level probes are no longer used.
     * HC-SR04 person detection -> Relay 1 automatic mirror light
     * phone Mirror Light control, 3 s button manual override, Relay 2, RF
     * 0.96" I2C OLED, Wi-Fi AP "Smart Water Tank", local dashboard
@@ -174,6 +176,15 @@ static const float    FILL_MIN_STEP_PCT      = 0.2f;   // ignore sub-noise chang
 static const float    FILL_MAX_STEP_PCT      = 5.0f;   // single jump this big = spike
 static const uint32_t FILL_DEADBAND_MS       = 1000;   // evaluate at most once per second
 static const uint32_t FILL_STABLE_MS         = 3000;   // stop after this much stability
+static const uint32_t FILL_MIN_WINDOW_MS     = 2000;   // a 2 % rise must span at least this long (slow fill)
+
+// Low-water RED LED warning. As the level drops the RED LED blinks faster, and
+// at/below RED_SOLID_PCT it stays on continuously.
+static const float    RED_WARN_25_PCT        = 25.0f;  // < 25 %: slow blink (1 s on / 0.3 s off)
+static const float    RED_WARN_20_PCT        = 20.0f;  // < 20 %: faster
+static const float    RED_WARN_15_PCT        = 15.0f;  // < 15 %: faster still
+static const float    RED_WARN_10_PCT        = 10.0f;  // < 10 %: very fast
+static const float    RED_SOLID_PCT          = 5.0f;   // <= 5 %: solid on
 
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
 #define B_SETTINGS_VERSION 8u          // bumped: 30 s buzzer auto-stop default
@@ -469,6 +480,9 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .capsule.filling.active{color:#fff;border-color:#2eb7f0;background:#1697d8}
 .capsule.stable{color:#087c4a;border-color:#b9e6cd;background:#e9f9f0}
 .capsule.stable.offline{color:#bd2d40;border-color:#efbdc4;background:#fff0f2}
+.capsule.lowwater{color:#fff;border-color:#b82338;background:#e04658}
+.capsule.lowwater.solid{animation:lowPulse 1s ease-in-out infinite}
+@keyframes lowPulse{0%,100%{opacity:1}50%{opacity:.45}}
 .distance{font-size:10px;color:#6f8195;font-weight:700;text-align:right}
 .controls{flex:1 0 auto;display:grid;grid-template-columns:1.3fr 1fr;gap:10px;align-items:stretch}
 .motor-card{padding:10px;display:flex;flex-direction:column;align-items:center}
@@ -531,6 +545,7 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
   <div class="touch-capsules">
    <span class="capsule filling hidden" id="fillCapsule">FILLING</span>
    <span class="capsule stable" id="stableCapsule">STABLE</span>
+   <span class="capsule lowwater hidden" id="lowWaterCapsule">LOW WATER</span>
   </div>
   <span class="distance" id="distance">Sensor distance: —</span>
  </div>
@@ -596,7 +611,7 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
 const $=id=>document.getElementById(id);
 const tankCard=$('tankCard'), connection=$('connection'), connectionText=$('connectionText');
 const percentEl=$('percent'), litresEl=$('litres'), barEl=$('bar'), distanceEl=$('distance');
-const fillCapsule=$('fillCapsule'), stableCapsule=$('stableCapsule');
+const fillCapsule=$('fillCapsule'), stableCapsule=$('stableCapsule'), lowWaterCapsule=$('lowWaterCapsule');
 const motorStatusEl=$('motorStatus');
 const relay1Btn=$('relay1'), relay2Btn=$('relay2'), mirrorTile=$('mirrorTile'), bulbTile=$('bulbTile');
 const r1state=$('r1state'), r2state=$('r2state'), mirrorInfo=$('mirrorInfo'), buzzerStateEl=$('buzzerState');
@@ -604,7 +619,7 @@ const startBtn=$('motorStart'), stopBtn=$('motorStop');
 const ledRedBtn=$('ledTestRed'), ledBlueBtn=$('ledTestBlue');
 
 const POLL_MS=700, POLL_TIMEOUT_MS=2500;
-let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,hcsr04RawCm:null,mirrorBackgroundCm:null,mirrorApproach:false,mirrorNear:false,mirrorWarmup:false,mirrorClosingSteps:0,mirrorNearRun:0,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,indBlueTest:false,indRedTest:false,capacityL:750};
+let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,hcsr04RawCm:null,mirrorBackgroundCm:null,mirrorApproach:false,mirrorNear:false,mirrorWarmup:false,mirrorClosingSteps:0,mirrorNearRun:0,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,indBlueTest:false,indRedTest:false,redWarn:false,redSolid:false,capacityL:750};
 let reachable=false, failures=0, inFlight=false, pollTimer=null;
 let mirrorBusy=false, bulbBusy=false, buzzerBusy=false, ledBlueBusy=false, ledRedBusy=false;
 const motor={start:{btn:startBtn,held:false,pointerId:null},stop:{btn:stopBtn,held:false,pointerId:null}};
@@ -641,8 +656,12 @@ function render(s){
  }
 
  const filling=(s.filling===true);
+ const redWarn=(s.redWarn===true), redSolid=(s.redSolid===true);
  fillCapsule.classList.toggle('hidden',!filling); fillCapsule.classList.toggle('active',filling);
- stableCapsule.classList.toggle('hidden',filling);
+ lowWaterCapsule.classList.toggle('hidden',!redWarn);
+ lowWaterCapsule.classList.toggle('solid',redSolid);
+ lowWaterCapsule.textContent=redSolid?'TANK EMPTY':'LOW WATER';
+ stableCapsule.classList.toggle('hidden',filling||redWarn);
  stableCapsule.classList.toggle('offline',!linkOk);
  stableCapsule.textContent=linkOk?'STABLE':'NO A LINK';
 
@@ -1002,6 +1021,7 @@ float    fillLastPercent = 0.0f;
 float    fillRefPercent = 0.0f;    // baseline for the current rise window
 uint32_t fillLastRiseMs = 0;
 uint32_t fillLastEvalMs = 0;
+uint32_t fillRefSetMs = 0;         // when the current rise window baseline was set
 bool     fillHaveRef = false;
 uint32_t lastValidRxMs = 0;
 uint32_t lastAnyRxMs = 0;
@@ -1122,6 +1142,10 @@ bool     prevRed = false;
 // dashboard.
 bool     indBlueTestOn = false;
 bool     indRedTestOn  = false;
+
+// --- Low-water RED LED warning ---
+uint8_t  redWarnBand = 0;          // 0 = none, else the active threshold (5/10/15/20/25)
+uint32_t redWarnBandStartMs = 0;   // phase origin for the current band's blink
 
 /* ==========================================================================
    CRC16-CCITT (identical to ESP32_A)
@@ -2345,11 +2369,51 @@ uint32_t motorRemainingMs(bool startChannel) {
    INDICATORS / LINK SERVICE
    ========================================================================== */
 
+// Low-water RED LED warning pattern. Returns true while the LED should be on.
+// The band is derived from the level; each drop in band blinks faster, and at
+// or below RED_SOLID_PCT the LED is simply held on. The blink phase restarts
+// whenever the band changes so the transition looks clean.
+bool lowLevelRedPattern() {
+  if (!haveValidWater || !computeOnline()) {
+    redWarnBand = 0;
+    return false;
+  }
+
+  float p = lastValidPercent;
+  uint8_t band;
+  if      (p <= RED_SOLID_PCT)    band = 5;
+  else if (p <  RED_WARN_10_PCT)  band = 10;
+  else if (p <  RED_WARN_15_PCT)  band = 15;
+  else if (p <  RED_WARN_20_PCT)  band = 20;
+  else if (p <  RED_WARN_25_PCT)  band = 25;
+  else                            band = 0;
+
+  uint32_t now = millis();
+  if (band != redWarnBand) {
+    redWarnBand = band;
+    redWarnBandStartMs = now;
+  }
+  if (band == 0) return false;
+  if (band == 5) return true;   // <= 5 %: solid glow
+
+  uint32_t onMs, offMs;
+  switch (band) {
+    case 25: onMs = 1000; offMs = 300; break;   // slow  : 1 s on / 0.3 s off
+    case 20: onMs = 500;  offMs = 200; break;   // faster
+    case 15: onMs = 300;  offMs = 150; break;   // faster still
+    default: onMs = 150;  offMs = 100; break;   // band 10: very fast
+  }
+  uint32_t period = onMs + offMs;
+  return ((now - redWarnBandStartMs) % period) < onMs;
+}
+
 void updateIndicators(bool linkOnlineNow) {
   // BLUE LED: steady ON while the level is gradually filling (see
-  // serviceFillDetect). RED LED: blinks in sync with the buzzer beeps.
+  // serviceFillDetect). RED LED: blinks in sync with the buzzer beeps and also
+  // warns with a level-dependent blink when the tank is low.
   bool blue = indBlueTestOn || (linkOnlineNow && fillingActive);
-  bool red  = indRedTestOn  || buzzerOutputOn;
+  bool warn = lowLevelRedPattern();
+  bool red  = indRedTestOn  || buzzerOutputOn || warn;
   if (blue != prevBlue) {
     writeIndicatorPin(PIN_IND_BLUE, blue);
     prevBlue = blue;
@@ -2393,8 +2457,10 @@ void serviceLink() {
 //   - evaluated at most once per second (1 s deadband)
 //   - only small, gradual rises count; a single jump >= FILL_MAX_STEP_PCT is a
 //     spike (water fills slowly) and is ignored
-//   - the LED turns on once the level has risen FILL_RISE_PCT above the window
-//     baseline, and turns off after the level has been stable for FILL_STABLE_MS
+//   - the LED turns on once the level has risen FILL_RISE_PCT (2 %) above the
+//     window baseline, and only if that rise took at least FILL_MIN_WINDOW_MS
+//     (so a single 2 % step does not count as "filling")
+//   - the LED turns off after the level has held steady for FILL_STABLE_MS
 void serviceFillDetect() {
   if (!haveValidWater || !computeLinkOnline()) {
     fillingActive = false;
@@ -2412,6 +2478,7 @@ void serviceFillDetect() {
     fillRefPercent = p;
     fillLastPercent = p;
     fillLastRiseMs = now;
+    fillRefSetMs = now;
     return;
   }
 
@@ -2419,14 +2486,20 @@ void serviceFillDetect() {
   if (step >= FILL_MAX_STEP_PCT) {
     // A single large jump is a spike: ignore it and re-baseline.
     fillRefPercent = p;
+    fillRefSetMs = now;
   } else if (step >= FILL_MIN_STEP_PCT) {
     fillLastRiseMs = now;
-    if (p - fillRefPercent >= FILL_RISE_PCT && !fillingActive) {
+    if (!fillingActive &&
+        (p - fillRefPercent) >= FILL_RISE_PCT &&
+        (uint32_t)(now - fillRefSetMs) >= FILL_MIN_WINDOW_MS) {
       fillingActive = true;
       DBGLN("[B] Filling detected -> BLUE LED");
     }
   } else if (step <= -FILL_MIN_STEP_PCT) {
-    if (p < fillRefPercent) fillRefPercent = p;   // falling resets the window
+    if (p < fillRefPercent) {                      // falling resets the window
+      fillRefPercent = p;
+      fillRefSetMs = now;
+    }
   }
   fillLastPercent = p;
 
@@ -2434,6 +2507,7 @@ void serviceFillDetect() {
     if (fillingActive) DBGLN("[B] Filling stopped (level stable)");
     fillingActive = false;
     fillRefPercent = p;                            // new baseline
+    fillRefSetMs = now;
   }
 }
 
@@ -2671,6 +2745,9 @@ String buildStateJson() {
   j += ",\"relay2\":";       j += relay2On ? "true" : "false";
   j += ",\"indBlueTest\":";  j += indBlueTestOn ? "true" : "false";
   j += ",\"indRedTest\":";   j += indRedTestOn ? "true" : "false";
+  j += ",\"redWarn\":";      j += (redWarnBand != 0) ? "true" : "false";
+  j += ",\"redWarnBand\":";  j += String((unsigned)redWarnBand);
+  j += ",\"redSolid\":";     j += (redWarnBand == 5) ? "true" : "false";
 
   j += ",\"buzzerActive\":"; j += (buzzerAlerting || buzzerTesting) ? "true" : "false";
   j += ",\"buzzerTest\":";   j += buzzerTesting ? "true" : "false";
@@ -3450,8 +3527,8 @@ void handleWaterPacket(const RxItem &item) {
   haveSeq = true;
   lastFlags = flags;
   // The A-side level probes (filling/draining flags) are no longer used. The
-  // BLUE LED is driven by serviceFillDetect() and the RED LED follows the
-  // buzzer beeps.
+  // BLUE LED is driven by serviceFillDetect(); the RED LED follows the buzzer
+  // beeps and the low-water warning pattern.
 
   if (version >= 2) {
     lastAValidEchoes = validEchoes;
