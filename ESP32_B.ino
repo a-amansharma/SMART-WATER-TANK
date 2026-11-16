@@ -587,7 +587,7 @@ footer{flex:none;margin-top:auto;text-align:center;font-size:10px;color:#4e6178;
   <div class="admin-foot">
    <span class="adm-hint" id="adminHint">Changes apply live.</span>
    <button class="adm-btn primary" id="adminReload">Reload</button>
-  </div>g
+  </div>
  </div>
 </div>
 <script>
