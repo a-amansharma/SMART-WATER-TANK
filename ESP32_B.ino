@@ -2505,21 +2505,12 @@ void initOled() {
   display.sendBuffer();
 }
 
-// Hand-drawn ESP-NOW link symbol: a tick when the link is up, a cross when it
-// is down. (cx, cy) is the centre of the symbol. Sized to sit in the small
-// status bar next to the 8 px text.
-void drawLinkIcon(int16_t cx, int16_t cy, bool ok) {
-  if (ok) {
-    display.drawLine(cx - 4, cy + 0, cx - 1, cy + 3);
-    display.drawLine(cx - 3, cy - 1, cx,     cy + 2);
-    display.drawLine(cx - 1, cy + 3, cx + 4, cy - 4);
-    display.drawLine(cx,     cy + 2, cx + 5, cy - 5);
-  } else {
-    display.drawLine(cx - 3, cy - 4, cx + 3, cy + 4);
-    display.drawLine(cx - 2, cy - 4, cx + 4, cy + 4);
-    display.drawLine(cx - 3, cy + 4, cx + 3, cy - 4);
-    display.drawLine(cx - 2, cy + 4, cx + 4, cy - 4);
-  }
+// ESP-NOW link symbol: a tick when the link is up, a cross when it is down.
+// Drawn from the Open Iconic "check" font so the shape and edges are clean.
+// (x, baselineY) is the lower-left corner of the icon.
+void drawLinkIcon(int16_t x, int16_t baselineY, bool ok) {
+  display.setFont(u8g2_font_open_iconic_check_1x_t);
+  display.drawGlyph(x, baselineY, ok ? 0x40 : 0x44);  // 0x40 = tick, 0x44 = cross
 }
 
 // Fixed, simple OLED layout:
@@ -2547,9 +2538,9 @@ void drawOled() {
   display.setDrawColor(1);
   display.setFontMode(1);
 
-  // ---- Status bar: small smooth text, tick/cross (left) + litres (right) --
-  display.setFont(u8g2_font_helvB08_tf);
-  drawLinkIcon(7, 5, linkNow);
+  // ---- Status bar: link tick/cross (left) + thin smooth litres (right) ----
+  drawLinkIcon(1, 9, linkNow);
+  display.setFont(u8g2_font_helvR08_tf);
   char litres[12];
   if (haveValidWater) snprintf(litres, sizeof(litres), "%uL", (unsigned)lastValidLitres);
   else                snprintf(litres, sizeof(litres), "--L");

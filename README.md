@@ -499,9 +499,9 @@ dashboard:
 └──────────────────────────────┘
 ```
 
-- **Status bar** (top, small smooth text): the ESP-NOW link as a hand-drawn
-  **tick** (connected) / **cross** (no link) on the left, and the litre value on
-  the right.
+- **Status bar** (top): the ESP-NOW link as a clean **tick** (connected) /
+  **cross** (no link) icon on the left, and the litre value in a thin, smooth
+  font on the right.
 - **Percentage**: the big level reading, centred in the space below. There is no
   divider line.
 
@@ -640,7 +640,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,194,298 bytes (91 %) | 57,008 bytes (17 %) |
+| ESP32_B | 1,194,222 bytes (91 %) | 57,008 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -822,9 +822,10 @@ sampling interval, not wall-clock time.
 - **Buzzer auto-stop shortened to 30 s** (was 40 s); it still stops early on a
   short button press or STOP BUZZER. `B_SETTINGS_VERSION` bumped 7 → 8 so the new
   default applies once.
-- **OLED tidied:** the **divider line is removed**, the header/status-bar font is
-  now a smaller **smooth** font (`helvB08`), and the link tick/cross icon is
-  slightly smaller to match. The big percentage is centred in the space below.
+- **OLED tidied:** the **divider line is removed**, the header/status-bar text
+  uses a smaller **smooth** font (`helvR08`, thin/regular), and the link symbol is
+  a clean **tick/cross icon** from the Open Iconic "check" font (no hand-drawn
+  lines). The big percentage is centred in the space below.
 - **Dashboard:** the red `OVERFLOWING` capsule and probe-driven draining state are
   removed; the blue `FILLING` capsule is now driven by the new local filling
   detection. Wiring and ESP32_A are unchanged.
