@@ -481,8 +481,8 @@ header{display:flex;align-items:center;justify-content:space-between;gap:8px;fle
 .capsule.stable{color:#087c4a;border-color:#b9e6cd;background:#e9f9f0}
 .capsule.stable.offline{color:#bd2d40;border-color:#efbdc4;background:#fff0f2}
 .capsule.lowwater{color:#fff;border-color:#b82338;background:#e04658}
-.capsule.lowwater.solid{animation:lowPulse 1s ease-in-out infinite}
-@keyframes lowPulse{0%,100%{opacity:1}50%{opacity:.45}}
+.capsule.lowwater.dim{opacity:.18}
+.capsule.filling.active.dim{opacity:.18}
 .distance{font-size:10px;color:#6f8195;font-weight:700;text-align:right}
 .controls{flex:1 0 auto;display:grid;grid-template-columns:1.3fr 1fr;gap:10px;align-items:stretch}
 .motor-card{padding:10px;display:flex;flex-direction:column;align-items:center}
@@ -619,10 +619,24 @@ const startBtn=$('motorStart'), stopBtn=$('motorStop');
 const ledRedBtn=$('ledTestRed'), ledBlueBtn=$('ledTestBlue');
 
 const POLL_MS=700, POLL_TIMEOUT_MS=2500;
-let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,hcsr04RawCm:null,mirrorBackgroundCm:null,mirrorApproach:false,mirrorNear:false,mirrorWarmup:false,mirrorClosingSteps:0,mirrorNearRun:0,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,indBlueTest:false,indRedTest:false,redWarn:false,redSolid:false,capacityL:750};
+let current={relay1:false,relay2:false,buzzerState:'READY',buzzerActive:false,buzzerTest:false,buzzerTestRemainingMs:0,linkOnline:false,online:false,percent:null,litres:null,distance:null,filling:false,personDetected:false,mirrorOverride:false,autoBlocked:false,hcsr04Distance:null,hcsr04RawCm:null,mirrorBackgroundCm:null,mirrorApproach:false,mirrorNear:false,mirrorWarmup:false,mirrorClosingSteps:0,mirrorNearRun:0,motorStart:false,motorStop:false,motorStartRemainingMs:0,motorStopRemainingMs:0,indBlueTest:false,indRedTest:false,redWarn:false,redSolid:false,redWarnOnMs:0,redWarnOffMs:0,redWarnPhaseMs:0,indBlueOn:false,indRedOn:false,capacityL:750};
 let reachable=false, failures=0, inFlight=false, pollTimer=null;
 let mirrorBusy=false, bulbBusy=false, buzzerBusy=false, ledBlueBusy=false, ledRedBusy=false;
 const motor={start:{btn:startBtn,held:false,pointerId:null},stop:{btn:stopBtn,held:false,pointerId:null}};
+
+// Capsule blink state, kept in step with the ESP32_B LED timing. The device
+// sends the current phase (redWarnPhaseMs) on every poll, so the browser can run
+// the blink locally between polls and stay in sync with the physical LED.
+let ledBlink={red:{active:false,onMs:0,offMs:0,base:0,t0:0}};
+function ledBlinkTick(){
+ const b=ledBlink.red;
+ if(!b.active) return;
+ const period=b.onMs+b.offMs;
+ if(period<=0) return;
+ const elapsed=b.base+(performance.now()-b.t0);
+ lowWaterCapsule.classList.toggle('dim',(elapsed%period)>=b.onMs);
+}
+setInterval(ledBlinkTick,33);
 
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
 function num(v){return (typeof v==='number'&&isFinite(v))?v:null;}
@@ -655,13 +669,20 @@ function render(s){
   distanceEl.textContent=linkOk?'Waiting for valid water data…':'ESP-NOW link to ESP32_A unavailable';
  }
 
- const filling=(s.filling===true);
+ // Capsules mirror the indicator LEDs. BLUE is steady (filling); the RED
+ // low-water capsule blinks in sync with the LED using the device's timing.
+ const blueOn=(s.indBlueOn===true)||(s.filling===true);
+ fillCapsule.classList.toggle('hidden',!blueOn); fillCapsule.classList.toggle('active',blueOn);
  const redWarn=(s.redWarn===true), redSolid=(s.redSolid===true);
- fillCapsule.classList.toggle('hidden',!filling); fillCapsule.classList.toggle('active',filling);
  lowWaterCapsule.classList.toggle('hidden',!redWarn);
- lowWaterCapsule.classList.toggle('solid',redSolid);
  lowWaterCapsule.textContent=redSolid?'TANK EMPTY':'LOW WATER';
- stableCapsule.classList.toggle('hidden',filling||redWarn);
+ if(redWarn&&!redSolid){
+  ledBlink.red={active:true,onMs:Number(s.redWarnOnMs)||0,offMs:Number(s.redWarnOffMs)||0,base:Number(s.redWarnPhaseMs)||0,t0:performance.now()};
+ }else{
+  ledBlink.red.active=false;
+  lowWaterCapsule.classList.remove('dim');
+ }
+ stableCapsule.classList.toggle('hidden',blueOn||redWarn);
  stableCapsule.classList.toggle('offline',!linkOk);
  stableCapsule.textContent=linkOk?'STABLE':'NO A LINK';
 
@@ -711,11 +732,12 @@ function render(s){
 
 function renderUnreachable(){
  reachable=false;
+ ledBlink.red.active=false;
  connection.classList.add('offline');
  connectionText.textContent='ESP32_B unreachable';
  // keep last known local states visible but mark unreachable
  if(current){
-  render(Object.assign({},current,{linkOnline:false,online:false}));
+  render(Object.assign({},current,{linkOnline:false,online:false,indBlueOn:false,redWarn:false,redSolid:false}));
   connection.classList.add('offline');
   connectionText.textContent='ESP32_B unreachable';
  }
@@ -2369,6 +2391,18 @@ uint32_t motorRemainingMs(bool startChannel) {
    INDICATORS / LINK SERVICE
    ========================================================================== */
 
+// Blink timing (on/off ms) for a low-water warning band. Returns false for the
+// bands that are not a blink (0 = none, 5 = solid).
+bool redWarnTiming(uint8_t band, uint32_t &onMs, uint32_t &offMs) {
+  switch (band) {
+    case 25: onMs = 1000; offMs = 300; return true;   // slow  : 1 s on / 0.3 s off
+    case 20: onMs = 500;  offMs = 200; return true;   // faster
+    case 15: onMs = 300;  offMs = 150; return true;   // faster still
+    case 10: onMs = 150;  offMs = 100; return true;   // very fast
+    default: onMs = 0;    offMs = 0;   return false;
+  }
+}
+
 // Low-water RED LED warning pattern. Returns true while the LED should be on.
 // The band is derived from the level; each drop in band blinks faster, and at
 // or below RED_SOLID_PCT the LED is simply held on. The blink phase restarts
@@ -2397,12 +2431,7 @@ bool lowLevelRedPattern() {
   if (band == 5) return true;   // <= 5 %: solid glow
 
   uint32_t onMs, offMs;
-  switch (band) {
-    case 25: onMs = 1000; offMs = 300; break;   // slow  : 1 s on / 0.3 s off
-    case 20: onMs = 500;  offMs = 200; break;   // faster
-    case 15: onMs = 300;  offMs = 150; break;   // faster still
-    default: onMs = 150;  offMs = 100; break;   // band 10: very fast
-  }
+  redWarnTiming(band, onMs, offMs);
   uint32_t period = onMs + offMs;
   return ((now - redWarnBandStartMs) % period) < onMs;
 }
@@ -2748,6 +2777,15 @@ String buildStateJson() {
   j += ",\"redWarn\":";      j += (redWarnBand != 0) ? "true" : "false";
   j += ",\"redWarnBand\":";  j += String((unsigned)redWarnBand);
   j += ",\"redSolid\":";     j += (redWarnBand == 5) ? "true" : "false";
+  uint32_t rwOn = 0, rwOff = 0;
+  redWarnTiming(redWarnBand, rwOn, rwOff);
+  uint32_t rwPeriod = rwOn + rwOff;
+  uint32_t rwPhase = (rwPeriod > 0) ? (uint32_t)((millis() - redWarnBandStartMs) % rwPeriod) : 0;
+  j += ",\"redWarnOnMs\":";   j += String((unsigned long)rwOn);
+  j += ",\"redWarnOffMs\":";  j += String((unsigned long)rwOff);
+  j += ",\"redWarnPhaseMs\":"; j += String((unsigned long)rwPhase);
+  j += ",\"indBlueOn\":";    j += prevBlue ? "true" : "false";
+  j += ",\"indRedOn\":";     j += prevRed  ? "true" : "false";
 
   j += ",\"buzzerActive\":"; j += (buzzerAlerting || buzzerTesting) ? "true" : "false";
   j += ",\"buzzerTest\":";   j += buzzerTesting ? "true" : "false";

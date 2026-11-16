@@ -656,7 +656,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,195,342 bytes (91 %) | 57,024 bytes (17 %) |
+| ESP32_B | 1,196,882 bytes (91 %) | 57,024 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -834,8 +834,11 @@ sampling interval, not wall-clock time.
 - **Red LED (low water).** Added a level-based warning that runs alongside the
   buzzer sync: below **25 %** it blinks **1 s on / 0.3 s off**, then faster for
   each band (**20 / 15 / 10 %**), and at **5 % or below** it is **solid ON**.
-- **Dashboard:** a red **`LOW WATER`** capsule (shown as **`TANK EMPTY`** at
-  ≤ 5 %) appears while the warning is active. Wiring and ESP32_A are unchanged.
+- **Dashboard:** the red **`LOW WATER`** capsule (shown as **`TANK EMPTY`** at
+  ≤ 5 %) appears while the warning is active, and it **blinks in step with the
+  RED LED** — the device sends the blink timing and current phase in the state
+  JSON, so the browser animates the capsule at the same rate. The blue `FILLING`
+  capsule follows the BLUE LED. Wiring and ESP32_A are unchanged.
 
 ### Earlier: new LED logic + buzzer-synced RED + tidier OLED (ESP32_B only)
 
