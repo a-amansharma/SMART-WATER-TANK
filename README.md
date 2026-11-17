@@ -370,10 +370,21 @@ with the shared calibration, which catches an old or reversed calibration on A.
 
 ### Mirror Light (Relay 1)
 
-- HC-SR04 detects a **large object (a person)** closer than 100 cm → Relay 1 ON
-  **immediately** (no confirm delay). The very first trusted reading inside the
-  on-distance lights the mirror, so a person walking up to ~1 m sees it glow at
-  once.
+- **The ultrasonic sensor is OFF by default.** The HC-SR04 is fully disabled
+  (it is not triggered at all) and automatic detection does not run. Enable it
+  from the **Admin** panel → *Mirror light (Relay 1)* → **Ultrasonic sensor**.
+  Turn it back off the same way at any time.
+- **While the sensor is off, Relay 1 is a manual light.** It comes up **ON at
+  boot** (every power-up/restart), and a **3-second press on the GPIO 4 button
+  locks/unlocks it** (ON ↔ OFF). The phone Mirror Light toggle also works. So the
+  button now toggles the relay the other way round from before: because it starts
+  ON, the first 3 s press turns it **OFF**.
+- **Turning the sensor ON returns Relay 1 to automatic control** (the manual
+  lock is released and the light follows detection from then on).
+- When the sensor is enabled: HC-SR04 detects a **large object (a person)**
+  closer than 100 cm → Relay 1 ON **immediately** (no confirm delay). The very
+  first trusted reading inside the on-distance lights the mirror, so a person
+  walking up to ~1 m sees it glow at once.
 - **Background rejection:** the firmware learns the resting background distance
   (floor, wall, reflections, or a small object that is simply there). A reading
   only counts as a person when it is at least **10 cm closer than that
@@ -656,7 +667,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,196,882 bytes (91 %) | 57,024 bytes (17 %) |
+| ESP32_B | 1,197,210 bytes (91 %) | 57,024 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -683,8 +694,10 @@ ESP32_B serves the embedded dashboard at `http://192.168.4.1/`.
 The panel talks to `/api/admin/settings` (GET to read, POST to change) and
 applies changes live — no reboot. It covers:
 
-- **Mirror light (Relay 1)** — enable, on-distance, off-distance, and an optional
-  auto-off time in minutes (0 = off).
+- **Mirror light (Relay 1)** — **Ultrasonic sensor** on/off (OFF by default),
+  on-distance, off-distance, and an optional auto-off time in minutes (0 = off).
+  Turning the sensor off fully disables the HC-SR04 and stops auto detection;
+  Relay 1 then boots ON and the 3 s button locks/unlocks it as a manual light.
 - **Buzzer** — enable, alert level %, re-arm level %, and max alert time.
 
 The OLED layout is **not** in the panel — it is fixed (see
@@ -791,15 +804,22 @@ sampling interval, not wall-clock time.
    solid at 5 % or below. The dashboard shows a red `LOW WATER` (`TANK EMPTY`) capsule.
 9. Tap **BLUE LED** then **RED LED** under the Motor control buttons. Each LED
    should light and stay lit until tapped again.
-10. Walk toward the HC-SR04 from beyond 100 cm: Mirror Light should turn ON
-    **immediately** once you are within ~1 m and clearly closer than the learned
-    background. A small object placed in the beam (or a hand held still) should
-    **not** turn it on, and the empty-room echo flicker must never turn it on.
-11. Move beyond 105 cm. Mirror Light should turn OFF after about 1 second.
-12. Test the Bulb toggle.
-13. Press TEST BUZZER, then stop it early with STOP BUZZER and with the physical
+10. **Relay 1 / mirror, sensor OFF (default):** the Mirror Light should be **ON**
+    after boot. Hold the GPIO 4 button **3 s** → it turns **OFF**; hold 3 s again →
+    **ON**. The dashboard Mirror tile shows `SENSOR OFF · LOCKED ON`.
+11. Open **Admin → Mirror light (Relay 1)** and turn **Ultrasonic sensor ON**.
+    The manual lock is released and the light returns to automatic control
+    (`AUTO · CLEAR`).
+12. With the sensor ON, walk toward the HC-SR04 from beyond 100 cm: Mirror Light
+    should turn ON **immediately** once you are within ~1 m and clearly closer
+    than the learned background. A small object placed in the beam (or a hand
+    held still) should **not** turn it on, and the empty-room echo flicker must
+    never turn it on.
+13. Move beyond 105 cm. Mirror Light should turn OFF after about 1 second.
+14. Test the Bulb toggle.
+15. Press TEST BUZZER, then stop it early with STOP BUZZER and with the physical
     button. Confirm the buzzer also stops on its own after ~30 s if left running.
-14. Test phone START/STOP. Each press should release after 4 seconds.
+16. Test phone START/STOP. Each press should release after 4 seconds.
 
 ### Troubleshooting
 
@@ -826,7 +846,23 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: blue fill needs a slow rise + red low-water warning (ESP32_B only)
+### Latest: ultrasonic sensor OFF by default + Relay 1 boots ON (ESP32_B only)
+
+- **Ultrasonic (HC-SR04) sensor is OFF by default.** The sensor is fully disabled
+  (not triggered) and the mirror auto-detection does not run. Enable it from
+  **Admin → Mirror light (Relay 1) → Ultrasonic sensor**. `mirrorEnabled` default
+  is now `0`, and `B_SETTINGS_VERSION` was bumped 8 → 9 so it applies once.
+- **Relay 1 boots ON** every power-up/restart while the sensor is off. The
+  **3 s GPIO 4 button press** locks/unlocks it (ON ↔ OFF) — since it starts ON,
+  the first press now turns it **OFF** (the on/off action is swapped). The phone
+  Mirror Light toggle still works.
+- **Turning the sensor ON** releases the manual lock and returns Relay 1 to
+  automatic control.
+- **Dashboard:** the Mirror tile shows `SENSOR OFF · LOCKED ON` / `SENSOR OFF`
+  while the sensor is disabled, and the state JSON now includes `mirrorEnabled`.
+  Wiring and ESP32_A are unchanged.
+
+### Earlier: blue fill needs a slow rise + red low-water warning (ESP32_B only)
 
 - **Blue LED (filling).** The 2 % rise that turns the LED on must now also span at
   least **2 s** (a "slow fill"), so a single 2 % step between readings no longer

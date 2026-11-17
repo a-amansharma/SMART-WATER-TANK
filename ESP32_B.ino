@@ -16,7 +16,9 @@
     * RED LED (GPIO 17) has two jobs: it blinks in sync with the buzzer beeps,
       and it warns when the tank is low (slower blink as the level drops, then
       solid on at <= 5 %). The A-side level probes are no longer used.
-    * HC-SR04 person detection -> Relay 1 automatic mirror light
+    * HC-SR04 person detection -> Relay 1 automatic mirror light. The sensor is
+      OFF by default (enable it in Admin); while it is off, Relay 1 boots ON and
+      the 3 s button press locks/unlocks it as a manual light.
     * phone Mirror Light control, 3 s button manual override, Relay 2, RF
     * 0.96" I2C OLED, Wi-Fi AP "Smart Water Tank", local dashboard
     * four physical buttons: one buzzer-stop/manual-override, three RESERVED
@@ -187,7 +189,7 @@ static const float    RED_WARN_10_PCT        = 10.0f;  // < 10 %: very fast
 static const float    RED_SOLID_PCT          = 5.0f;   // <= 5 %: solid on
 
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
-#define B_SETTINGS_VERSION 8u          // bumped: 30 s buzzer auto-stop default
+#define B_SETTINGS_VERSION 9u          // bumped: mirror sensor OFF by default
 
 // History storage limits. Samples are CSV lines in LittleFS; old lines are
 // compacted automatically so the log stays bounded.
@@ -690,20 +692,25 @@ function render(s){
  const mirrorOn=(s.relay1===true);
  relay1Btn.classList.toggle('on',mirrorOn); relay1Btn.setAttribute('aria-pressed',mirrorOn?'true':'false'); mirrorTile.classList.toggle('light-on',mirrorOn);
  r1state.textContent=mirrorOn?'ON':'OFF';
+ const sensorOn=(s.mirrorEnabled!==false);
  const hc=num(s.hcsr04Distance);
- let info=(s.mirrorOverride===true)?'MANUAL OVERRIDE':(s.autoBlocked===true?'AUTO BLOCKED':(s.personDetected===true?'AUTO · PERSON':'AUTO · CLEAR'));
- if(hc!==null) info+=' · '+hc.toFixed(0)+' cm';
- const bg=num(s.mirrorBackgroundCm);
- if(bg!==null) info+=' · bg '+bg.toFixed(0);
- const raw=num(s.hcsr04RawCm);
- if(raw!==null) info+=' · raw '+raw.toFixed(0);
- const sp=num(s.hcsr04SpreadCm);
- if(sp!==null) info+=' · sp '+sp.toFixed(1);
- const rv=num(s.hcsr04Reversals);
- if(rv!==null) info+=' · rev '+rv;
- info+=' · '+(s.hcsr04Stable===true?'STBL':'unstable');
- info+=' · ap '+(s.mirrorApproach?'1':'0')+' near '+(s.mirrorNear?'1':'0')+' steps '+(s.mirrorClosingSteps!=null?s.mirrorClosingSteps:'-')+' run '+(s.mirrorNearRun!=null?s.mirrorNearRun:'-');
- if(s.mirrorWarmup===true) info+=' · WARM-UP';
+ let info=sensorOn?((s.mirrorOverride===true)?'MANUAL OVERRIDE':(s.autoBlocked===true?'AUTO BLOCKED':(s.personDetected===true?'AUTO · PERSON':'AUTO · CLEAR'))):(mirrorOn?'SENSOR OFF · LOCKED ON':'SENSOR OFF');
+ if(sensorOn){
+  if(hc!==null) info+=' · '+hc.toFixed(0)+' cm';
+  const bg=num(s.mirrorBackgroundCm);
+  if(bg!==null) info+=' · bg '+bg.toFixed(0);
+  const raw=num(s.hcsr04RawCm);
+  if(raw!==null) info+=' · raw '+raw.toFixed(0);
+  const sp=num(s.hcsr04SpreadCm);
+  if(sp!==null) info+=' · sp '+sp.toFixed(1);
+  const rv=num(s.hcsr04Reversals);
+  if(rv!==null) info+=' · rev '+rv;
+  info+=' · '+(s.hcsr04Stable===true?'STBL':'unstable');
+  info+=' · ap '+(s.mirrorApproach?'1':'0')+' near '+(s.mirrorNear?'1':'0')+' steps '+(s.mirrorClosingSteps!=null?s.mirrorClosingSteps:'-')+' run '+(s.mirrorNearRun!=null?s.mirrorNearRun:'-');
+  if(s.mirrorWarmup===true) info+=' · WARM-UP';
+ }else{
+  info+=' · 3 s button locks/unlocks';
+ }
  if(!linkOk) info+=' · A LINK DOWN';
  mirrorInfo.textContent=info;
 
@@ -854,8 +861,8 @@ function buildAdmin(){
  // --- Mirror light ---
  const mir=mkEl('section','adm-sec');
  mir.appendChild(mkEl('h3',null,'Mirror light (Relay 1)'));
- mir.appendChild(mkEl('p','adm-note','The mirror lights immediately for a person within the on-distance, and turns off about 1 s after they leave.'));
- mir.appendChild(toggleRow('Enabled','mirrorEnabled'));
+ mir.appendChild(mkEl('p','adm-note','Ultrasonic sensor (HC-SR04). OFF by default: the sensor is fully disabled and the mirror will not auto-detect. Relay 1 then boots ON and the physical 3 s button press locks/unlocks it. Turn the sensor ON to use automatic person detection.'));
+ mir.appendChild(toggleRow('Ultrasonic sensor','mirrorEnabled'));
  mir.appendChild(stepperRow('On distance (cm)',{f:'mirrorOnCm',min:5,max:300,step:5}));
  mir.appendChild(stepperRow('Off distance (cm)',{f:'mirrorOffCm',min:5,max:400,step:5}));
  mir.appendChild(stepperRow('Auto-off (min, 0=off)',{f:'mirrorMaxOnMinutes',min:0,max:1440,step:5}));
@@ -1213,7 +1220,7 @@ void defaultSettings(AppSettings &c) {
   c.jumpConfirm = 2;
   c.samplesPerCycle = 5;
 
-  c.mirrorEnabled = 1;
+  c.mirrorEnabled = 0;   // HC-SR04 mirror sensor OFF by default (enable in Admin)
   c.mirrorOnCm = 100.0f;
   c.mirrorOffCm = 105.0f;
   c.mirrorOnConfirmMs = (uint16_t)HC_MIN_ON_CONFIRM_MS;
@@ -2771,6 +2778,7 @@ String buildStateJson() {
   j += ",\"relay1\":";       j += relay1On ? "true" : "false";
   j += ",\"mirrorOverride\":"; j += mirrorOverride ? "true" : "false";
   j += ",\"autoBlocked\":";  j += autoBlocked ? "true" : "false";
+  j += ",\"mirrorEnabled\":"; j += settings.mirrorEnabled ? "true" : "false";
   j += ",\"relay2\":";       j += relay2On ? "true" : "false";
   j += ",\"indBlueTest\":";  j += indBlueTestOn ? "true" : "false";
   j += ",\"indRedTest\":";   j += indRedTestOn ? "true" : "false";
@@ -3331,6 +3339,16 @@ void handleAdminSettings() {
 
   clampSettings(settings);
   commitSettings(old);
+  // Turning the ultrasonic sensor ON returns Relay 1 to automatic control.
+  if (!old.mirrorEnabled && settings.mirrorEnabled) {
+    mirrorOverride = false;
+    autoBlocked = false;
+    autoRelay1On = false;
+    autoRelay1OnSinceMs = 0;
+    hcWarmupStartMs = millis();
+    applyRelay1();
+    DBGLN("[B] Ultrasonic sensor enabled -> Relay 1 back to auto");
+  }
   if (settings.aRevision != old.aRevision) {
     if (aProtocolVersion >= 2) pushSettingsToA();
     logEvent(11, (float)settings.aRevision);
@@ -3723,6 +3741,17 @@ void setup() {
   Serial.println("==============================================");
 
   loadSettings();
+
+  // Relay 1 (Mirror Light) boots ON. While the ultrasonic sensor is disabled
+  // (the default) this is the manual "locked ON" state, and the 3 s button
+  // press toggles it ON/OFF. When the sensor is enabled the relay follows the
+  // automatic person detection instead.
+  if (!settings.mirrorEnabled) {
+    mirrorOverride = true;
+    autoRelay1On = false;
+    applyRelay1();
+  }
+
   if (!LittleFS.begin(true)) {
     Serial.println("[B] LittleFS mount FAILED - history disabled");
   } else {
