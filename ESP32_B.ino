@@ -171,14 +171,18 @@ static const uint32_t BUZZER_TEST_MS         = 5000;
 static const uint32_t BUZZER_BEEP_PERIOD_MS  = 200;  // 5 beeps per second
 static const uint32_t BUZZER_BEEP_ON_MS      = 80;
 
-// Fill detection (blue LED). Water fills slowly, so only gradual small rises
-// count. A single jump >= FILL_MAX_STEP_PCT is a spike and is ignored.
-static const float    FILL_RISE_PCT          = 2.0f;   // total rise that marks "filling"
-static const float    FILL_MIN_STEP_PCT      = 0.2f;   // ignore sub-noise changes
-static const float    FILL_MAX_STEP_PCT      = 5.0f;   // single jump this big = spike
-static const uint32_t FILL_DEADBAND_MS       = 1000;   // evaluate at most once per second
-static const uint32_t FILL_STABLE_MS         = 3000;   // stop after this much stability
-static const uint32_t FILL_MIN_WINDOW_MS     = 2000;   // a 2 % rise must span at least this long (slow fill)
+// Fill detection (blue LED). Water fills very slowly: the LED lights as soon as
+// the level has risen FILL_RISE_PCT within a 10 s sliding window, and only goes
+// dark after the level has held within +/-FILL_STABLE_BAND_PCT for FILL_STABLE_MS.
+// A single jump >= FILL_MAX_STEP_PCT is a sensor spike and is ignored.
+static const float    FILL_RISE_PCT          = 2.0f;    // rise in the window that marks "filling"
+static const uint32_t FILL_RISE_WINDOW_MS    = 10000;   // look back 10 s for that rise
+static const uint32_t FILL_LOW_MIN_AGE_MS    = 5000;    // the low point must be this old to count as a rise
+static const float    FILL_STABLE_BAND_PCT   = 1.0f;    // +/-1 % still counts as "stable"
+static const uint32_t FILL_STABLE_MS         = 5000;    // always wait this long before switching off
+static const uint32_t FILL_DEADBAND_MS       = 1000;    // evaluate at most once per second
+static const float    FILL_MAX_STEP_PCT      = 5.0f;    // single jump this big = spike
+static const uint8_t  FILL_HISTORY_LEN       = 12;      // 12 x 1 s samples cover the 10 s window
 
 // Low-water RED LED warning. As the level drops the RED LED blinks faster, and
 // at/below RED_SOLID_PCT it stays on continuously.
@@ -187,6 +191,8 @@ static const float    RED_WARN_20_PCT        = 20.0f;  // < 20 %: faster
 static const float    RED_WARN_15_PCT        = 15.0f;  // < 15 %: faster still
 static const float    RED_WARN_10_PCT        = 10.0f;  // < 10 %: very fast
 static const float    RED_SOLID_PCT          = 5.0f;   // <= 5 %: solid on
+static const uint32_t WARN_BEEP_MS           = 120;    // one short beep when the red blink rate changes
+static const uint32_t WARN_BEEP_GAP_MS       = 2000;   // minimum gap so a threshold can't re-beep repeatedly
 
 #define B_SETTINGS_MAGIC 0x42535432UL   // "BST2"
 #define B_SETTINGS_VERSION 9u          // bumped: mirror sensor OFF by default
@@ -1047,11 +1053,15 @@ uint16_t lastValidLitres = 0;
 // ESP32_B from the percentage (the A-side level probes are no longer used).
 bool     fillingActive = false;
 float    fillLastPercent = 0.0f;
-float    fillRefPercent = 0.0f;    // baseline for the current rise window
-uint32_t fillLastRiseMs = 0;
 uint32_t fillLastEvalMs = 0;
-uint32_t fillRefSetMs = 0;         // when the current rise window baseline was set
-bool     fillHaveRef = false;
+// Sliding 10 s window of percentage samples (one per evaluation).
+uint32_t fillHistMs[FILL_HISTORY_LEN];
+float    fillHistPct[FILL_HISTORY_LEN];
+uint8_t  fillHistCount = 0;
+uint8_t  fillHistHead = 0;       // next slot to write
+// Stability window used before switching the LED off.
+float    fillStableRefPercent = 0.0f;  // level the +/-1 % band is measured from
+uint32_t fillStableStartMs = 0;        // when that band was last (re)armed
 uint32_t lastValidRxMs = 0;
 uint32_t lastAnyRxMs = 0;
 uint32_t lastSeq = 0;
@@ -1068,6 +1078,9 @@ bool     buzzerOutputOn = false;      // current beep phase (RED LED follows thi
 uint32_t buzzerStartMs = 0;
 uint32_t buzzerTestStartMs = 0;
 uint8_t  fullConfirmCount = 0;
+bool     warnBeepActive = false;     // one short confirmation beep on a red-warning rate change
+uint32_t warnBeepStartMs = 0;
+uint32_t warnBeepLastMs = 0;
 
 // --- HC-SR04 / Relay 1 ---
 volatile uint32_t hcRiseUs = 0;
@@ -1798,8 +1811,23 @@ void stopBuzzerForLinkLoss() {
   }
 }
 
+// One short beep when the low-water RED LED blink rate changes. It never starts
+// the repeating full-tank alert; serviceBuzzer() times the single pulse and
+// releases the buzzer when it is over.
+void triggerWarnBeep() {
+  if (!settings.buzzerEnabled) return;
+  if (buzzerAlerting || buzzerTesting) return;   // don't disturb an active alert/test
+  uint32_t now = millis();
+  if (warnBeepActive || (uint32_t)(now - warnBeepLastMs) < WARN_BEEP_GAP_MS) return;
+  warnBeepActive = true;
+  warnBeepStartMs = now;
+  warnBeepLastMs = now;
+  setBuzzerOutput(true);
+}
+
 void manualStopBuzzer() {
   bool wasActive = buzzerAlerting || buzzerTesting;
+  warnBeepActive = false;
   buzzerTesting = false;
   if (buzzerAlerting) {
     buzzerAlerting = false;
@@ -1810,6 +1838,7 @@ void manualStopBuzzer() {
 }
 
 void startBuzzerAlert() {
+  warnBeepActive = false;
   buzzerTesting = false;
   buzzerAlerting = true;
   buzzerArmed = false;
@@ -1819,6 +1848,7 @@ void startBuzzerAlert() {
 }
 
 void startBuzzerTest() {
+  warnBeepActive = false;
   buzzerAlerting = false;
   buzzerTesting = true;
   buzzerTestStartMs = millis();
@@ -1861,6 +1891,20 @@ void updateBuzzerFromWater(float p, bool onlineNow) {
 }
 
 void serviceBuzzer() {
+  // A low-water warning rate change gets exactly one short beep. It has
+  // priority over the "silent" idle path but yields to a real alert/test.
+  if (warnBeepActive && !buzzerAlerting && !buzzerTesting) {
+    if ((uint32_t)(millis() - warnBeepStartMs) >= WARN_BEEP_MS) {
+      warnBeepActive = false;
+      setBuzzerOutput(false);
+    } else {
+      setBuzzerOutput(true);
+      return;
+    }
+  } else if (warnBeepActive) {
+    warnBeepActive = false;   // an alert or test took over
+  }
+
   if (buzzerTesting) {
     uint32_t testElapsed = millis() - buzzerTestStartMs;
     if (testElapsed >= BUZZER_TEST_MS) {
@@ -2413,7 +2457,8 @@ bool redWarnTiming(uint8_t band, uint32_t &onMs, uint32_t &offMs) {
 // Low-water RED LED warning pattern. Returns true while the LED should be on.
 // The band is derived from the level; each drop in band blinks faster, and at
 // or below RED_SOLID_PCT the LED is simply held on. The blink phase restarts
-// whenever the band changes so the transition looks clean.
+// whenever the band changes so the transition looks clean, and one short beep
+// confirms each change of blink rate.
 bool lowLevelRedPattern() {
   if (!haveValidWater || !computeOnline()) {
     redWarnBand = 0;
@@ -2433,6 +2478,7 @@ bool lowLevelRedPattern() {
   if (band != redWarnBand) {
     redWarnBand = band;
     redWarnBandStartMs = now;
+    if (band != 0) triggerWarnBeep();   // single beep on every rate change
   }
   if (band == 0) return false;
   if (band == 5) return true;   // <= 5 %: solid glow
@@ -2474,7 +2520,7 @@ void serviceLink() {
 
   if (prevLinkOnline && !linkNow) {
     fillingActive = false;
-    fillHaveRef = false;
+    fillHistCount = 0;
     // Do not force the pins off here: updateIndicators() still applies any
     // active LED test override from the dashboard.
     logEvent(6, 0);
@@ -2489,18 +2535,52 @@ void serviceLink() {
   updateIndicators(linkNow);
 }
 
-// Detect gradual filling from the percentage and drive the BLUE LED:
-//   - evaluated at most once per second (1 s deadband)
-//   - only small, gradual rises count; a single jump >= FILL_MAX_STEP_PCT is a
-//     spike (water fills slowly) and is ignored
-//   - the LED turns on once the level has risen FILL_RISE_PCT (2 %) above the
-//     window baseline, and only if that rise took at least FILL_MIN_WINDOW_MS
-//     (so a single 2 % step does not count as "filling")
-//   - the LED turns off after the level has held steady for FILL_STABLE_MS
+// Add one sample to the rolling 10 s window.
+static void pushFillSample(float pct, uint32_t now) {
+  fillHistMs[fillHistHead] = now;
+  fillHistPct[fillHistHead] = pct;
+  fillHistHead = (uint8_t)((fillHistHead + 1u) % FILL_HISTORY_LEN);
+  if (fillHistCount < FILL_HISTORY_LEN) fillHistCount++;
+}
+
+// Throw away the window and start again from this reading (also used for spikes
+// and after the LED switches off).
+static void resetFillWindow(float pct, uint32_t now) {
+  fillHistCount = 0;
+  fillHistHead = 0;
+  pushFillSample(pct, now);
+  fillStableRefPercent = pct;
+  fillStableStartMs = now;
+}
+
+// Lowest percentage inside the 10 s window, and when it was recorded.
+static bool fillWindowLow(float &lowPct, uint32_t &lowMs, uint32_t now) {
+  bool found = false;
+  for (uint8_t i = 0; i < fillHistCount; i++) {
+    uint8_t idx = (uint8_t)((fillHistHead + FILL_HISTORY_LEN - fillHistCount + i) % FILL_HISTORY_LEN);
+    if ((uint32_t)(now - fillHistMs[idx]) > FILL_RISE_WINDOW_MS) continue;
+    if (!found || fillHistPct[idx] < lowPct) {
+      lowPct = fillHistPct[idx];
+      lowMs  = fillHistMs[idx];
+      found  = true;
+    }
+  }
+  return found;
+}
+
+// Detect slow filling from the percentage and drive the BLUE LED:
+//   - evaluated once per second.
+//   - ON as soon as the level is >= 2 % above the lowest reading of the last
+//     10 s, as long as that low point is at least 5 s old. That age check stops
+//     a bounce or a +/-1 % jitter around a steady level looking like filling.
+//   - a single jump >= 5 % is a sensor spike: the window is discarded.
+//   - OFF only after the level has held within +/-1 % for a full 5 s. Every
+//     qualifying rise re-arms that timer, so the LED never switches off less
+//     than 5 s after filling actually stopped.
 void serviceFillDetect() {
   if (!haveValidWater || !computeLinkOnline()) {
     fillingActive = false;
-    fillHaveRef = false;
+    fillHistCount = 0;
     return;
   }
 
@@ -2509,41 +2589,52 @@ void serviceFillDetect() {
   fillLastEvalMs = now;
 
   float p = lastValidPercent;
-  if (!fillHaveRef) {
-    fillHaveRef = true;
-    fillRefPercent = p;
+  if (fillHistCount == 0) {
+    resetFillWindow(p, now);
     fillLastPercent = p;
-    fillLastRiseMs = now;
-    fillRefSetMs = now;
     return;
   }
 
   float step = p - fillLastPercent;
+  fillLastPercent = p;
   if (step >= FILL_MAX_STEP_PCT) {
-    // A single large jump is a spike: ignore it and re-baseline.
-    fillRefPercent = p;
-    fillRefSetMs = now;
-  } else if (step >= FILL_MIN_STEP_PCT) {
-    fillLastRiseMs = now;
-    if (!fillingActive &&
-        (p - fillRefPercent) >= FILL_RISE_PCT &&
-        (uint32_t)(now - fillRefSetMs) >= FILL_MIN_WINDOW_MS) {
+    // One big jump is a spike, not slow filling: start over from this reading.
+    resetFillWindow(p, now);
+    return;
+  }
+
+  pushFillSample(p, now);
+
+  float lowPct = p;
+  uint32_t lowMs = now;
+  bool rising = fillWindowLow(lowPct, lowMs, now) &&
+                (p - lowPct) >= FILL_RISE_PCT &&
+                (uint32_t)(now - lowMs) >= FILL_LOW_MIN_AGE_MS;
+
+  if (rising) {
+    if (!fillingActive) {
       fillingActive = true;
       DBGLN("[B] Filling detected -> BLUE LED");
     }
-  } else if (step <= -FILL_MIN_STEP_PCT) {
-    if (p < fillRefPercent) {                      // falling resets the window
-      fillRefPercent = p;
-      fillRefSetMs = now;
-    }
+    // A qualifying rise cancels any pending switch-off.
+    fillStableRefPercent = p;
+    fillStableStartMs = now;
+    return;
   }
-  fillLastPercent = p;
 
-  if ((uint32_t)(now - fillLastRiseMs) >= FILL_STABLE_MS) {
-    if (fillingActive) DBGLN("[B] Filling stopped (level stable)");
+  if (!fillingActive) return;
+
+  // No longer rising. +/-1 % around the reference still counts as stable
+  // (e.g. a level holding at 78 % may read 77 % or 79 %).
+  if (fabsf(p - fillStableRefPercent) > FILL_STABLE_BAND_PCT) {
+    fillStableRefPercent = p;
+    fillStableStartMs = now;
+    return;
+  }
+  if ((uint32_t)(now - fillStableStartMs) >= FILL_STABLE_MS) {
     fillingActive = false;
-    fillRefPercent = p;                            // new baseline
-    fillRefSetMs = now;
+    DBGLN("[B] Filling stopped (level stable for 5 s)");
+    resetFillWindow(p, now);
   }
 }
 

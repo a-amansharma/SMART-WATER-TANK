@@ -481,16 +481,21 @@ are driven locally on ESP32_B:
 | Level stable / not filling | Both LEDs OFF | `STABLE` |
 | ESP-NOW link lost | Blue LED OFF | `NO A LINK` |
 
-**Blue LED — filling detection.** Water fills slowly, so the firmware watches the
-percentage instead of the probes:
+**Blue LED — filling detection.** Water fills very slowly, so the firmware
+watches the percentage over a rolling window instead of the probes:
 
-- Only **small, gradual rises** count. A single jump of **≥ 5 %** in one reading
-  is treated as a spike and ignored (water does not fill that fast).
-- The reading is evaluated at most once per second (**1 s deadband**).
-- The LED turns on once the level has risen **2 %** above the window baseline
-  (e.g. 45 % → 46 % → 47 %), **and** that rise must have taken at least **2 s**
-  so a single 2 % step is not mistaken for a slow fill.
-- It turns off after the level has been **stable for 3 s**.
+- The reading is evaluated once per second, keeping a **10 s sliding window** of
+  levels.
+- The LED lights as soon as the current level is **≥ 2 % above the lowest level
+  in that window**, as long as that low point is at least **5 s old**. That age
+  check stops a bounce, or a ±1 % jitter around a steady level, looking like
+  filling.
+- A single jump of **≥ 5 %** in one reading is still treated as a spike and
+  ignored (water does not fill that fast).
+- Once lit it stays on **continuously** while filling continues. It switches off
+  only after the level has held **within ±1 % for a full 5 s** — so 77 %, 78 %
+  and 79 % all count as the same stable level, and the LED always waits **at
+  least 5 s** before going dark. Any new qualifying rise restarts that 5 s wait.
 
 **Red LED — buzzer sync.** Whenever the buzzer beeps, the red LED blinks on the
 same 5×/sec pattern.
@@ -506,6 +511,12 @@ levels it stays on solid:
 | below 15 % | blink 0.3 s on / 0.15 s off |
 | below 10 % | blink 0.15 s on / 0.1 s off |
 | 5 % or below | **solid ON** |
+
+Each time the warning **rate changes** (on entering the 25 % band, then at 20 %,
+15 %, 10 %, and at 5 % when it goes solid) the buzzer sounds **one short beep**
+as an audible cue — it does not start the repeating full-tank alert. The cue is
+skipped while a real alert or buzzer test is already running, and it follows the
+**buzzerEnabled** Admin setting.
 
 The two small **RED LED** / **BLUE LED** buttons at the bottom of the Motor
 control box are hardware test toggles. Each one forces its indicator LED ON. Tap
@@ -667,7 +678,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,197,210 bytes (91 %) | 57,024 bytes (17 %) |
+| ESP32_B | 1,197,726 bytes (91 %) | 57,120 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -787,21 +798,25 @@ sampling interval, not wall-clock time.
 
 ### First power-up
 
-1. Power ESP32_B with no mains load connected. Confirm relays are OFF.
+1. Power ESP32_B with no mains load connected. Relay 1 (Mirror Light) comes up
+   **ON** (ultrasonic sensor is off by default); Relay 2 is OFF.
 2. Connect to `Smart Water Tank` and open `http://192.168.4.1/`.
 3. Confirm the OLED shows a **cross** (✗) at the **left** of the status bar
    before ESP32_A starts.
 4. Power ESP32_A and confirm the OLED cross changes to a **tick** (✓).
 5. Move the water sensor and watch the percentage change.
-6. **Blue LED:** let the level rise slowly by ~2 % (e.g. 45 → 46 → 47 %) over a
-   few seconds and confirm the BLUE LED glows steadily and the dashboard shows a
-   blue `FILLING` capsule. Hold the level steady for ~3 s and confirm it turns
-   off. A single sudden jump (≥ 5 %) must **not** light it.
+6. **Blue LED:** let the level rise by ~2 % within 10 s (e.g. 45 → 46 → 47 %)
+   and confirm the BLUE LED glows **continuously** and the dashboard shows a blue
+   `FILLING` capsule. Keep the level within ±1 % (77/78/79 % all count as stable)
+   and confirm it turns off only after **5 s**. A single sudden jump (≥ 5 %)
+   must **not** light it.
 7. **Red LED:** press TEST BUZZER and confirm the RED LED blinks in sync with the
    beeps. It should also blink during a full-tank alert.
 8. **Red low-water warning:** as the level falls below 25 % the RED LED should
    blink (1 s on / 0.3 s off) and speed up at 20 %, 15 % and 10 %, then stay on
-   solid at 5 % or below. The dashboard shows a red `LOW WATER` (`TANK EMPTY`) capsule.
+   solid at 5 % or below. The dashboard shows a red `LOW WATER` (`TANK EMPTY`)
+   capsule. Each change of blink rate should also produce **one short beep** on
+   the buzzer (not a repeating alert).
 9. Tap **BLUE LED** then **RED LED** under the Motor control buttons. Each LED
    should light and stay lit until tapped again.
 10. **Relay 1 / mirror, sensor OFF (default):** the Mirror Light should be **ON**
@@ -846,7 +861,22 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: ultrasonic sensor OFF by default + Relay 1 boots ON (ESP32_B only)
+### Latest: slow-fill blue LED + single beep on red rate change (ESP32_B only)
+
+- **Blue LED filling detection reworked for very slow filling.** It now uses a
+  **10 s sliding window**: the LED lights as soon as the level is **≥ 2 % above
+  the lowest reading of that window** (with the low point at least 5 s old, so
+  jitter is not mistaken for filling), stays on **continuously** while filling,
+  and switches off only after the level has stayed **within ±1 % for 5 s**. A
+  single ≥ 5 % jump is still ignored as a spike. Every qualifying rise restarts
+  the 5 s switch-off wait. The dashboard `FILLING` capsule follows the LED.
+- **Red low-water warning now beeps once on each rate change.** Entering the
+  25 % band, then 20 / 15 / 10 %, and going solid at ≤ 5 % each produce **one
+  short 120 ms beep** on the buzzer — not the repeating full-tank alert. The cue
+  yields to an active alert/test and follows the `buzzerEnabled` setting. Blink
+  frequencies, dashboard capsule sync, wiring and ESP32_A are unchanged.
+
+### Earlier: ultrasonic sensor OFF by default + Relay 1 boots ON (ESP32_B only)
 
 - **Ultrasonic (HC-SR04) sensor is OFF by default.** The sensor is fully disabled
   (not triggered) and the mirror auto-detection does not run. Enable it from
