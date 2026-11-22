@@ -490,12 +490,17 @@ watches the percentage over a rolling window instead of the probes:
   in that window**, as long as that low point is at least **5 s old**. That age
   check stops a bounce, or a ±1 % jitter around a steady level, looking like
   filling.
+- **Very slow filling is also detected.** A sustained upward trend counts too:
+  a few consecutive small rises (with no fall in between) totalling **≥ 0.1 %**
+  lights the LED. A fall cancels the trend, so ±1 % jitter around a steady level
+  never looks like filling. This covers fills that never reach 2 % in 10 s.
 - A single jump of **≥ 5 %** in one reading is still treated as a spike and
   ignored (water does not fill that fast).
 - Once lit it stays on **continuously** while filling continues. It switches off
   only after the level has held **within ±1 % for a full 5 s** — so 77 %, 78 %
   and 79 % all count as the same stable level, and the LED always waits **at
-  least 5 s** before going dark. Any new qualifying rise restarts that 5 s wait.
+  least 5 s** before going dark. Any new upward movement or qualifying rise
+  restarts that 5 s wait.
 
 **Red LED — buzzer sync.** Whenever the buzzer beeps, the red LED blinks on the
 same 5×/sec pattern.
@@ -678,7 +683,7 @@ arduino-cli compile --fqbn esp32:esp32:esp32 --warnings all ESP32_B
 | Sketch | Flash | RAM |
 |---|---:|---:|
 | ESP32_A | 978,031 bytes (74 %) | 52,584 bytes (16 %) |
-| ESP32_B | 1,197,726 bytes (91 %) | 57,120 bytes (17 %) |
+| ESP32_B | 1,197,926 bytes (91 %) | 57,128 bytes (17 %) |
 
 Both sketches compile with `--warnings all` without warnings.
 
@@ -861,7 +866,19 @@ sampling interval, not wall-clock time.
 
 ## 14. Changes made in this cleanup
 
-### Latest: slow-fill blue LED + single beep on red rate change (ESP32_B only)
+### Latest: blue LED also detects very slow sustained rises (ESP32_B only)
+
+- **Fix for the BLUE LED not lighting during very slow filling.** The 2 %/10 s
+  rule alone was too strict for the real fill rate. Added a **sustained upward
+  trend** detector alongside it: a few consecutive small rises (no fall in
+  between) totalling **≥ 0.1 %** now lights the LED. Any fall cancels the trend,
+  so jitter around a steady level still does not trigger it.
+- While lit, **any upward movement re-arms the 5 s stop timer**, so the LED stays
+  on continuously through a slow fill and switches off only 5 s after the level
+  actually stops (within ±1 %). Buzzer/warning behaviour, wiring and ESP32_A are
+  unchanged.
+
+### Earlier: slow-fill blue LED + single beep on red rate change (ESP32_B only)
 
 - **Blue LED filling detection reworked for very slow filling.** It now uses a
   **10 s sliding window**: the LED lights as soon as the level is **≥ 2 % above

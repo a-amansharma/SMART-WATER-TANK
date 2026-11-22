@@ -183,6 +183,12 @@ static const uint32_t FILL_STABLE_MS         = 5000;    // always wait this long
 static const uint32_t FILL_DEADBAND_MS       = 1000;    // evaluate at most once per second
 static const float    FILL_MAX_STEP_PCT      = 5.0f;    // single jump this big = spike
 static const uint8_t  FILL_HISTORY_LEN       = 12;      // 12 x 1 s samples cover the 10 s window
+// Very slow filling may never reach 2 % in 10 s, so also detect a sustained
+// upward trend: small repeated rises with no fall in between. Down steps cancel
+// it, so a +/-1 % jitter around a steady level never looks like filling.
+static const float    FILL_TREND_EPS_PCT     = 0.01f;   // smallest upward step that counts
+static const uint8_t  FILL_TREND_UP_NEEDED   = 2;       // consecutive up steps before trending
+static const float    FILL_TREND_MIN_PCT     = 0.10f;   // total rise needed to confirm the trend
 
 // Low-water RED LED warning. As the level drops the RED LED blinks faster, and
 // at/below RED_SOLID_PCT it stays on continuously.
@@ -1059,6 +1065,9 @@ uint32_t fillHistMs[FILL_HISTORY_LEN];
 float    fillHistPct[FILL_HISTORY_LEN];
 uint8_t  fillHistCount = 0;
 uint8_t  fillHistHead = 0;       // next slot to write
+// Slow sustained-rise (trend) detector.
+uint8_t  fillUpSteps = 0;         // consecutive upward steps, cancelled by a fall
+float    fillTrendRefPct = 0.0f;  // level when the current up-run started
 // Stability window used before switching the LED off.
 float    fillStableRefPercent = 0.0f;  // level the +/-1 % band is measured from
 uint32_t fillStableStartMs = 0;        // when that band was last (re)armed
@@ -2549,6 +2558,8 @@ static void resetFillWindow(float pct, uint32_t now) {
   fillHistCount = 0;
   fillHistHead = 0;
   pushFillSample(pct, now);
+  fillUpSteps = 0;
+  fillTrendRefPct = pct;
   fillStableRefPercent = pct;
   fillStableStartMs = now;
 }
@@ -2595,7 +2606,8 @@ void serviceFillDetect() {
     return;
   }
 
-  float step = p - fillLastPercent;
+  float prevP = fillLastPercent;
+  float step = p - prevP;
   fillLastPercent = p;
   if (step >= FILL_MAX_STEP_PCT) {
     // One big jump is a spike, not slow filling: start over from this reading.
@@ -2603,15 +2615,28 @@ void serviceFillDetect() {
     return;
   }
 
+  // Track a sustained upward trend. A fall cancels the run, a flat reading
+  // keeps it, so slow filling (which may only move a few 0.01 % per second)
+  // still counts while jitter around a steady level does not.
+  if (step >= FILL_TREND_EPS_PCT) {
+    if (fillUpSteps == 0) fillTrendRefPct = prevP;
+    if (fillUpSteps < 255) fillUpSteps++;
+  } else if (step <= -FILL_TREND_EPS_PCT) {
+    fillUpSteps = 0;
+    fillTrendRefPct = p;
+  }
+  bool trendRising = (fillUpSteps >= FILL_TREND_UP_NEEDED) &&
+                     (p - fillTrendRefPct) >= FILL_TREND_MIN_PCT;
+
   pushFillSample(p, now);
 
   float lowPct = p;
   uint32_t lowMs = now;
-  bool rising = fillWindowLow(lowPct, lowMs, now) &&
-                (p - lowPct) >= FILL_RISE_PCT &&
-                (uint32_t)(now - lowMs) >= FILL_LOW_MIN_AGE_MS;
+  bool windowRising = fillWindowLow(lowPct, lowMs, now) &&
+                      (p - lowPct) >= FILL_RISE_PCT &&
+                      (uint32_t)(now - lowMs) >= FILL_LOW_MIN_AGE_MS;
 
-  if (rising) {
+  if (windowRising || trendRising) {
     if (!fillingActive) {
       fillingActive = true;
       DBGLN("[B] Filling detected -> BLUE LED");
@@ -2623,6 +2648,14 @@ void serviceFillDetect() {
   }
 
   if (!fillingActive) return;
+
+  // Still creeping upward (just too slowly to confirm a trend yet): keep the
+  // LED on and re-arm the 5 s stop timer.
+  if (step >= FILL_TREND_EPS_PCT) {
+    fillStableRefPercent = p;
+    fillStableStartMs = now;
+    return;
+  }
 
   // No longer rising. +/-1 % around the reference still counts as stable
   // (e.g. a level holding at 78 % may read 77 % or 79 %).
